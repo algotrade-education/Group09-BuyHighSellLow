@@ -31,7 +31,7 @@ class BacktestResult:
     def total_trades(self) -> int:
         """Total number of trades executed"""
         return len(self.trades)
-    
+
     @property
     def winning_trades(self) -> int:
         """Number of winning trades."""
