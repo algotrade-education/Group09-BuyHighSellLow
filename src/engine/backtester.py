@@ -6,6 +6,7 @@ import pandas as pd
 from src.engine.equity_tracker import EquityTracker, SimpleEquityTracker
 from src.engine.result import BacktestResult
 from src.engine.session_manager import SessionManager, VN30Session
+from src.strategy.base import Strategy
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class Backtester:
 
     def __init__(
         self,
+        strategy: Strategy | None,
         initial_capital: float = 100000.0,
         commission_rate: float = 0.00015,
         slippage_points: float = 0.5,
@@ -30,13 +32,17 @@ class Backtester:
         Initialize the backtester.
 
         Args:
+            strategy: Trading strategy to backtest
             initial_capital: Starting capital for backtesting
             commission_rate: Commission rate per trade (e.g., 0.00015 for 0.015%)
             slippage_points: Slippage in price points (e.g., 0.5 for half a point)
             contract_multiplier: Multiplier for contract size (e.g., 1 for index futures)
             margin_rate: Margin requirement as a percentage (e.g., 0.18 for 18%)
             order_ttl: Time-to-live for orders in minutes (0 means no expiration)
+            equity_tracker: Custom equity tracker (optional)
+            session_manager: Custom session manager (optional)
         """
+        self.strategy = strategy
 
         self.order_ttl = order_ttl  # 0 = no expiration
 
