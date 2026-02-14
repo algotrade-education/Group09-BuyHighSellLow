@@ -174,7 +174,7 @@ class VN30Session(SessionManager):
         if not self.close_at_eod:
             return False
 
-        return self.is_atc_session(dt)
+        return dt.time() >= self.atc_end
 
     def should_skip_signal_generation(self, dt: datetime) -> bool:
         """Skip signal generation during ATC or outside of trading hours."""

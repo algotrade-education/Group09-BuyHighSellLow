@@ -218,6 +218,10 @@ class TradeManager:
             if order.order_type == OrderType.MARKET:
                 exec_price = bar["open"]  # Market orders filled at bar open price
             else:  # LIMIT
+                if order.limit_price is None:
+                    logger.error("Limit order missing limit_price: %s", order)
+                    return False
+
                 if order.is_buy:
                     # Check limit if price was reached during bar
                     if bar["low"] > order.limit_price:

@@ -271,6 +271,10 @@ class VolatilityAdjustedSizer(PositionSizer):
         Args:
             atr: Average True Range (required via kwargs)
         """
+        if entry_price <= 0:
+            logger.warning("Invalid entry price, using base size")
+            return self.base_size
+
         if atr is None or atr <= 0:
             logger.debug("No ATR provided, using base size")
             return self.base_size
