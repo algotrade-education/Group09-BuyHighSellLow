@@ -61,6 +61,7 @@ class Order:
     _id_counter = itertools.count(
         1
     )  # Class-level counter for generating unique order IDs
+
     order_id: int = field(default_factory=lambda: next(Order._id_counter))
     quantity: int = 1
     limit_price: Optional[float] = None

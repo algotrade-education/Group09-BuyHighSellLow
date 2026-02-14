@@ -95,7 +95,9 @@ class PercentRiskSizer(PositionSizer):
             max_size: Maximum position size (default: 10)
         """
         if not 0 < risk_per_trade_pct <= 100:
-            raise ValueError(f"Risk percentage must be between 0 and 100, got {risk_per_trade_pct}")
+            raise ValueError(
+                f"Risk percentage must be between 0 and 100, got {risk_per_trade_pct}"
+            )
         if min_size <= 0:
             raise ValueError(f"Min size must be positive, got {min_size}")
         if max_size < min_size:
@@ -171,7 +173,9 @@ class PercentEquitySizer(PositionSizer):
             max_size: Maximum position size (default: 10)
         """
         if not 0 < equity_pct <= 100:
-            raise ValueError(f"Equity percentage must be between 0 and 100, got {equity_pct}")
+            raise ValueError(
+                f"Equity percentage must be between 0 and 100, got {equity_pct}"
+            )
         if min_size <= 0:
             raise ValueError(f"Min size must be positive, got {min_size}")
         if max_size < min_size:
@@ -243,7 +247,9 @@ class VolatilityAdjustedSizer(PositionSizer):
         if base_size <= 0:
             raise ValueError(f"Base size must be positive, got {base_size}")
         if target_volatility_pct <= 0:
-            raise ValueError(f"Target volatility must be positive, got {target_volatility_pct}")
+            raise ValueError(
+                f"Target volatility must be positive, got {target_volatility_pct}"
+            )
 
         self.base_size = base_size
         self.target_volatility_pct = target_volatility_pct
