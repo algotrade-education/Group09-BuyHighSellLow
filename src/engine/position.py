@@ -49,7 +49,7 @@ class Trade:
     commission: float = 0.0
     exit_reason: str = ""
 
-    multiplier = 1.0  # Multiplier for calculating PnL (e.g., contract size for futures)
+    multiplier: float = 1.0  # Multiplier for calculating PnL (e.g., contract size for futures)
 
     @property
     def is_closed(self) -> bool:
