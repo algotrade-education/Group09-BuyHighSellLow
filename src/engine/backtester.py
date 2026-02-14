@@ -9,6 +9,7 @@ from src.engine.session_manager import SessionManager, VN30Session
 
 logger = logging.getLogger(__name__)
 
+
 class Backtester:
     """
     Backtester for evaluating trading strategies on historical data.
@@ -22,7 +23,6 @@ class Backtester:
         contract_multiplier: float = 1.0,
         margin_rate: float = 0.18,
         order_ttl: int = 0,
-
         equity_tracker: Optional[EquityTracker] = None,
         session_manager: Optional[SessionManager] = None,
     ) -> None:
@@ -38,8 +38,8 @@ class Backtester:
             order_ttl: Time-to-live for orders in minutes (0 means no expiration)
         """
 
-        self.order_ttl = order_ttl # 0 = no expiration
-        
+        self.order_ttl = order_ttl  # 0 = no expiration
+
         # Session manager
         if session_manager is None:
             self.session_manager = VN30Session()
@@ -64,7 +64,7 @@ class Backtester:
                 "order_ttl": order_ttl,
             },
         )
-    
+
     def run(
         self,
         data: pd.DataFrame,

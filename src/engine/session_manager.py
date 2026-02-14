@@ -64,7 +64,8 @@ class SessionManager(ABC):
             The name of the current trading session.
         """
         return self.__class__.__name__
-    
+
+
 class AlwaysOpenSession(SessionManager):
     """
     A simple session manager that treats all times as trading hours.
@@ -82,7 +83,8 @@ class AlwaysOpenSession(SessionManager):
     def should_skip_signal_generation(self, dt: datetime) -> bool:
         """Never skip signal generation - since all times are valid for trading."""
         return False
-    
+
+
 class StandardSession(SessionManager):
     """
     A standard session manager that defines typical trading hours (e.g., 9:30 AM to 4:00 PM).
@@ -111,19 +113,20 @@ class StandardSession(SessionManager):
         """Check if the given datetime is within the defined trading hours."""
         current_time = dt.time()
         return self.trading_start <= current_time < self.trading_end
-    
+
     def should_close_eod(self, dt: datetime) -> bool:
         """Check if it's time to close positions at the end of the day."""
         if not self.close_at_eod:
             return False
-        
+
         current_time = dt.time()
         return current_time >= self.trading_end
-    
+
     def should_skip_signal_generation(self, dt: datetime) -> bool:
         """Skip signal generation outside of trading hours."""
         return not self.is_trading_hours(dt)
-    
+
+
 class VN30Session(SessionManager):
     """
     Vietnamese VN30 index session manager with specific trading hours and rules.
@@ -145,7 +148,10 @@ class VN30Session(SessionManager):
             close_at_eod: Whether to close positions at the end of the day
         """
         self.morning = (time.fromisoformat("09:00:00"), time.fromisoformat("11:30:00"))
-        self.afternoon = (time.fromisoformat("13:00:00"), time.fromisoformat("14:30:00"))
+        self.afternoon = (
+            time.fromisoformat("13:00:00"),
+            time.fromisoformat("14:30:00"),
+        )
         self.atc_start = time.fromisoformat("14:30:00")
         self.atc_end = time.fromisoformat("15:45:00")
 
@@ -156,23 +162,23 @@ class VN30Session(SessionManager):
         dt_time = dt.time()
 
         return (
-            (self.morning[0] <= dt_time < self.morning[1]) or
-            (self.afternoon[0] <= dt_time < self.afternoon[1]) or
-            (self.atc_start <= dt_time < self.atc_end)
+            (self.morning[0] <= dt_time < self.morning[1])
+            or (self.afternoon[0] <= dt_time < self.afternoon[1])
+            or (self.atc_start <= dt_time < self.atc_end)
         )
-    
+
     def is_atc_session(self, dt: datetime) -> bool:
         """Check if within ATC session"""
         dt_time = dt.time()
         return self.atc_start <= dt_time < self.atc_end
-    
+
     def should_close_eod(self, dt: datetime) -> bool:
         """Check if it's time to close positions at the end of the day."""
         if not self.close_at_eod:
             return False
-        
+
         return self.is_atc_session(dt)
-    
+
     def should_skip_signal_generation(self, dt: datetime) -> bool:
         """Skip signal generation during ATC or outside of trading hours."""
         return self.is_atc_session(dt) or not self.is_trading_hours(dt)
