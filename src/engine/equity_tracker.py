@@ -93,10 +93,8 @@ class SimpleEquityTracker(EquityTracker):
     def to_dataframe(self) -> pd.DataFrame:
         """Convert to DataFrame."""
         return pd.DataFrame(self._records)
-
-
     def reset(self) -> None:
         """
         Reset the equity tracker to its initial state.
         """
-        self.records = []
+        self._records = []
