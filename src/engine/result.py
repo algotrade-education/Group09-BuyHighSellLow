@@ -40,12 +40,43 @@ class BacktestResult:
     @property
     def losing_trades(self) -> int:
         """Number of losing trades."""
-        return sum(1 for t in self.trades if t.pnl <= 0)
+        return sum(1 for t in self.trades if t.pnl < 0)
+
+    @property
+    def breakeven_trades(self) -> int:
+        """Number of breakeven trades (P&L == 0)."""
+        return sum(1 for t in self.trades if t.pnl == 0)
 
     @property
     def total_pnl(self) -> float:
         """Total P&L from all trades."""
         return sum(t.pnl for t in self.trades)
+
+    @property
+    def total_commission(self) -> float:
+        """Total commission paid across all trades."""
+        return sum(t.commission for t in self.trades)
+
+    @property
+    def avg_win(self) -> float:
+        """Average profit of winning trades."""
+        winners = [t.pnl for t in self.trades if t.pnl > 0]
+        return sum(winners) / len(winners) if winners else 0.0
+
+    @property
+    def avg_loss(self) -> float:
+        """Average loss of losing trades (returned as negative)."""
+        losers = [t.pnl for t in self.trades if t.pnl < 0]
+        return sum(losers) / len(losers) if losers else 0.0
+
+    @property
+    def profit_factor(self) -> float:
+        """Ratio of gross profits to gross losses. Returns inf if no losses."""
+        gross_profit = sum(t.pnl for t in self.trades if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in self.trades if t.pnl < 0))
+        if gross_loss == 0:
+            return float("inf") if gross_profit > 0 else 0.0
+        return gross_profit / gross_loss
 
     @property
     def win_rate(self) -> float:
@@ -71,6 +102,7 @@ class BacktestResult:
                     "quantity": t.quantity,
                     "pnl": t.pnl,
                     "pnl_pct": t.pnl_pct,
+                    "commission": t.commission,
                     "exit_reason": t.exit_reason,
                 }
                 for t in self.trades

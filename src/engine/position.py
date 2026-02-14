@@ -95,7 +95,7 @@ class Trade:
         self.exit_price = exit_price
         self.commission += commission  # Accumulate: entry + exit commission
         self.exit_reason = exit_reason
-    
+
         # Calculate P&L (subtract total round-trip commission)
         if self.side == PositionSide.LONG:
             self.pnl = (

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 import itertools
-from typing import Optional
+from typing import ClassVar, Optional
 
 
 class OrderType(Enum):
@@ -55,9 +55,7 @@ class Order:
         reason: Reason for order rejection or cancellation (if applicable)
     """
 
-    _id_counter: itertools.count = field(
-        default=itertools.count(1), init=False, repr=False, compare=False
-    )
+    _id_counter: ClassVar[itertools.count] = itertools.count(1)
 
     order_type: OrderType
     side: OrderSide
@@ -75,6 +73,11 @@ class Order:
     commission: float = 0.0
     slippage: float = 0.0
     reason: str = ""
+
+    @classmethod
+    def reset_id_counter(cls) -> None:
+        """Reset order ID counter"""
+        cls._id_counter = itertools.count(1)
 
     @property
     def is_buy(self) -> bool:
