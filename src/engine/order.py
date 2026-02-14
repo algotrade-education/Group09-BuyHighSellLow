@@ -55,12 +55,12 @@ class Order:
         reason: Reason for order rejection or cancellation (if applicable)
     """
 
+    _id_counter: itertools.count = field(
+        default=itertools.count(1), init=False, repr=False, compare=False
+    )
+
     order_type: OrderType
     side: OrderSide
-
-    _id_counter = itertools.count(
-        1
-    )  # Class-level counter for generating unique order IDs
 
     order_id: int = field(default_factory=lambda: next(Order._id_counter))
     quantity: int = 1
