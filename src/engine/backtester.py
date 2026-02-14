@@ -4,8 +4,10 @@ from typing import Callable, Optional
 import pandas as pd
 
 from src.engine.equity_tracker import EquityTracker, SimpleEquityTracker
+from src.engine.order import Order
 from src.engine.result import BacktestResult
 from src.engine.session_manager import SessionManager, VN30Session
+from src.engine.trade_manager import TradeManager
 from src.strategy.base import Strategy
 
 logger = logging.getLogger(__name__)
@@ -18,7 +20,7 @@ class Backtester:
 
     def __init__(
         self,
-        strategy: Strategy | None,
+        strategy: Strategy,
         initial_capital: float = 100000.0,
         commission_rate: float = 0.00015,
         slippage_points: float = 0.5,
@@ -45,6 +47,16 @@ class Backtester:
         self.strategy = strategy
 
         self.order_ttl = order_ttl  # 0 = no expiration
+
+        # Trade manager
+        self.trade_manager = TradeManager(
+            initial_capital=initial_capital,
+            commission_rate=commission_rate,
+            slippage_points=slippage_points,
+            contract_multiplier=contract_multiplier,
+            margin_rate=margin_rate,
+            position_size=1,  # For simplicity, we use a fixed position size of 1 contract/lot. This can be enhanced to support dynamic sizing.
+        )
 
         # Session manager
         if session_manager is None:
@@ -91,6 +103,7 @@ class Backtester:
         logger.info("Starting backtest with %d data points", len(data))
 
         # Reset state
+        self.trade_manager.reset()
         self.equity_tracker.reset()
 
         total_bars = len(data)
@@ -99,16 +112,113 @@ class Backtester:
         bars = data.to_dict("records")
         timestamps = pd.to_datetime(data[datetime_column]).tolist()
 
+        # TODO: Expand to handle as Dict instead of single orders
+        pending_order: Optional[Order] = None
+        pending_order_age: int = 0
+
         # Main Event Loop
         # For each bar, process event in order:
         # 1. Execute pending orders
         # 2. Manage open positions (e.g., check for stop-loss, take-profit, EOD close)
         # 3. Generate new signals (if not skipped by session manager)
         # 4. Update equity curve
+        for idx in range(total_bars):
+            if progress_callback is not None:
+                progress_callback(idx, total_bars)
+
+            bar: dict = bars[idx]
+            timestamp = timestamps[idx]
+
+            # --- 1. EXECUTION ---
+            # This first action occured when a signal was generated on the previous bar,
+            # so we execute it at the open of the current bar (open price of current bar)
+            if pending_order is not None:
+                # Check TTL if applicable
+                if self.order_ttl > 0 and pending_order_age >= self.order_ttl:
+                    logger.debug("Order expired after %d bars: %s", pending_order_age, pending_order)
+                    pending_order.expire()
+                    pending_order = None
+                    pending_order_age = 0
+                elif self.trade_manager.execute_order(pending_order, bar, timestamp):
+                    logger.debug("Order executed: %s", pending_order)
+                    # Note: Cash updated in execute_order, so we can update equity immediately
+                    pending_order = None
+                    pending_order_age = 0
+                else:
+                    pending_order_age += 1
+
+            # --- 2. POSITION MANAGEMENT ---
+            # Check for stop-loss, take-profit, EOD close, etc.
+            self.trade_manager.check_sl_tp(bar, timestamp)
+
+            # Check EOD Close
+            if (
+                self.session_manager.should_close_eod(timestamp)
+                and not self.trade_manager.position.is_flat
+            ):
+                self.trade_manager.close_position(
+                    exit_price=bar["close"],
+                    timestamp=timestamp,
+                    exit_reason="EOD Close",
+                )
+                pending_order = None  # Cancel any pending orders at EOD
+
+            # --- 3. SIGNAL GENERATION ---
+            if not self.session_manager.should_skip_signal_generation(timestamp):
+                try:
+                    signal = self.strategy.generate_signal(
+                        bar=bar,
+                        current_position=self.trade_manager.position,
+                    )
+                    new_order = self.trade_manager.create_order_from_signal(
+                        signal=signal,
+                        bar=bar,
+                        timestamp=timestamp,
+                    )
+
+                    if new_order is not None:
+                        pending_order = new_order
+                        logger.debug("Generated new order: %s", pending_order)
+                    
+                except KeyError as e:
+                    logger.error("Missing key in bar data: %s", e)
+                except ValueError as e:
+                    logger.error("Error generating signal: %s", e)
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error during signal generation at %s: %s",
+                        timestamp,
+                        e,
+                        exc_info=True,
+                    )
+
+            # --- 4. EQUITY UPDATE ---
+            self.trade_manager.update_equity(bar["close"])
+            self.equity_tracker.record(
+                timestamp=timestamp,
+                position=self.trade_manager.position.side.value,
+                cash=self.trade_manager.cash,
+                equity=self.trade_manager.equity,
+                unrealized_pnl=self.trade_manager.position.unrealized_pnl,
+                close_price=bar["close"],
+            )
+        
+        # End of Backtest: Close remaining position
+        if not self.trade_manager.position.is_flat and len(data) > 0:
+            last_timestamp = timestamps[-1]
+            last_close = bars[-1]["close"]
+            self.trade_manager.close_position(
+                exit_price=last_close,
+                timestamp=last_timestamp,
+                exit_reason="End of Backtest",
+            )
+
+        # Build results
+        equity_df = self.equity_tracker.to_dataframe()
 
         return BacktestResult(
-            trades=[],
-            equity_curve=pd.DataFrame(),
-            signals=[],
-            parameters={},
+            trades=self.trade_manager.trades.copy(),
+            equity_curve=equity_df,
+            signals=self.trade_manager.get_signals().copy(),
+            parameters=self.strategy.params,
         )

@@ -164,7 +164,7 @@ class TradeManager:
         Calculate commission for a trade.
         The commission is calculated on the notional value of the trade, which is:
             Notional Value = Price * Quantity * Multiplier
-        
+
         Args:
             price: Execution price
             quantity: Number of contracts
@@ -177,7 +177,7 @@ class TradeManager:
     def _apply_slippage(self, price: float, side: OrderSide) -> float:
         """
         Apply slippage to execution price.
-        
+
         For buys, slippage increases the price; for sells, it decreases the price.
 
         Args:
@@ -240,8 +240,10 @@ class TradeManager:
 
                 else:
                     return False
-            
-            exec_price = float(exec_price or 0.0) # Ensure exec_price is a float and not None
+
+            exec_price = float(
+                exec_price or 0.0
+            )  # Ensure exec_price is a float and not None
 
             # Apply slippage
             exec_price = self._apply_slippage(exec_price, order.side)
@@ -373,7 +375,7 @@ class TradeManager:
 
         This should only be called after an order has been successfully filled.
 
-        Args:        
+        Args:
             order: Filled order to open position from
             timestamp: Time of position opening
 
@@ -525,7 +527,7 @@ class TradeManager:
     def update_equity(self, current_price: float) -> None:
         """
         Update unrealized P&L and total equity.
-        
+
         Args:
             current_price: Current market price to mark position to market
         """

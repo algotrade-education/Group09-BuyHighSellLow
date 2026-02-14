@@ -7,6 +7,8 @@ from datetime import datetime
 import logging
 from typing import Any, Dict, List
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,11 @@ class EquityTracker(ABC):
         pass
 
     @abstractmethod
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert tracked data to DataFrame."""
+        pass
+
+    @abstractmethod
     def reset(self) -> None:
         """
         Reset the equity tracker to its initial state.
@@ -51,7 +58,7 @@ class SimpleEquityTracker(EquityTracker):
     """
 
     def __init__(self) -> None:
-        self.records: List[Dict[str, Any]] = []
+        self._records: List[Dict[str, Any]] = []
 
     def record(
         self,
@@ -72,7 +79,7 @@ class SimpleEquityTracker(EquityTracker):
             position: The current position (e.g., 'long', 'short', 'flat')
             close_price: The closing price of the asset
         """
-        self.records.append(
+        self._records.append(
             {
                 "datetime": timestamp,
                 "position": position,
@@ -82,6 +89,11 @@ class SimpleEquityTracker(EquityTracker):
                 "close_price": close_price,
             }
         )
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert to DataFrame."""
+        return pd.DataFrame(self._records)
+
 
     def reset(self) -> None:
         """
