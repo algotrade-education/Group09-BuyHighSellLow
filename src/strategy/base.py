@@ -3,12 +3,10 @@ Base classes for strategy implementations.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import field
+from dataclasses import dataclass, field
 from enum import Enum
 import logging
 from typing import Any, Dict, List, Optional
-
-from attr import dataclass
 
 logger = logging.getLogger(__name__)
 
