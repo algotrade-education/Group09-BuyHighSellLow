@@ -156,8 +156,9 @@ class Order:
         self.status = OrderStatus.EXPIRED
 
     def __repr__(self) -> str:
-        price_str = f"@{self.limit_price:2f}" if self.limit_price else ""
+        price_str = f"@{self.limit_price:.2f}" if self.limit_price else ""
         return (
-            f"Order(id={self.order_id}, side={self.side.value}, quantity={self.quantity}"
-            f"{self.order_type.value}{price_str}, status={self.status.value})"
+            f"Order(id={self.order_id}, side={self.side.value}, "
+            f"quantity={self.quantity}, type={self.order_type.value}"
+            f"{price_str}, status={self.status.value})"
         )
