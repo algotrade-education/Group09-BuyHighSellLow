@@ -8,9 +8,6 @@ and providing utilities for session management.
 from abc import ABC, abstractmethod
 from datetime import datetime, time
 
-from pytest import Session
-
-
 class SessionManager(ABC):
     """
     Abstract base class for trading session management.

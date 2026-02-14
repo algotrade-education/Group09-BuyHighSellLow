@@ -112,29 +112,27 @@ class Preprocessor:
 
         if copy:
             df = df.copy()
-        
+
         df.set_index(datetime_column, inplace=True)
 
         logger.info("Resampling data to %s...", freq)
-        
+
         # Define aggregation dictionary
-        agg_dict = {
-            price_column: "ohlc"
-        }
-        
+        agg_dict = {price_column: "ohlc"}
+
         # Add volume aggregation if present
         if "volume" in df.columns:
             agg_dict["volume"] = "sum"
 
         # Resample
-        resampled = df.resample(freq).agg(agg_dict) # type: ignore
-        
+        resampled = df.resample(freq).agg(agg_dict)  # type: ignore
+
         # Handle price OHLC columns
         price_ohlc = resampled[price_column].copy()
-        
+
         # Handle volume if exists
         if "volume" in df.columns:
-             price_ohlc["volume"] = resampled["volume"].values
+            price_ohlc["volume"] = resampled["volume"].values
 
         result = price_ohlc.dropna().reset_index()
 
@@ -156,28 +154,28 @@ class Preprocessor:
         """
         if "quantity" not in df.columns:
             return df
-            
+
         if "volume" in df.columns:
             return df
 
         if copy:
             df = df.copy()
-        
+
         if "datetime" in df.columns:
             # Sort just in case
             df.sort_values("datetime", inplace=True)
-            
+
             # Calculate diff grouped by date (handles daily resets)
             # For the first tick of each day (NaN diff), fill with quantity value itself
             df["volume"] = (
-                df.groupby(df["datetime"].dt.normalize())["quantity"] # type: ignore
+                df.groupby(df["datetime"].dt.normalize())["quantity"]  # type: ignore
                 .diff()
                 .fillna(df["quantity"])
             )
-            
+
             # Ensure no negative volumes (data errors)
             df.loc[df["volume"] < 0, "volume"] = 0
-            
+
         return df
 
     def add_sma(
@@ -189,7 +187,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add Simple Moving Average to DataFrame.
-        
+
         Args:
             df: Input DataFrame
             period: SMA period
@@ -211,7 +209,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add SMA slope (difference from previous value).
-        
+
         Args:
             df: Input DataFrame
             period: SMA period
@@ -241,7 +239,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add Volume Moving Average.
-        
+
         Args:
             df: Input DataFrame
             period: MA period for volume
@@ -250,7 +248,7 @@ class Preprocessor:
         """
         if column not in df.columns:
             return df
-        
+
         if copy:
             df = df.copy()
         df[f"volume_ma_{period}"] = df[column].rolling(window=period).mean()
@@ -265,7 +263,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add Relative Strength Index (RSI).
-        
+
         Args:
             df: Input DataFrame
             period: RSI period
@@ -281,10 +279,10 @@ class Preprocessor:
 
         rs = gain / loss
         df[f"rsi_{period}"] = 100 - (100 / (1 + rs))
-        
+
         # Fill NaN with 50 (neutral) for initial periods to avoid validation errors
         df[f"rsi_{period}"] = df[f"rsi_{period}"].fillna(50)
-        
+
         return df
 
     def add_adx(
@@ -295,7 +293,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add Average Directional Index (ADX).
-        
+
         Args:
             df: Input DataFrame
             period: ADX period
@@ -315,10 +313,14 @@ class Preprocessor:
         df["down_move"] = df["low"].shift(1) - df["low"]
 
         df["plus_dm"] = 0.0
-        df.loc[(df["up_move"] > df["down_move"]) & (df["up_move"] > 0), "plus_dm"] = df["up_move"]
+        df.loc[(df["up_move"] > df["down_move"]) & (df["up_move"] > 0), "plus_dm"] = df[
+            "up_move"
+        ]
 
         df["minus_dm"] = 0.0
-        df.loc[(df["down_move"] > df["up_move"]) & (df["down_move"] > 0), "minus_dm"] = df["down_move"]
+        df.loc[
+            (df["down_move"] > df["up_move"]) & (df["down_move"] > 0), "minus_dm"
+        ] = df["down_move"]
 
         # Calculate Smoothed components (Wilder's Smoothing)
         # Using EMA as approximation for efficiency, or rolling mean
@@ -331,18 +333,33 @@ class Preprocessor:
         df["minus_di"] = 100 * (df["minus_dm_smooth"] / df["tr_smooth"])
 
         # Calculate DX
-        df["dx"] = 100 * abs(df["plus_di"] - df["minus_di"]) / (df["plus_di"] + df["minus_di"])
+        df["dx"] = (
+            100 * abs(df["plus_di"] - df["minus_di"]) / (df["plus_di"] + df["minus_di"])
+        )
 
         # Calculate ADX
         df[f"adx_{period}"] = df["dx"].rolling(window=period).mean()
-        
+
         # Fill NaN
         df[f"adx_{period}"] = df[f"adx_{period}"].fillna(0)
 
         # Cleanup temporary columns
-        cols_to_drop = ["h-l", "h-pc", "l-pc", "tr", "up_move", "down_move", 
-                       "plus_dm", "minus_dm", "tr_smooth", "plus_dm_smooth", 
-                       "minus_dm_smooth", "plus_di", "minus_di", "dx"]
+        cols_to_drop = [
+            "h-l",
+            "h-pc",
+            "l-pc",
+            "tr",
+            "up_move",
+            "down_move",
+            "plus_dm",
+            "minus_dm",
+            "tr_smooth",
+            "plus_dm_smooth",
+            "minus_dm_smooth",
+            "plus_di",
+            "minus_di",
+            "dx",
+        ]
         df.drop(columns=cols_to_drop, inplace=True)
 
         return df
@@ -357,7 +374,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Add Bollinger Bands to DataFrame.
-        
+
         Args:
             df: Input DataFrame
             period: SMA period for middle band
@@ -389,11 +406,11 @@ class Preprocessor:
     def add_all_indicators(self, df: pd.DataFrame, copy: bool = True) -> pd.DataFrame:
         """
         Add all required indicators for the strategy.
-        
+
         Args:
             df: Input DataFrame
             copy: If True, create initial copy; if False, modify in-place (memory efficient)
-        
+
         Returns:
             DataFrame with all indicators
         """
@@ -417,7 +434,7 @@ class Preprocessor:
     ) -> pd.DataFrame:
         """
         Filter data to trading hours only.
-        
+
         Args:
             df: Input DataFrame
             datetime_column: Name of datetime column

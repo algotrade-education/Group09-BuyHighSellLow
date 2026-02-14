@@ -69,7 +69,7 @@ class DataLoader:
             Path: Path to the cache file
         """
         safe_start = pd.to_datetime(start_date).strftime("%Y%m%d_%H%M%S")
-        safe_end   = pd.to_datetime(end_date).strftime("%Y%m%d_%H%M%S")
+        safe_end = pd.to_datetime(end_date).strftime("%Y%m%d_%H%M%S")
         filename = f"{contract_name}_{safe_start}_{safe_end}.parquet"
         return self.cache_dir / filename
 
@@ -232,8 +232,7 @@ class DataLoader:
                 logger.warning("Failed to load cache: %s. Fetching from database...", e)
 
         logger.info(
-            "Fetching data for %s (%s to %s)...",
-            contract_name, start_date, end_date
+            "Fetching data for %s (%s to %s)...", contract_name, start_date, end_date
         )
 
         try:
@@ -244,8 +243,7 @@ class DataLoader:
 
         if df.empty:
             logger.warning(
-                "No data found for %s (%s-%s)",
-                contract_name, start_date, end_date
+                "No data found for %s (%s-%s)", contract_name, start_date, end_date
             )
             return df
 
