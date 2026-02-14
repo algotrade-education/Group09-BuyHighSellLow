@@ -1,3 +1,8 @@
+"""
+Logging utility for the backtesting framework.
+Provides a standardized way to configure logging for both console and file outputs.
+"""
+
 import logging
 import sys
 from pathlib import Path
