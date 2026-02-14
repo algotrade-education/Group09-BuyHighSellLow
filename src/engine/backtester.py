@@ -141,7 +141,7 @@ class Backtester:
                     pending_order_age = 0
                 elif self.trade_manager.execute_order(pending_order, bar, timestamp):
                     logger.debug("Order executed: %s", pending_order)
-                    # Note: Cash updated in execute_order, so we can update equity immediately
+                    self.trade_manager.open_position(pending_order, timestamp)
                     pending_order = None
                     pending_order_age = 0
                 else:
