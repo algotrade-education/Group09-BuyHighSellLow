@@ -230,6 +230,7 @@ class Backtester:
         return BacktestResult(
             trades=self.trade_manager.trades.copy(),
             equity_curve=equity_df,
+            metrics={}, # TODO: Calculate performance metrics (e.g., total return, max drawdown, Sharpe ratio) and include in results
             signals=self.trade_manager.get_signals().copy(),
             parameters=self.strategy.params,
         )

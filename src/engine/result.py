@@ -24,6 +24,7 @@ class BacktestResult:
 
     trades: List[Trade]
     equity_curve: pd.DataFrame
+    metrics: Dict[str, float]
     signals: List[Dict[str, Any]] = field(default_factory=list)
     parameters: Dict[str, Any] = field(default_factory=dict)
 
