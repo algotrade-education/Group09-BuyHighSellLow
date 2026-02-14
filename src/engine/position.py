@@ -93,18 +93,18 @@ class Trade:
         """
         self.exit_time = exit_time
         self.exit_price = exit_price
-        self.commission = commission
+        self.commission += commission  # Accumulate: entry + exit commission
         self.exit_reason = exit_reason
-
-        # Calculate P&L
+    
+        # Calculate P&L (subtract total round-trip commission)
         if self.side == PositionSide.LONG:
             self.pnl = (
                 exit_price - self.entry_price
-            ) * self.quantity * self.multiplier - commission
+            ) * self.quantity * self.multiplier - self.commission
         elif self.side == PositionSide.SHORT:
             self.pnl = (
                 self.entry_price - exit_price
-            ) * self.quantity * self.multiplier - commission
+            ) * self.quantity * self.multiplier - self.commission
 
         # Calculate P&L percentage
         notional = self.entry_price * self.quantity * self.multiplier
