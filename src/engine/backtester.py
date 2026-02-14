@@ -108,6 +108,13 @@ class Backtester:
         """
         logger.info("Starting backtest with %d data points", len(data))
 
+        required_columns = {datetime_column, "open", "high", "low", "close"}
+        missing_columns = required_columns.difference(data.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Missing required columns for backtest: {sorted(missing_columns)}"
+            )
+
         # Reset state
         self.trade_manager.reset()
         self.equity_tracker.reset()
@@ -119,7 +126,6 @@ class Backtester:
         bars = data.to_dict("records")
         timestamps = pd.to_datetime(data[datetime_column]).tolist()
 
-        # TODO: Expand to handle as Dict instead of single orders
         pending_order: Optional[Order] = None
         pending_order_age: int = 0
 
@@ -140,7 +146,6 @@ class Backtester:
             # This first action occured when a signal was generated on the previous bar,
             # so we execute it at the open of the current bar (open price of current bar)
             if pending_order is not None:
-                # Check TTL if applicable
                 if self.order_ttl > 0 and pending_order_age >= self.order_ttl:
                     logger.debug(
                         "Order expired after %d bars: %s",
@@ -173,6 +178,7 @@ class Backtester:
                     exit_reason="EOD Close",
                 )
                 pending_order = None  # Cancel any pending orders at EOD
+                pending_order_age = 0
 
             # --- 3. SIGNAL GENERATION ---
             if not self.session_manager.should_skip_signal_generation(timestamp):
@@ -188,8 +194,15 @@ class Backtester:
                     )
 
                     if new_order is not None:
-                        pending_order = new_order
-                        logger.debug("Generated new order: %s", pending_order)
+                        if pending_order is None:
+                            pending_order = new_order
+                            pending_order_age = 0
+                            logger.debug("Generated new order: %s", new_order)
+                        else:
+                            logger.debug(
+                                "Skipping new order; pending order exists: %s",
+                                pending_order,
+                            )
 
                 except KeyError as e:
                     logger.error("Missing key in bar data: %s", e)
@@ -222,6 +235,15 @@ class Backtester:
                 exit_price=last_close,
                 timestamp=last_timestamp,
                 exit_reason="End of Backtest",
+            )
+            self.trade_manager.update_equity(last_close)
+            self.equity_tracker.record(
+                timestamp=last_timestamp,
+                position=self.trade_manager.position.side.value,
+                cash=self.trade_manager.cash,
+                equity=self.trade_manager.equity,
+                unrealized_pnl=self.trade_manager.position.unrealized_pnl,
+                close_price=last_close,
             )
 
         # Build results
