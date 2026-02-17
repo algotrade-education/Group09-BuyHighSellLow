@@ -66,7 +66,7 @@ cp .env.example .env
 5. **Load data** (requires database connection)
 
 ```bash
-python -m src.data_loader
+python -m src.run_data_loader
 ```
 
 ### Usage
@@ -74,10 +74,10 @@ python -m src.data_loader
 #### Fetch/Load Data
 
 ```bash
-python -m src.data_loader --mode [fetch|load] --sample [is|os] --contract [contract_name]
+python -m src.run_data_loader --mode [fetch|load] --sample [is|os] --contract [contract_name]
 
 # Example: Fetch data for contract "VN30F1M"
-python -m src.data_loader --mode fetch --contract VN30F1M
+python -m src.run_data_loader --mode fetch --contract VN30F1M
 ```
 
 ---
