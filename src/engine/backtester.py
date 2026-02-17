@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
 
 import pandas as pd
 
@@ -9,6 +9,7 @@ from src.engine.position_sizer import PositionSizer
 from src.engine.result import BacktestResult
 from src.engine.session_manager import SessionManager, VN30Session
 from src.engine.trade_manager import TradeManager
+from src.metrics.metrics import MetricsCalculator
 from src.strategy.base import Strategy
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,9 @@ class Backtester:
             self.equity_tracker = SimpleEquityTracker()
         else:
             self.equity_tracker = equity_tracker
+
+        # Metrics calculator
+        self.metrics_calculator = MetricsCalculator()
 
         logger.info(
             "Backtester initialized with %s and %s",
@@ -248,11 +252,21 @@ class Backtester:
 
         # Build results
         equity_df = self.equity_tracker.to_dataframe()
+        metrics = self._calculate_metrics(equity_df)
 
         return BacktestResult(
             trades=self.trade_manager.trades.copy(),
             equity_curve=equity_df,
-            metrics={}, # TODO: Calculate performance metrics (e.g., total return, max drawdown, Sharpe ratio) and include in results
+            metrics=metrics,
             signals=self.trade_manager.get_signals().copy(),
             parameters=self.strategy.params,
         )
+
+    def _calculate_metrics(self, equity_df: pd.DataFrame) -> Dict[str, float]:
+        """Calculate performance metrics."""
+        if equity_df.empty:
+            return {}
+
+        return self.metrics_calculator.calculate(
+            equity=equity_df, trades=self.trade_manager.trades
+        ).to_dict()
