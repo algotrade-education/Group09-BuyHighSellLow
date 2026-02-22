@@ -1,0 +1,90 @@
+import pandas as pd
+
+from src.data.preprocessor import Preprocessor
+from src.optimization.walk_forward import WalkForwardOptimizer
+from src.run_data_loader import load_data
+from src.utils.config_loader import load_config
+from src.utils.logger import setup_logging
+
+logger = setup_logging(__name__, log_file="logs/walk_forward.log")
+
+
+def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
+    """Run walk-forward optimization."""
+    logger.info("Starting Walk-Forward Optimization...")
+
+    # Use ranges around default/config values if possible
+    # For now keep the hardcoded grid
+    param_grid = {
+    }
+
+    # Create a local preprocessor instance for indicator recalculation
+    local_preprocessor = Preprocessor()
+    def recalculate_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
+        """Recalculate indicators using params from each walk-forward iteration."""
+        return local_preprocessor.add_all_indicators(data, copy=False)
+
+
+    wf_optimizer = WalkForwardOptimizer(
+        strategy_class=None,
+        param_grid=param_grid,
+        n_windows=5,
+        train_pct=0.7,
+        anchored=True,
+        indicator_fn=recalculate_indicators,
+    )
+
+    result = wf_optimizer.optimize(data)
+
+    print("\n" + "=" * 60)
+    print("WALK-FORWARD SUMMARY")
+    print("=" * 60)
+    wf_optimizer.print_summary()
+    print("=" * 60)
+
+    # Save results
+    output_path = wf_optimizer.save_results()
+    logger.info("Results saved to: %s", output_path)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run walk-forward optimization.")
+    parser.add_argument(
+        "--sample",
+        choices=["is", "os"],
+        default="is",
+        help="Sample type: is (in-sample) or os (out-of-sample).",
+    )
+    parser.add_argument(
+        "--contract", default="VN30F1M", help="Contract symbol (default: VN30F1M)."
+    )
+    args = parser.parse_args()
+
+    # Load configuration
+    config = load_config()
+    logger.info("Loaded configuration from default path")
+
+    # Load data based on arguments
+    data = load_data(sample=args.sample, contract=args.contract)
+
+    # Preprocess: Clean and Resample manually
+    preprocessor = Preprocessor()
+
+    # 1. Clean
+    data = preprocessor.clean_data(data)
+
+    # 2. Resample
+    resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
+    logger.info(
+        "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
+    )
+    data = preprocessor.resample_to_ohlc(data, freq=resample_freq)
+
+    # 3. Filter trading hours
+    data = preprocessor.filter_trading_hours(data, include_atc=True)
+
+    logger.info("Data shape for optimization: %s", data.shape)
+
+    run_walk_forward(data, config)
