@@ -80,6 +80,28 @@ python -m src.run_data_loader --mode [fetch|load] --sample [is|os] --contract [c
 python -m src.run_data_loader --mode fetch --contract VN30F1M
 ```
 
+#### Run Backtest
+
+```bash
+python -m src.run_backtest --sample [is|os] --contract [contract_name] --config [config_file]
+# Example: Run in-sample backtest for "VN30F1M"
+python -m src.run_backtest --sample is --contract VN30F1M
+# Example: Run out-of-sample backtest with optimized parameters
+python -m src.run_backtest --sample os --contract VN30F1M --config config/strategy_params/optimized_params.json
+```
+
+#### Run Optimization
+
+```bash
+python -m src.run_optimization --contract [contract_name]
+```
+
+#### Run Walk-Forward Analysis
+
+```bash
+python -m src.run_walk_forward --contract [contract_name]
+```
+
 ---
 
 ## Data
