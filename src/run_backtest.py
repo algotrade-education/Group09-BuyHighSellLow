@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from config.config import (
-    COMMISION_RATE,
+    COMMISSION_RATE,
     CONTRACT_MULTIPLIER,
     DEFAULT_INITIAL_CAPITAL,
     MARGIN_RATE,
@@ -23,7 +23,7 @@ def run_backtest(
     data: pd.DataFrame,
     params: dict,
     initial_capital: float = DEFAULT_INITIAL_CAPITAL,
-    commission_rate: float = COMMISION_RATE,
+    commission_rate: float = COMMISSION_RATE,
     contract_multiplier: float = CONTRACT_MULTIPLIER,
     margin_rate: float = MARGIN_RATE,
 ) -> None:
