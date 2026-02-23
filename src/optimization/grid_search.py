@@ -179,7 +179,9 @@ class GridSearch:
             # --- Serial execution (avoids Windows ProcessPoolExecutor spawn issues) ---
             iterator = combinations
             if show_progress:
-                iterator = tqdm(combinations, total=len(combinations), desc="Optimizing")
+                iterator = tqdm(
+                    combinations, total=len(combinations), desc="Optimizing"
+                )
 
             for params in iterator:
                 result = self._run_backtest(
@@ -212,7 +214,9 @@ class GridSearch:
                 # Process results as they complete
                 iterator = concurrent.futures.as_completed(future_to_params)
                 if show_progress:
-                    iterator = tqdm(iterator, total=len(combinations), desc="Optimizing")
+                    iterator = tqdm(
+                        iterator, total=len(combinations), desc="Optimizing"
+                    )
 
                 for future in iterator:
                     try:
@@ -229,7 +233,6 @@ class GridSearch:
         )
 
         return self.results
-
 
     @property
     def best_params(self) -> Optional[Dict[str, Any]]:
