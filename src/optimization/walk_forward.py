@@ -274,9 +274,20 @@ class WalkForwardOptimizer:
             best_params = grid_search.best_params
             train_metrics = grid_search.best_result.metrics
 
-            # Recalculate indicators for test data using best params
+            # Recalculate indicators for test data using train+test context
+            # to avoid cold-start NaNs at the beginning of each test window.
             if self.indicator_fn:
-                test_data = self.indicator_fn(test_data.copy(), best_params)
+                original_test_len = len(test_data)
+                contextual_data = pd.concat([train_data, test_data], ignore_index=True)
+                contextual_data = self.indicator_fn(contextual_data.copy(), best_params)
+
+                # Keep only the out-of-sample segment after indicator calculation.
+                if len(contextual_data) >= original_test_len:
+                    test_data = contextual_data.tail(original_test_len).reset_index(
+                        drop=True
+                    )
+                else:
+                    test_data = contextual_data.reset_index(drop=True)
 
             # Test on out-of-sample data
             test_strategy = self.strategy_class(**best_params)
