@@ -537,3 +537,45 @@ class Preprocessor:
 
         logger.info("Preprocessing complete. Final dataset size: %s rows.", len(df))
         return df
+
+    def prepare_for_optimization(
+        self,
+        df: pd.DataFrame,
+        resample_freq: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Preprocessing pipeline for optimization/walk-forward runs.
+
+        Applies cleaning, volume derivation, resampling, and trading-hours
+        filtering — but intentionally stops before adding indicators, because
+        the optimizer recalculates indicators for every parameter combination
+        via its own ``indicator_fn`` callback.
+
+        Args:
+            df: Raw tick DataFrame.
+            resample_freq: OHLC resampling frequency (e.g. ``'1min'``,
+                ``'5min'``).  Falls back to ``'1min'`` when *None*.
+
+        Returns:
+            Cleaned, resampled, and hour-filtered DataFrame ready for the
+            grid-search / walk-forward loop.
+        """
+        logger.info("Starting data preprocessing for optimization...")
+
+        # Clean data
+        df = self.clean_data(df)
+
+        # Derive volume from cumulative quantity if needed
+        df = self._derive_volume(df, copy=False)
+
+        # Resample tick data → OHLC bars
+        freq = resample_freq or "1min"
+        logger.info("Resampling to %s bars...", freq)
+        df = self.resample_to_ohlc(df, freq=freq)
+
+        # Filter to trading hours only
+        df = self.filter_trading_hours(df, include_atc=True)
+
+        logger.info(
+            "Optimization preprocessing complete. Dataset size: %s rows.", len(df)
+        )
+        return df

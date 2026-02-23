@@ -69,22 +69,14 @@ if __name__ == "__main__":
     # Load data based on arguments
     data = load_data(sample=args.sample, contract=args.contract)
 
-    # Preprocess: Clean and Resample manually
-    preprocessor = Preprocessor()
-
-    # 1. Clean
-    data = preprocessor.clean_data(data)
-
-    # 2. Resample
     resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
     logger.info(
-        "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
+        "Preprocessing %s data for %s (resample: %s)...",
+        args.sample,
+        args.contract,
+        resample_freq,
     )
-    data = preprocessor.resample_to_ohlc(data, freq=resample_freq)
-
-    # 3. Filter trading hours
-    data = preprocessor.filter_trading_hours(data, include_atc=True)
-
+    data = Preprocessor().prepare_for_optimization(data, resample_freq=resample_freq)
     logger.info("Data shape for optimization: %s", data.shape)
 
     run_walk_forward(data, config)
