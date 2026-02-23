@@ -33,6 +33,10 @@ class Preprocessor:
         sma_period: int = 20,
         bb_std: float = 2.0,
         slope_lookback: int = 1,
+        rsi_period: int = 14,
+        adx_period: int = 14,
+        atr_period: int = 14,
+        volume_ma_period: int = 20,
     ):
         """
         Initialize the preprocessor.
@@ -47,6 +51,10 @@ class Preprocessor:
         self.sma_period = sma_period
         self.bb_std = bb_std
         self.slope_lookback = slope_lookback
+        self.rsi_period = rsi_period
+        self.adx_period = adx_period
+        self.atr_period = atr_period
+        self.volume_ma_period = volume_ma_period
         self.validator = DataValidator()
 
     def clean_data(self, df: pd.DataFrame, copy: bool = True) -> pd.DataFrame:
@@ -364,6 +372,33 @@ class Preprocessor:
 
         return df
 
+    def add_atr(
+        self,
+        df: pd.DataFrame,
+        period: int = 14,
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add Average True Range (ATR).
+
+        Args:
+            df: Input DataFrame with high/low/close columns
+            period: ATR period
+            copy: If True, create a copy; if False, modify in-place
+        """
+        if copy:
+            df = df.copy()
+
+        prev_close = df["close"].shift(1)
+        high_low = df["high"] - df["low"]
+        high_prev_close = (df["high"] - prev_close).abs()
+        low_prev_close = (df["low"] - prev_close).abs()
+
+        tr = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1)
+        df[f"atr_{period}"] = tr.rolling(window=period).mean()
+
+        return df
+
     def add_bollinger_bands(
         self,
         df: pd.DataFrame,
@@ -419,9 +454,10 @@ class Preprocessor:
         df = self.add_sma(df, copy=copy)
         df = self.add_sma_slope(df, lookback=self.slope_lookback, copy=False)
         df = self.add_bollinger_bands(df, copy=False)
-        df = self.add_volume_ma(df, period=20, copy=False)
-        df = self.add_rsi(df, period=14, copy=False)
-        df = self.add_adx(df, period=14, copy=False)
+        df = self.add_volume_ma(df, period=self.volume_ma_period, copy=False)
+        df = self.add_rsi(df, period=self.rsi_period, copy=False)
+        df = self.add_adx(df, period=self.adx_period, copy=False)
+        df = self.add_atr(df, period=self.atr_period, copy=False)
 
         return df
 
