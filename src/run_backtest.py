@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
+from colorama import Back
 import pandas as pd
 
 from config.config import (
@@ -13,6 +14,7 @@ from config.config import (
 from src.data.preprocessor import Preprocessor
 from src.engine.backtester import Backtester
 from src.engine.result import BacktestResult
+from src.metrics.plotter import BacktestPlotter
 from src.run_data_loader import load_data
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
@@ -47,6 +49,11 @@ def run_backtest(
 
     # Run backtest
     logger.info("Starting backtest execution...")
+    result: BacktestResult = BacktestResult(
+        trades=[],
+        equity_curve=pd.DataFrame(),
+        metrics={},
+    )
 
     # Print summary to console
     print("\n" + "=" * 60)
@@ -145,22 +152,13 @@ if __name__ == "__main__":
 
     # Get strategy parameters to initialize preprocessor with matching parameters
     strategy_params = config.get("strategy", {})
-    sma_period = strategy_params.get("sma_period", 20)
-    bb_std = strategy_params.get("bb_std", 2.0)
-    slope_lookback = strategy_params.get("slope_lookback", 1)
+    # TODO: Extract specific parameters needed for indicator recalculation if optimizing those parameters
 
     # Create preprocessor with matching parameters
     preprocessor = Preprocessor(
-        sma_period=sma_period,
-        bb_std=bb_std,
-        slope_lookback=slope_lookback,
     )
 
     # Resample to OHLC bars and add indicators
     data = preprocessor.prepare_for_backtest(data, resample_freq=resample_freq)
-
-    logger.info(
-        "Data prepared: %s bars with indicators for SMA(%s)", len(data), sma_period
-    )
 
     run_backtest(data, config)

@@ -10,13 +10,18 @@ logger = setup_logging(__name__, log_file="logs/walk_forward.log")
 
 
 def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
-    """Recalculate indicators using parameters from each grid combination."""
-    preprocessor = Preprocessor(
-        sma_period=params.get("sma_period", 20),
-        bb_std=params.get("bb_std", 2.0),
-        slope_lookback=params.get("slope_lookback", 1),
-    )
-    return preprocessor.add_all_indicators(df, copy=False)
+    """
+    Recalculate indicators using parameters from each grid combination.
+    This function will be called by the optimization process for each parameter set.
+
+    Optional: You can implement specific indicator recalculations based on the parameters being optimized.
+    For example, if optimizing SMA periods, you would recalculate the SMA indicators here.
+    """
+    preprocessor = Preprocessor()
+    df = preprocessor.add_all_indicators(df, copy=False)
+    df.dropna(inplace=True)
+    return df
+
 
 
 def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
