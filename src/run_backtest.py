@@ -15,7 +15,6 @@ This script will:
 from datetime import datetime
 from pathlib import Path
 
-from colorama import Back
 import pandas as pd
 
 from config.config import (
