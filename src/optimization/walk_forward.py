@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pandas as pd
 from tqdm import tqdm
 
-from config.config import RESULTS_DIR
+from config.config import CONTRACT_MULTIPLIER, DEFAULT_INITIAL_CAPITAL, RESULTS_DIR
 from src.engine.backtester import Backtester
 
 from .grid_search import GridSearch
@@ -218,7 +218,8 @@ class WalkForwardOptimizer:
     def optimize(
         self,
         data: pd.DataFrame,
-        initial_capital: float = 100000.0,
+        initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        contract_multiplier: float = CONTRACT_MULTIPLIER,
         show_progress: bool = True,
     ) -> WalkForwardResult:
         """
@@ -294,6 +295,7 @@ class WalkForwardOptimizer:
             test_backtester = Backtester(
                 strategy=test_strategy,
                 initial_capital=initial_capital,
+                contract_multiplier=contract_multiplier,
             )
             test_result = test_backtester.run(test_data)
 

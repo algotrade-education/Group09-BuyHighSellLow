@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 import pandas as pd
 from tqdm import tqdm
 
-from config.config import DEFAULT_INITIAL_CAPITAL, RESULTS_DIR
+from config.config import CONTRACT_MULTIPLIER, DEFAULT_INITIAL_CAPITAL, RESULTS_DIR
 from src.engine.backtester import Backtester
 
 
@@ -97,6 +97,7 @@ class GridSearch:
         params: Dict[str, Any],
         data: pd.DataFrame,
         initial_capital: float,
+        contract_multiplier: float,
         indicator_fn: Optional[
             Callable[[pd.DataFrame, Dict[str, Any]], pd.DataFrame]
         ] = None,
@@ -117,6 +118,7 @@ class GridSearch:
             backtester = Backtester(
                 strategy=strategy,
                 initial_capital=initial_capital,
+                contract_multiplier=contract_multiplier,
             )
             result = backtester.run(test_data)
 
@@ -137,6 +139,7 @@ class GridSearch:
         self,
         data: pd.DataFrame,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        contract_multiplier: float = CONTRACT_MULTIPLIER,
         show_progress: bool = True,
         n_jobs: int = -1,
     ) -> List[OptimizationResult]:
@@ -165,40 +168,59 @@ class GridSearch:
             )
 
         # Remove indicators from data to avoid using stale values
-        # Keep only OHLC columns
-        # Keep only OHLCV columns (added volume)
+        # Keep only OHLCV columns
         base_columns = ["datetime", "open", "high", "low", "close", "volume"]
 
         # Only keep base columns that exist in the dataframe
         available_base_cols = [col for col in base_columns if col in data.columns]
         clean_data = data[available_base_cols].copy()
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=n_jobs) as executor:
-            # Submit all jobs
-            future_to_params = {
-                executor.submit(
-                    self._run_backtest,
+        if n_jobs == 1:
+            # --- Serial execution (avoids Windows ProcessPoolExecutor spawn issues) ---
+            iterator = combinations
+            if show_progress:
+                iterator = tqdm(combinations, total=len(combinations), desc="Optimizing")
+
+            for params in iterator:
+                result = self._run_backtest(
                     self.strategy_class,
                     params,
                     clean_data,
                     initial_capital,
+                    contract_multiplier,
                     self.indicator_fn,
-                ): params
-                for params in combinations
-            }
+                )
+                if result:
+                    self.results.append(result)
+        else:
+            # --- Parallel execution ---
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_jobs) as executor:
+                # Submit all jobs
+                future_to_params = {
+                    executor.submit(
+                        self._run_backtest,
+                        self.strategy_class,
+                        params,
+                        clean_data,
+                        initial_capital,
+                        contract_multiplier,
+                        self.indicator_fn,
+                    ): params
+                    for params in combinations
+                }
 
-            # Process results as they complete
-            iterator = concurrent.futures.as_completed(future_to_params)
-            if show_progress:
-                iterator = tqdm(iterator, total=len(combinations), desc="Optimizing")
+                # Process results as they complete
+                iterator = concurrent.futures.as_completed(future_to_params)
+                if show_progress:
+                    iterator = tqdm(iterator, total=len(combinations), desc="Optimizing")
 
-            for future in iterator:
-                try:
-                    result = future.result()
-                    if result:
-                        self.results.append(result)
-                except Exception as e:
-                    print(f"Optimization job failed: {e}")
+                for future in iterator:
+                    try:
+                        result = future.result()
+                        if result:
+                            self.results.append(result)
+                    except Exception as e:
+                        print(f"Optimization job failed: {e}")
 
         # Sort by objective
         self.results.sort(
@@ -207,6 +229,7 @@ class GridSearch:
         )
 
         return self.results
+
 
     @property
     def best_params(self) -> Optional[Dict[str, Any]]:
