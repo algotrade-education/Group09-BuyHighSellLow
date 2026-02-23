@@ -12,6 +12,7 @@ from config.config import (
 )
 from src.data.preprocessor import Preprocessor
 from src.engine.backtester import Backtester
+from src.engine.result import BacktestResult
 from src.run_data_loader import load_data
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
@@ -46,23 +47,68 @@ def run_backtest(
 
     # Run backtest
     logger.info("Starting backtest execution...")
-    # result = backtester.run(data)
 
-    # Print summary to console, log details to file
+    # Print summary to console
     print("\n" + "=" * 60)
     print("BACKTEST RESULTS")
+    print("=" * 60)
+    print(f"\nStrategy: {strategy.name}")
+    print(f"Parameters: {strategy.params}")
+
+    print("\nPerformance Metrics:")
+    for key, value in result.metrics.items():
+        if isinstance(value, float):
+            print(f"  {key:25}: {value:.4f}")
+        else:
+            print(f"  {key:25}: {value}")
+
+    print(f"\nTotal Trades: {result.total_trades}")
+    print(f"Win Rate:     {result.win_rate:.2f}%")
+    print(f"Total P&L:    {result.total_pnl:.2f}")
     print("=" * 60)
 
     # Save results
     output_dir = Path(RESULTS_DIR)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     # Subdirectory for this run
     run_dir = output_dir / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # TODO: Save results to run_dir, e.g. as CSV or JSON
+    # Save equity curve
+    equity_path = run_dir / "equity_curve.csv"
+    result.equity_curve.to_csv(equity_path, index=False)
+    logger.info("Equity curve saved to: %s", equity_path)
+
+    # Save trades
+    if result.trades:
+        trades_path = run_dir / "trades.csv"
+        result.to_dataframe().to_csv(trades_path, index=False)
+        logger.info("Trades saved to: %s", trades_path)
+
+    # --- PLOTTING ---
+    logger.info("Generating plots...")
+    plotter = BacktestPlotter(output_dir=run_dir)
+
+    # 1. Equity Curve
+    plotter.plot_equity_curve(
+        result.equity_curve,
+        initial_capital=initial_capital,
+        filename="equity_curve.png",
+    )
+
+    # 2. Backtest Results (Price, Indicators, Signals)
+    # Reconstruct data with indicators directly from data passed to run_backtest
+    # The 'data' passed to this function already has the indicators from Preprocessor
+    plotter.plot_backtest_results(
+        data=data, trades=result.trades, filename="backtest_results.png"
+    )
+
+    # 3. Trade Analysis
+    plotter.plot_trade_analysis(trades=result.trades, filename="trade_analysis.png")
+
+    # 4. Exit Reasons
+    plotter.plot_exit_reasons(trades=result.trades, filename="exit_reasons.png")
 
 
 if __name__ == "__main__":

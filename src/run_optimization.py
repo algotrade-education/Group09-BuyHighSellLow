@@ -13,21 +13,22 @@ from src.utils.logger import setup_logging
 logger = setup_logging(__name__, log_file="logs/optimization.log")
 
 
+def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """Recalculate indicators using parameters from each grid combination."""
+    preprocessor = Preprocessor(
+        sma_period=params.get("sma_period", 20),
+        bb_std=params.get("bb_std", 2.0),
+        slope_lookback=params.get("slope_lookback", 1),
+    )
+    return preprocessor.add_all_indicators(df, copy=False)
+
+
 def run_optimization(data: pd.DataFrame, config: dict) -> None:
     """Run grid search optimization."""
     logger.info("Starting Grid Search Optimization...")
 
-    # Function to recalculate indicators based on params
-    def recalculate_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
-        """Recalculate indicators using params from each grid search combination."""
-        preprocessor = Preprocessor(
-            sma_period=params.get("sma_period", 20),
-            bb_std=params.get("bb_std", 2.0),
-            slope_lookback=params.get("slope_lookback", 1),
-        )
-        return preprocessor.add_all_indicators(data, copy=False)
-
-    # Define parameter grid for optimization
+    # Use ranges around default/config values if possible
+    # For now keep the hardcoded grid
     param_grid = {
         # For example, optimizing SMA period and Bollinger Bands std deviation
         # "sma_period": [10, 20, 50],

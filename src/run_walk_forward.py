@@ -9,6 +9,16 @@ from src.utils.logger import setup_logging
 logger = setup_logging(__name__, log_file="logs/walk_forward.log")
 
 
+def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """Recalculate indicators using parameters from each grid combination."""
+    preprocessor = Preprocessor(
+        sma_period=params.get("sma_period", 20),
+        bb_std=params.get("bb_std", 2.0),
+        slope_lookback=params.get("slope_lookback", 1),
+    )
+    return preprocessor.add_all_indicators(df, copy=False)
+
+
 def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
     """Run walk-forward optimization."""
     logger.info("Starting Walk-Forward Optimization...")
@@ -16,14 +26,8 @@ def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
     # Use ranges around default/config values if possible
     # For now keep the hardcoded grid
     param_grid = {
+        
     }
-
-    # Create a local preprocessor instance for indicator recalculation
-    local_preprocessor = Preprocessor()
-    def recalculate_indicators(data: pd.DataFrame, params: dict) -> pd.DataFrame:
-        """Recalculate indicators using params from each walk-forward iteration."""
-        return local_preprocessor.add_all_indicators(data, copy=False)
-
 
     wf_optimizer = WalkForwardOptimizer(
         strategy_class=None,
