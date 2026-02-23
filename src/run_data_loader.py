@@ -3,9 +3,9 @@ Script to fetch and load market data for specified contracts.
 Defaults to VN30F1M contract.
 
 Run as:
-python src/run_data_loader.py --mode fetch
+    python src/run_data_loader.py --mode fetch
 to fetch data from database, or
-python src/run_data_loader.py --mode load
+    python src/run_data_loader.py --mode load
 to load existing data.
 """
 

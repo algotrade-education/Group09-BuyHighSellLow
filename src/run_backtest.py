@@ -1,3 +1,17 @@
+"""
+Script to run backtest on a given strategy and parameter set.
+Run as:
+    python src/run_backtest.py --sample is --contract VN30F1M --config config/strategy_params/default.json
+for in-sample backtest with default parameters, or adjust arguments as needed.
+
+This script will:
+1. Load the specified data (in-sample or out-of-sample).
+2. Preprocess the data (resample, add indicators).
+3. Initialize the strategy with parameters from the config file.
+4. Run the backtest and collect results.
+5. Save detailed results (equity curve, trades) to the results directory.
+"""
+
 from datetime import datetime
 from pathlib import Path
 
@@ -155,8 +169,7 @@ if __name__ == "__main__":
     # TODO: Extract specific parameters needed for indicator recalculation if optimizing those parameters
 
     # Create preprocessor with matching parameters
-    preprocessor = Preprocessor(
-    )
+    preprocessor = Preprocessor()
 
     # Resample to OHLC bars and add indicators
     data = preprocessor.prepare_for_backtest(data, resample_freq=resample_freq)

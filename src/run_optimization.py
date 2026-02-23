@@ -1,3 +1,18 @@
+"""
+Script to run optimization (grid search) on strategy parameters.
+Run as:
+    python src/run_optimization.py --sample is
+to optimize on in-sample data, or
+    python src/run_optimization.py --sample os
+to optimize on out-of-sample data.
+
+This script will:
+1. Load the specified data (in-sample or out-of-sample).
+2. Preprocess the data (resample, add indicators).
+3. Run grid search optimization over specified parameter ranges.
+4. Print top results to console and save detailed results to the results directory.
+"""
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +40,7 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     df = preprocessor.add_all_indicators(df, copy=False)
     df.dropna(inplace=True)
     return df
+
 
 def run_optimization(data: pd.DataFrame, config: dict) -> None:
     """Run grid search optimization."""

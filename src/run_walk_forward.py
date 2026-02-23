@@ -23,16 +23,13 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     return df
 
 
-
 def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
     """Run walk-forward optimization."""
     logger.info("Starting Walk-Forward Optimization...")
 
     # Use ranges around default/config values if possible
     # For now keep the hardcoded grid
-    param_grid = {
-        
-    }
+    param_grid = {}
 
     wf_optimizer = WalkForwardOptimizer(
         strategy_class=None,
