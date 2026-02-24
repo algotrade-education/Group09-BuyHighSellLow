@@ -29,6 +29,7 @@ from src.engine.backtester import Backtester
 from src.engine.result import BacktestResult
 from src.metrics.plotter import BacktestPlotter
 from src.run_data_loader import load_data
+from src.strategy.BB import BollingerMeanReversion
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 
@@ -45,28 +46,31 @@ def run_backtest(
 ) -> None:
     """Run backtest with given parameters."""
 
-    # Fetch the parameters
-    # YOUR CODE HERE
+    # Extract strategy parameters from config
+    strategy_params = params.get("strategy", {})
+
+    # Remove non-strategy keys that the constructor doesn't accept
+    strategy_kwargs = {
+        k: v
+        for k, v in strategy_params.items()
+        if k not in ("resample_freq",)
+    }
 
     # Initialize strategy
-    # YOUR CODE HERE
+    strategy = BollingerMeanReversion(**strategy_kwargs)
 
     # Create backtester
-    # backtester = Backtester(
-    #     strategy=None,
-    #     initial_capital=initial_capital,
-    #     commission_rate=commission_rate,
-    #     contract_multiplier=contract_multiplier,
-    #     margin_rate=margin_rate,
-    # )
+    backtester = Backtester(
+        strategy=strategy,
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        contract_multiplier=contract_multiplier,
+        margin_rate=margin_rate,
+    )
 
     # Run backtest
     logger.info("Starting backtest execution...")
-    result: BacktestResult = BacktestResult(
-        trades=[],
-        equity_curve=pd.DataFrame(),
-        metrics={},
-    )
+    result: BacktestResult = backtester.run(data)
 
     # Print summary to console
     print("\n" + "=" * 60)
@@ -118,7 +122,6 @@ def run_backtest(
     )
 
     # 2. Backtest Results (Price, Indicators, Signals)
-    # Reconstruct data with indicators directly from data passed to run_backtest
     # The 'data' passed to this function already has the indicators from Preprocessor
     plotter.plot_backtest_results(
         data=data, trades=result.trades, filename="backtest_results.png"
@@ -157,18 +160,23 @@ if __name__ == "__main__":
     # Load data based on arguments
     data = load_data(sample=args.sample, contract=args.contract)
 
-    # Get resample frequency from config, default to 1min if not specified
-    resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
+    # Get resample frequency from config, default to 5min if not specified
+    resample_freq = config.get("strategy", {}).get("resample_freq", "5min")
     logger.info(
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
 
     # Get strategy parameters to initialize preprocessor with matching parameters
     strategy_params = config.get("strategy", {})
-    # TODO: Extract specific parameters needed for indicator recalculation if optimizing those parameters
 
-    # Create preprocessor with matching parameters
-    preprocessor = Preprocessor()
+    # Create preprocessor with matching parameters from config
+    preprocessor = Preprocessor(
+        sma_period=strategy_params.get("bb_period", 20),
+        bb_std=strategy_params.get("bb_std", 2.0),
+        rsi_period=strategy_params.get("rsi_period", 14),
+        adx_period=strategy_params.get("adx_period", 14),
+        atr_period=strategy_params.get("atr_period", 14),
+    )
 
     # Resample to OHLC bars and add indicators
     data = preprocessor.prepare_for_backtest(data, resample_freq=resample_freq)

@@ -22,6 +22,7 @@ import pandas as pd
 from src.data.preprocessor import Preprocessor
 from src.optimization.grid_search import GridSearch
 from src.run_data_loader import load_data
+from src.strategy.BB import BollingerMeanReversion
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 
@@ -32,11 +33,14 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Recalculate indicators using parameters from each grid combination.
     This function will be called by the optimization process for each parameter set.
-
-    Optional: You can implement specific indicator recalculations based on the parameters being optimized.
-    For example, if optimizing SMA periods, you would recalculate the SMA indicators here.
     """
-    preprocessor = Preprocessor()
+    preprocessor = Preprocessor(
+        sma_period=params.get("bb_period", 20),
+        bb_std=params.get("bb_std", 2.0),
+        rsi_period=params.get("rsi_period", 14),
+        adx_period=params.get("adx_period", 14),
+        atr_period=params.get("atr_period", 14),
+    )
     df = preprocessor.add_all_indicators(df, copy=False)
     df.dropna(inplace=True)
     return df
@@ -46,18 +50,31 @@ def run_optimization(data: pd.DataFrame, config: dict) -> None:
     """Run grid search optimization."""
     logger.info("Starting Grid Search Optimization...")
 
-    # Use ranges around default/config values if possible
-    # For now keep the hardcoded grid
+    # Parameter grid: test a range around defaults for the most impactful params
+    # Keeping bb_period, rsi_period, adx_period, atr_period fixed to reduce
+    # search space (changing periods requires indicator recalculation anyway).
     param_grid = {
-        # For example, optimizing SMA period and Bollinger Bands std deviation
-        # "sma_period": [10, 20, 50],
+        "bb_period": [20],
+        "bb_std": [2.0, 2.5, 3.0, 5.0],
+        "adx_threshold": [25, 30, 35],
+        "rsi_oversold": [30, 35, 40],
+        "rsi_overbought": [60, 65, 70],
+        "atr_sl_multiplier": [1.0, 1.5, 2.0, 3.0],
     }
 
+    total = 1
+    for v in param_grid.values():
+        total *= len(v)
+    logger.info("Total combinations: %d", total)
+
     # Initialize GridSearch
+    # Using profit_factor as objective: it balances win rate AND magnitude
+    # (gross_profit / gross_loss). Unlike Sharpe alone, it penalizes strategies
+    # that win often but lose big, or win big but lose often.
     grid_search = GridSearch(
-        strategy_class=None,
+        strategy_class=BollingerMeanReversion,
         param_grid=param_grid,
-        objective="sharpe_ratio",
+        objective="profit_factor",
         indicator_fn=recalculate_indicators,
     )
 
@@ -124,7 +141,7 @@ if __name__ == "__main__":
     # Load data based on arguments
     data = load_data(sample=args.sample, contract=args.contract)
 
-    resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
+    resample_freq = config.get("strategy", {}).get("resample_freq", "5min")
     logger.info(
         "Preprocessing %s data for %s (resample: %s)...",
         args.sample,
