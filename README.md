@@ -1,24 +1,46 @@
-# Algorithm Name
+# Opening Range Breakout (ORB) Strategy
 
 ## Abstract
+This repository implements an **Opening Range Breakout (ORB)** trading strategy specifically designed for the VN30F1M (Vietnam VN30 Index Futures). It takes advantage of early-session volatility by identifying an opening range and trading breakouts beyond this range. 
 
 ## Introduction
+The Opening Range Breakout (ORB) strategy is a widely used intraday trading technique. It relies on the premise that the highest high and lowest low of the first few minutes of a trading session establish significant support and resistance levels. A breakout of this range often signals a strong intraday trend.
 
 ## Trading Hypothesis
+The core hypothesis is that early morning or early afternoon sessions, when liquidity enters the market, create significant price movements. Once the market breaches the initial consolidation range, it tends to continue in the breakout direction.
 
 ### Target Market
+- **Instrument**: VN30F1M (VN30 Index Futures)
+- **Timeframe**: Tick-by-tick data, typically resampled to 5-minute OHLC bars.
+- **Sessions**: The strategy accounts for the two distinct trading sessions in the Vietnamese market:
+  - Morning Session: 09:00 - 11:30
+  - Afternoon Session: 13:00 - 14:30
 
 ### Entry Conditions
+An "opening range" is established during the first $N$ minutes (e.g., 15 minutes) of *each* session. The strategy waits for the range to form before generating any signals. Maximum of 1 trade per session.
 
 #### Buy Signal (Bullish Hypothesis)
+- **Condition**: $\text{Close price} > \text{Range High} + (\text{Breakout Buffer} \times \text{ATR})$
+- **Logic**: A strong close above the opening range high, plus a volatility-adjusted buffer (ATR), indicates bullish momentum. 
 
-#### Sell Signal (Bearish Hyopothesis)
+#### Sell Signal (Bearish Hypothesis)
+- **Condition**: $\text{Close price} < \text{Range Low} - (\text{Breakout Buffer} \times \text{ATR})$
+- **Logic**: A strong close below the opening range low, minus a volatility-adjusted buffer, indicates bearish momentum. (Can be disabled via `long_only` mode).
 
 ### Indicators Used
+- **Average True Range (ATR)**: Used for measuring volatility, determining the breakout buffer, evaluating range viability, and setting take profits / stop losses.
+- **Volume Moving Average (Volume MA)** *(Optional)*: A volume filter ensuring breakouts are supported by above-average volume.
+- **Average Directional Index (ADX)** *(Optional)*: A trend filter to ensure the breakout occurs in a sufficiently trending market environment before entering.
 
 ### Order Execution
+- **Type**: Market Orders. The strategy enters immediately when the entry conditions are met.
 
 ### Exit Conditions
+- **Stop Loss**: 
+  - *Range-based SL*: Stop loss is placed at the opposite side of the opening range.
+  - *ATR-based SL*: Fallback stop loss based on entry price minus (Multiplier * ATR).
+- **Take Profit**: ATR-based. Take profit is set at a distance from the entry price equal to (Multiplier * ATR).
+- **End of Day (EOD)**: All open positions are flattened at the end of the trading session by the engine's session manager.
 
 ---
 
@@ -92,6 +114,8 @@ python -m src.run_backtest --sample os --contract VN30F1M --config config/strate
 
 #### Run Optimization
 
+This will perform an Optuna optimization to find the best parameters for the strategy based on in-sample data.
+
 ```bash
 python -m src.run_optimization --contract [contract_name]
 ```
@@ -100,6 +124,39 @@ python -m src.run_optimization --contract [contract_name]
 
 ```bash
 python -m src.run_walk_forward --contract [contract_name]
+```
+
+### Parameter Configuration
+
+Strategy parameters are defined in JSON files located in the `config/strategy_params/` directory.
+You can create custom configurations or use the default one provided.
+
+```json
+{
+  "strategy": {
+    "resample_freq": "5min",
+    "orb_minutes": 15,
+    "atr_period": 14,
+    "atr_tp_multiplier": 2.0,
+    "atr_sl_multiplier": 1.5,
+    "breakout_buffer": 0.1,
+    "use_range_sl": true,
+    "min_range_atr": 0.5,
+    "max_range_atr": 3.0,
+    "long_only": false,
+    "use_volume_filter": false,
+    "use_adx_filter": false,
+    "adx_min": 20
+  },
+  "risk": {
+    "min_position_size": 1,
+    "max_position_size": 10,
+    "risk_per_trade_pct": 1.0,
+    "max_daily_loss": 0.02,
+    "use_trailing_stop": true,
+    "trailing_atr_multiplier": 2.0
+  }
+}
 ```
 
 ---
@@ -127,42 +184,190 @@ By default, the system fetches **VN30F1M** tick-by-tick data from a PostgreSQL d
 
 Raw tick data undergoes a rigorous preprocessing pipeline before being used in backtests. This is handled by the `Preprocessor` class:
 
-1.  **Cleaning**:
-    -   **Deduplication**: Duplicate entries are removed.
-    -   **Missing Values**: Price columns are forward-filled (`ffill`) to handle gaps. Rows with missing critical timestamps are dropped.
+1. **Cleaning**: remove duplicates, forward-fill missing prices, and drop rows with missing key timestamps.
+2. **Feature Engineering**: derive per-tick volume from cumulative quantity and resample tick data into OHLC bars (e.g., 5min, 15min, 1h).
+3. **Filtering**: restrict data to active trading hours (e.g., 09:00–14:30) unless ATC is requested.
+4. **Indicators**: compute 20-period SMA with slope, 20-period Bollinger Bands (2.0 std), 20-period Volume MA, 14-period RSI, and 14-period ADX
+---
 
-2.  **Feature Engineering**:
-    -   **Volume Derivation**: The raw `quantity` column represents cumulative volume. The preprocessor calculates per-tick `volume` by taking the difference of `quantity` between consecutive ticks, handling daily resets automatically.
-    -   **Resampling**: Convert tick-by-tick data into OHLC (Open-High-Low-Close) bars at the specified frequency (e.g., `5min`, `15min`, `1h`) to standardize the timeframe for strategy execution.
-
-3.  **Filtering**:
-    -   **Trading Hours**: Data is filtered to strictly adhere to active trading hours (e.g., 09:00 - 14:30), removing pre-market or post-market noise unless ATC (At-The-Close) sessions are explicitly requested.
-
-4.  **Indicator Calculation**:
-    -   Computed on the resampled data:
-        -   **SMA & Slope**: Simple Moving Average (20-period) and its 1-period slope.
-        -   **Bollinger Bands**: 20-period, 2.0 standard deviation.
-        -   **Volume MA**: 20-period moving average of volume.
-        -   **RSI**: 14-period Relative Strength Index.
-        -   **ADX**: 14-period Average Directional Index (trend strength).
-
-5.  **Validation**:
-    -   The pipeline concludes with a validation step to ensure datetime continuity and data integrity before passing the dataset to the backtester.
-
-## In-Sample Backtesting
+## In-sample Backtesting
 
 ### Parameters
 
+Using the default parameters defined in `config/strategy_params/orb_default.json`:
+- Opening Range: 15 minutes
+- ATR configurations: 14-period ATR, TP multiplier 2.0, SL multiplier 1.5
+- Breakout Buffer: 0.1 ATR
+- Range viability: Minimum 0.5 ATR, Maximum 3.0 ATR
+- Long-only mode: Disabled (allows both long and short trades)
+- Volume filter: Disabled
+- ADX filter: Disabled
+- Risk management: 1% risk per trade, max position size of 10 contracts, trailing stop enabled with a 2.0 ATR multiplier.
+
 ### Results
+
+Period: January 1, 2024 - March 31, 2025 (in-sample period)
+
+Performance Metrics:
+| Metric                  | Value           |
+| ----------------------- | --------------- |
+| Total P&L               | -405,042,322.14 |
+| Total Return (%)        | -81.0085        |
+| Volatility (%)          | 16.4885         |
+| Sharpe Ratio            | -9.0560         |
+| Sortino Ratio           | -4.5209         |
+| Max Drawdown (%)        | -81.1017        |
+| Longest Drawdown (bars) | 13,773          |
+| Total Trades            | 503             |
+| Winning Trades          | 211             |
+| Losing Trades           | 292             |
+| Win Rate (%)            | 41.9483         |
+| Average Win             | 1,033,020.54    |
+| Average Loss            | 2,133,594.72    |
+
+#### Equity Curve
+
+![Portfolio Equity Curve](reports/IS/equity_curve.png)
+
+#### Drawdown Curve
+
+![Backtest Results](reports/IS/backtest_results.png)
+
+#### Trade Distribution
+
+![Trade Analysis](reports/IS/trade_analysis.png)
+
+#### Exit Reasons
+
+![Exit Reasons](reports/IS/exit_reasons.png)
 
 ## Optimization
 
-### Parameters
+### Optimization Scoring Function
+
+The strategy uses a custom composite objective function designed to balance risk-adjusted returns with drawdown and trade frequency.
+
+1. **Score Calculation for each trials**:
+$$
+\text{Score} = \text{Sharpe} - |0.1 \times \text{Max Drawdown}| - \left|0.1 \times \frac{\text{Trades}}{1000}\right|
+$$
+- **Sharpe Ratio**: Rewards higher risk-adjusted returns.
+- **Drawdown Penalty**: Penalizes strategies with large drawdowns, scaled by 0.1 to balance its influence.
+- **Trade Frequency Penalty**: Penalizes strategies that overfit to noise by taking too many trades, scaled by 0.1 and normalized by 1000 to keep it in a comparable range with the Sharpe ratio.
+2. **Additional Safeguards**:
+- **Minimum Trade Penalty**: If total trades $\le 100$, the score defaults to `-10.0` to prevent overfitting to low-frequency noise.
+- **Negative Sharpe Fallback**: If the Sharpe ratio is $\le 0$, `Total Return / 100` is used as a fallback score to help guide the optimizer toward positive expectancy.
+
+### Process
+
+We employ **Optuna (Tree-structured Parzen Estimator, TPE)** to search the strategy parameter space over `300` trials globally.
+Optimized parameters (from `src/run_optimization.py`):
+
+- **Strategy parameters**
+  - `resample_freq`: categorical → `5min`, `15min`, `1h`
+  - `orb_minutes`: int range `15` to `60` (step `5`)
+  - `atr_period`: int range `5` to `30` (step `1`)
+  - `atr_tp_multiplier`: float range `1.5` to `5.0` (step `0.1`)
+  - `atr_sl_multiplier`: float range `1.0` to `3.0` (step `0.1`)
+  - `breakout_buffer`: float range `0.0` to `0.5` (step `0.05`)
+  - `use_range_sl`: categorical → `True`, `False`
+  - `min_range_atr`: float range `0.3` to `1.5` (step `0.1`)
+  - `max_range_atr`: float range `2.0` to `5.0` (step `0.5`)
+  - `long_only`: categorical → `True`, `False`
+  - `use_volume_filter`: categorical → `True`, `False`
+  - `use_adx_filter`: categorical → `True`, `False`
+  - `adx_min`: float range `15.0` to `35.0` (step `1.0`)
+
+- **Risk parameters**
+  - `use_trailing_stop`: categorical → `True`, `False`
+  - `trailing_atr_multiplier`: float range `1.0` to `4.0` (step `0.5`)
+
 
 ### Results
+
+After optimization, the best parameters found were:
+
+```json
+{
+  "strategy": {
+    "resample_freq": "5min",
+    "orb_minutes": 60,
+    "atr_period": 28,
+    "atr_tp_multiplier": 4.5,
+    "atr_sl_multiplier": 1.0,
+    "breakout_buffer": 0.45,
+    "use_range_sl": false,
+    "min_range_atr": 1.5,
+    "max_range_atr": 3.5,
+    "long_only": true,
+    "use_volume_filter": true,
+    "use_adx_filter": false,
+    "adx_min": 26.0
+  },
+  "risk": {
+    "min_position_size": 1,
+    "max_position_size": 10,
+    "risk_per_trade_pct": 1.0,
+    "max_daily_loss": 0.02,
+    "use_trailing_stop": false,
+    "trailing_atr_multiplier": 1.0
+  }
+}
+```
+
+Performance Metrics:
+
+| Metric                  | Value         |
+| ----------------------- | ------------- |
+| Total P&L               | 25,857,751.70 |
+| Total Return (%)        | 5.1716        |
+| Volatility (%)          | 8.2985        |
+| Sharpe Ratio            | 0.5930        |
+| Sortino Ratio           | 0.1643        |
+| Max Drawdown (%)        | -9.4548       |
+| Longest Drawdown (bars) | 9,473         |
+| Total Trades            | 101           |
+| Winning Trades          | 36            |
+| Losing Trades           | 65            |
+| Win Rate (%)            | 35.6436       |
+| Average Win             | 6,625,064.85  |
+| Average Loss            | 3,271,455.12  |
 
 ## Out-of-sample Backtesting
 
-### Parameters
+Period: April 1, 2025 - December 31, 2025 (out-of-sample period)
 
-### Results
+Performance Metrics:
+
+| Metric                  | Value         |
+| ----------------------- | ------------- |
+| Total P&L               | 45,357,329.79 |
+| Total Return (%)        | 9.0715        |
+| Volatility (%)          | 18.3202       |
+| Sharpe Ratio            | 0.7183        |
+| Sortino Ratio           | 0.2243        |
+| Max Drawdown (%)        | -9.0200       |
+| Longest Drawdown (bars) | 3,540         |
+| Total Trades            | 71            |
+| Winning Trades          | 23            |
+| Losing Trades           | 48            |
+| Win Rate (%)            | 32.3944       |
+| Average Win             | 13,189,058.88 |
+| Average Loss            | 5,374,813.01  |
+
+![Portfolio Equity Curve](reports/Optimized%20OOS/equity_curve.png)
+
+### Comparison: IS vs Optimized IS vs Optimized OOS
+
+| Metric                | Default  | Optimized IS | Optimized OOS | Improvement                 | Improvement (%) |
+| --------------------- | -------- | ------------ | ------------- | --------------------------- | --------------- |
+| Total Return (%)      | -81.0085 | 5.1716       | 9.0715        | +90.0800 (OOS vs Default)   | +111.20%        |
+| Annualized Return (%) | -77.8404 | 4.6826       | 12.1730       | +90.0134 (OOS vs Default)   | +115.64%        |
+| Sharpe Ratio          | -9.0560  | 0.5930       | 0.7183        | +9.7743 (OOS vs Default)    | +107.93%        |
+| Sortino Ratio         | -4.5209  | 0.1643       | 0.2243        | +4.7452 (OOS vs Default)    | +104.96%        |
+| Max Drawdown (%)      | -81.1017 | -9.4548      | -9.0200       | +72.0817 (reduced drawdown) | +88.88%         |
+| Profit Factor         | 0.3499   | 1.1216       | 1.1758        | +0.8259 (OOS vs Default)    | +236.04%        |
+| Win Rate (%)          | 41.9483  | 35.6436      | 32.3944       | -9.5539 (OOS vs Default)    | -22.78%         |
+| Total Trades          | 503      | 101          | 71            | -432 (OOS vs Default)       | -85.88%         |
+
+> Note: Improvement values use **Optimized OOS vs Default IS** as the baseline. Percentage improvement is based on the absolute value of the default metric when the default metric is negative.
