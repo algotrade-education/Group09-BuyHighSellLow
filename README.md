@@ -368,6 +368,8 @@ Performance Metrics:
 
 ![Portfolio Equity Curve](reports/Optimized%20OOS/equity_curve.png)
 
+![Portfolio Equity Curve](reports/Optimized%20OOS/trade_analysis.png)
+
 ### Comparison: IS vs Optimized IS vs Optimized OOS
 
 | Metric                | Default  | Optimized IS | Optimized OOS | Improvement                 | Improvement (%) |
