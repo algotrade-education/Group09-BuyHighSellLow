@@ -260,19 +260,19 @@ $$
 
 ### Process
 
-We employ **Optuna (Tree-structured Parzen Estimator, TPE)** to search the strategy parameter space over `300` trials globally.
+We employ **Optuna (Tree-structured Parzen Estimator, TPE)** to search the strategy parameter space over `1000` trials globally.
 Optimized parameters (from `src/run_optimization.py`):
 
 - **Strategy parameters**
   - `resample_freq`: categorical → `5min`, `15min`, `1h`
   - `orb_minutes`: int range `15` to `60` (step `5`)
   - `atr_period`: int range `5` to `30` (step `1`)
-  - `atr_tp_multiplier`: float range `1.5` to `5.0` (step `0.1`)
-  - `atr_sl_multiplier`: float range `1.0` to `3.0` (step `0.1`)
+  - `atr_tp_multiplier`: float range `1.5` to `6.0` (step `0.1`)
+  - `atr_sl_multiplier`: float range `0.5` to `3.0` (step `0.1`)
   - `breakout_buffer`: float range `0.0` to `0.5` (step `0.05`)
   - `use_range_sl`: categorical → `True`, `False`
   - `min_range_atr`: float range `0.3` to `1.5` (step `0.1`)
-  - `max_range_atr`: float range `2.0` to `5.0` (step `0.5`)
+  - `max_range_atr`: float range `2.0` to `5.0` (step `0.2`)
   - `long_only`: categorical → `True`, `False`
   - `use_volume_filter`: categorical → `True`, `False`
   - `use_adx_filter`: categorical → `True`, `False`
@@ -280,7 +280,7 @@ Optimized parameters (from `src/run_optimization.py`):
 
 - **Risk parameters**
   - `use_trailing_stop`: categorical → `True`, `False`
-  - `trailing_atr_multiplier`: float range `1.0` to `4.0` (step `0.5`)
+  - `trailing_atr_multiplier`: float range `1.0` to `4.0` (step `0.25`)
 
 
 ### Results
@@ -290,19 +290,19 @@ After optimization, the best parameters found were:
 ```json
 {
   "strategy": {
-    "resample_freq": "5min",
-    "orb_minutes": 60,
-    "atr_period": 28,
-    "atr_tp_multiplier": 4.5,
-    "atr_sl_multiplier": 1.0,
-    "breakout_buffer": 0.45,
+    "resample_freq": "15min",
+    "orb_minutes": 35,
+    "atr_period": 11,
+    "atr_tp_multiplier": 5.0,
+    "atr_sl_multiplier": 0.5,
+    "breakout_buffer": 0.25,
     "use_range_sl": false,
-    "min_range_atr": 1.5,
-    "max_range_atr": 3.5,
+    "min_range_atr": 0.4,
+    "max_range_atr": 2.4,
     "long_only": true,
     "use_volume_filter": true,
     "use_adx_filter": false,
-    "adx_min": 26.0
+    "adx_min": 28.0
   },
   "risk": {
     "min_position_size": 1,
@@ -319,19 +319,23 @@ Performance Metrics:
 
 | Metric                  | Value         |
 | ----------------------- | ------------- |
-| Total P&L               | 25,857,751.70 |
-| Total Return (%)        | 5.1716        |
-| Volatility (%)          | 8.2985        |
-| Sharpe Ratio            | 0.5930        |
-| Sortino Ratio           | 0.1643        |
-| Max Drawdown (%)        | -9.4548       |
-| Longest Drawdown (bars) | 9,473         |
-| Total Trades            | 101           |
-| Winning Trades          | 36            |
-| Losing Trades           | 65            |
-| Win Rate (%)            | 35.6436       |
-| Average Win             | 6,625,064.85  |
-| Average Loss            | 3,271,455.12  |
+| Total P&L               | 133,104,939.09 |
+| Total Return (%)        | 26.6210       |
+| Annualized Return (%)   | 24.0164       |
+| CAGR (%)                | 24.0164       |
+| Volatility (%)          | 13.6582       |
+| Sharpe Ratio            | 1.6441        |
+| Sortino Ratio           | 0.8590        |
+| Max Drawdown (%)        | -7.9991       |
+| Longest Drawdown (bars) | 1,665         |
+| Total Trades            | 135           |
+| Winning Trades          | 33            |
+| Losing Trades           | 102           |
+| Win Rate (%)            | 24.4444       |
+| Profit Factor           | 1.4226        |
+| Average Win             | 13,577,375.48 |
+| Average Loss            | 3,087,729.92  |
+| Information Ratio       | None          |
 
 ## Out-of-sample Backtesting
 
@@ -341,19 +345,23 @@ Performance Metrics:
 
 | Metric                  | Value         |
 | ----------------------- | ------------- |
-| Total P&L               | 45,357,329.79 |
-| Total Return (%)        | 9.0715        |
-| Volatility (%)          | 18.3202       |
-| Sharpe Ratio            | 0.7183        |
-| Sortino Ratio           | 0.2243        |
-| Max Drawdown (%)        | -9.0200       |
-| Longest Drawdown (bars) | 3,540         |
-| Total Trades            | 71            |
-| Winning Trades          | 23            |
-| Losing Trades           | 48            |
-| Win Rate (%)            | 32.3944       |
-| Average Win             | 13,189,058.88 |
-| Average Loss            | 5,374,813.01  |
+| Total P&L               | 197,126,341.34 |
+| Total Return (%)        | 39.4253       |
+| Annualized Return (%)   | 54.5407       |
+| CAGR (%)                | 54.5407       |
+| Volatility (%)          | 26.1306       |
+| Sharpe Ratio            | 1.7961        |
+| Sortino Ratio           | 0.9970        |
+| Max Drawdown (%)        | -13.4789      |
+| Longest Drawdown (bars) | 781           |
+| Total Trades            | 86            |
+| Winning Trades          | 19            |
+| Losing Trades           | 67            |
+| Win Rate (%)            | 22.0930       |
+| Profit Factor           | 1.5569        |
+| Average Win             | 29,005,398.06 |
+| Average Loss            | 5,283,227.19  |
+| Information Ratio       | None          |
 
 ![Portfolio Equity Curve](reports/Optimized%20OOS/equity_curve.png)
 
@@ -361,13 +369,13 @@ Performance Metrics:
 
 | Metric                | Default  | Optimized IS | Optimized OOS | Improvement                 | Improvement (%) |
 | --------------------- | -------- | ------------ | ------------- | --------------------------- | --------------- |
-| Total Return (%)      | -81.0085 | 5.1716       | 9.0715        | +90.0800 (OOS vs Default)   | +111.20%        |
-| Annualized Return (%) | -77.8404 | 4.6826       | 12.1730       | +90.0134 (OOS vs Default)   | +115.64%        |
-| Sharpe Ratio          | -9.0560  | 0.5930       | 0.7183        | +9.7743 (OOS vs Default)    | +107.93%        |
-| Sortino Ratio         | -4.5209  | 0.1643       | 0.2243        | +4.7452 (OOS vs Default)    | +104.96%        |
-| Max Drawdown (%)      | -81.1017 | -9.4548      | -9.0200       | +72.0817 (reduced drawdown) | +88.88%         |
-| Profit Factor         | 0.3499   | 1.1216       | 1.1758        | +0.8259 (OOS vs Default)    | +236.04%        |
-| Win Rate (%)          | 41.9483  | 35.6436      | 32.3944       | -9.5539 (OOS vs Default)    | -22.78%         |
-| Total Trades          | 503      | 101          | 71            | -432 (OOS vs Default)       | -85.88%         |
+| Total Return (%)      | -81.0085 | 26.6210      | 39.4253       | +120.4338 (OOS vs Default)  | +148.67%        |
+| Annualized Return (%) | -77.8404 | 24.0164      | 54.5407       | +132.3811 (OOS vs Default)  | +170.07%        |
+| Sharpe Ratio          | -9.0560  | 1.6441       | 1.7961        | +10.8521 (OOS vs Default)   | +119.83%        |
+| Sortino Ratio         | -4.5209  | 0.8590       | 0.9970        | +5.5179 (OOS vs Default)    | +122.05%        |
+| Max Drawdown (%)      | -81.1017 | -7.9991      | -13.4789      | +67.6228 (reduced drawdown) | +83.38%         |
+| Profit Factor         | 0.3499   | 1.4226       | 1.5569        | +1.2070 (OOS vs Default)    | +345.05%        |
+| Win Rate (%)          | 41.9483  | 24.4444      | 22.0930       | -19.8553 (OOS vs Default)   | -47.33%         |
+| Total Trades          | 503      | 135          | 86            | -417 (OOS vs Default)       | -82.90%         |
 
 > Note: Improvement values use **Optimized OOS vs Default IS** as the baseline. Percentage improvement is based on the absolute value of the default metric when the default metric is negative.

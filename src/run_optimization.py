@@ -76,12 +76,12 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         },
         "orb_minutes": {"type": "int", "low": 15, "high": 60, "step": 5},
         "atr_period": {"type": "int", "low": 5, "high": 30, "step": 1},
-        "atr_tp_multiplier": {"type": "float", "low": 1.5, "high": 5.0, "step": 0.1},
-        "atr_sl_multiplier": {"type": "float", "low": 1.0, "high": 3.0, "step": 0.1},
+        "atr_tp_multiplier": {"type": "float", "low": 1.5, "high": 6.0, "step": 0.1},
+        "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.1},
         "breakout_buffer": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.05},
         "use_range_sl": {"type": "categorical", "choices": [True, False]},
-        "min_range_atr": {"type": "float", "low": 0.3, "high": 1.5, "step": 0.1},
-        "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.5},
+        "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
+        "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.2},
         "long_only": {"type": "categorical", "choices": [True, False]},
         "use_volume_filter": {"type": "categorical", "choices": [True, False]},
         "use_adx_filter": {"type": "categorical", "choices": [True, False]},
@@ -89,7 +89,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         
         # Risk management
         "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
-        "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.5},
+        "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
     }
 
     # Extract risk params for backtester
