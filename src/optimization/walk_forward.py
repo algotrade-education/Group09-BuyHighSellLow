@@ -234,7 +234,7 @@ class WalkForwardOptimizer:
             WalkForwardResult with all window results
         """
         # Remove indicators from data to avoid using stale values
-        base_columns = ["datetime", "open", "high", "low", "close"]
+        base_columns = ["datetime", "open", "high", "low", "close", "volume"]
 
         # Only keep base columns that exist in the dataframe
         available_base_cols = [col for col in base_columns if col in data.columns]

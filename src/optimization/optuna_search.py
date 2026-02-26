@@ -72,6 +72,7 @@ class OptunaSearch:
         turnover_penalty: float = 0.0,
         n_trials: int = 200,
         seed: int = 42,
+        backtester_kwargs: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize Optuna optimizer.
@@ -95,6 +96,8 @@ class OptunaSearch:
             turnover_penalty: Weight for turnover (trade count / 1000) penalty.
             n_trials: Number of optimization trials.
             seed: Random seed for reproducibility.
+            backtester_kwargs: Optional dictionary of keyword arguments to pass
+                               to the Backtester constructor.
         """
         if not OPTUNA_AVAILABLE:
             raise ImportError(
@@ -113,6 +116,7 @@ class OptunaSearch:
 
         self.results: List[OptunaResult] = []
         self.study: Optional[optuna.Study] = None
+        self.backtester_kwargs = backtester_kwargs or {}
 
     def _sample_params(self, trial: "Trial") -> Dict[str, Any]:
         """
@@ -225,10 +229,22 @@ class OptunaSearch:
                 test_data = self.indicator_fn(data.copy(), params)
 
             # Filter out params that aren't strategy constructor args
-            # (e.g., resample_freq is a data param, not a strategy param)
+            # (e.g., resample_freq, trailing stop are Backtester-level params)
+            non_strategy_params = (
+                "resample_freq",
+                "use_trailing_stop",
+                "trailing_atr_multiplier",
+            )
             strategy_params = {
-                k: v for k, v in params.items() if k not in ("resample_freq",)
+                k: v for k, v in params.items() if k not in non_strategy_params
             }
+
+            # Build backtester kwargs with any trailing stop from trial params
+            bt_kwargs = dict(self.backtester_kwargs)
+            if "use_trailing_stop" in params:
+                bt_kwargs["use_trailing_stop"] = params["use_trailing_stop"]
+            if "trailing_atr_multiplier" in params:
+                bt_kwargs["trailing_atr_multiplier"] = params["trailing_atr_multiplier"]
 
             # Create and run backtest
             strategy = self.strategy_class(**strategy_params)
@@ -236,6 +252,7 @@ class OptunaSearch:
                 strategy=strategy,
                 initial_capital=initial_capital,
                 contract_multiplier=contract_multiplier,
+                **bt_kwargs,
             )
             result = backtester.run(test_data)
 
@@ -265,7 +282,7 @@ class OptunaSearch:
 
         except Exception as e:
             logger.error("Trial %d failed: %s", trial.number, e)
-            return -1.0
+            return -100.0
 
     def optimize(
         self,

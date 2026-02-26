@@ -436,6 +436,15 @@ class Preprocessor:
         df["bb_middle"] = df[sma_col]
         df["bb_lower"] = df[sma_col] - (std_dev * rolling_std)
 
+        # %B: position of close relative to bands (0 = lower, 1 = upper)
+        bb_range = df["bb_upper"] - df["bb_lower"]
+        df["bb_pctb"] = (df[column] - df["bb_lower"]) / bb_range.replace(
+            0, float("nan")
+        )
+
+        # Bandwidth: band width relative to middle band (squeeze detection)
+        df["bb_bandwidth"] = bb_range / df["bb_middle"].replace(0, float("nan"))
+
         return df
 
     def add_all_indicators(self, df: pd.DataFrame, copy: bool = True) -> pd.DataFrame:

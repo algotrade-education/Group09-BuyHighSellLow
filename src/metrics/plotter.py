@@ -120,15 +120,15 @@ class BacktestPlotter:
             )
 
             # Plot SMA
-            if "bb_middle" in data.columns:
-                plt.plot(
-                    data["datetime"],
-                    data["bb_middle"],
-                    label="SMA",
-                    color="blue",
-                    linestyle="-",
-                    alpha=0.8,
-                )
+            # if "bb_middle" in data.columns:
+            #     plt.plot(
+            #         data["datetime"],
+            #         data["bb_middle"],
+            #         label="SMA",
+            #         color="blue",
+            #         linestyle="-",
+            #         alpha=0.8,
+            #     )
 
             # Plot Bollinger Bands
             # if "bb_upper" in data.columns and "bb_lower" in data.columns:
