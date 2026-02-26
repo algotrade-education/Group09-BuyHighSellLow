@@ -338,6 +338,8 @@ Performance Metrics:
 | Average Loss            | 3,087,729.92  |
 | Information Ratio       | None          |
 
+![Portfolio Equity Curve](reports/Optimized%20IS/equity_curve.png)
+
 ## Out-of-sample Backtesting
 
 Period: April 1, 2025 - December 31, 2025 (out-of-sample period)
