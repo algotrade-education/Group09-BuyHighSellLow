@@ -16,11 +16,5 @@
   "risk": {
     "max_position_size": 1,
     "max_daily_loss": 0.02
-  },
-  "trading_hours": {
-    "morning_start": "09:00",
-    "morning_end": "11:30",
-    "afternoon_start": "13:00",
-    "afternoon_end": "14:30"
   }
 }
