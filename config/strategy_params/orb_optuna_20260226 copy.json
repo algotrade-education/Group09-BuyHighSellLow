@@ -5,17 +5,17 @@
   "strategy": {
     "resample_freq": "5min",
     "orb_minutes": 60,
-    "atr_period": 28,
-    "atr_tp_multiplier": 4.5,
+    "atr_period": 26,
+    "atr_tp_multiplier": 4.6,
     "atr_sl_multiplier": 1.0,
     "breakout_buffer": 0.45,
     "use_range_sl": false,
     "min_range_atr": 1.5,
     "max_range_atr": 3.5,
     "long_only": true,
-    "use_volume_filter": true,
+    "use_volume_filter": false,
     "use_adx_filter": false,
-    "adx_min": 26.0
+    "adx_min": 24.0
   },
   "risk": {
     "min_position_size": 1,

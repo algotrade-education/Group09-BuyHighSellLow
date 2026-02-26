@@ -18,7 +18,7 @@
   },
   "risk": {
     "min_position_size": 1,
-    "max_position_size": 5,
+    "max_position_size": 10,
     "risk_per_trade_pct": 1.0,
     "max_daily_loss": 0.02,
     "use_trailing_stop": true,
