@@ -174,6 +174,32 @@ class TradeManager:
 
         return True
 
+    def _max_affordable_quantity(self, price: float) -> int:
+        """
+        Calculate the maximum contracts affordable by margin at a given price.
+
+        Uses current equity and currently used margin.
+        """
+        if price <= 0 or self.margin_rate <= 0 or self.contract_multiplier <= 0:
+            return 0
+
+        used_margin = 0.0
+        if not self.position.is_flat:
+            used_margin = (
+                self.position.entry_price
+                * self.position.quantity
+                * self.contract_multiplier
+                * self.margin_rate
+            )
+
+        available_equity = max(0.0, self.equity - used_margin)
+        margin_per_contract = price * self.contract_multiplier * self.margin_rate
+
+        if margin_per_contract <= 0:
+            return 0
+
+        return int(available_equity // margin_per_contract)
+
     def _calculate_commission(self, price: float, quantity: int) -> float:
         """
         Calculate commission for a trade.
@@ -267,6 +293,25 @@ class TradeManager:
             # Apply slippage
             exec_price = self._apply_slippage(exec_price, order.side)
 
+            # Re-check affordability at actual execution price and resize down if needed
+            max_qty_at_exec = self._max_affordable_quantity(exec_price)
+            if max_qty_at_exec <= 0:
+                logger.warning(
+                    "Insufficient margin at execution price %.2f; skipping order %s",
+                    exec_price,
+                    order,
+                )
+                return False
+
+            if order.quantity > max_qty_at_exec:
+                logger.info(
+                    "Reducing order size from %d to %d due to margin at execution price %.2f",
+                    order.quantity,
+                    max_qty_at_exec,
+                    exec_price,
+                )
+                order.quantity = max_qty_at_exec
+
             # Calculate commission
             commission = self._calculate_commission(exec_price, order.quantity)
 
@@ -358,8 +403,22 @@ class TradeManager:
                 logger.warning("Invalid position size calculated: %d", quantity)
                 return None
 
+            # Reserve margin conservatively using slippage-adjusted price
+            margin_check_price = check_price + abs(self.slippage_points)
+            max_qty = self._max_affordable_quantity(margin_check_price)
+            if max_qty <= 0:
+                return None
+
+            if quantity > max_qty:
+                logger.debug(
+                    "Reducing order size from %d to %d due to available margin",
+                    quantity,
+                    max_qty,
+                )
+                quantity = max_qty
+
             # Check Margin
-            if not self._check_margin(check_price, quantity):
+            if not self._check_margin(margin_check_price, quantity):
                 return None  # Insufficient margin
 
             # Create order
