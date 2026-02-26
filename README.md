@@ -248,6 +248,7 @@ Performance Metrics:
 The strategy uses a custom composite objective function designed to balance risk-adjusted returns with drawdown and trade frequency.
 
 1. **Score Calculation for each trials**:
+
 $$
 \text{Score} = \text{Sharpe} - |0.1 \times \text{Max Drawdown}| - \left|0.1 \times \frac{\text{Trades}}{1000}\right|
 $$
