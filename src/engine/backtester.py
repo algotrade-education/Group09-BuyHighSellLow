@@ -33,6 +33,9 @@ class Backtester:
         order_ttl: int = 0,
         equity_tracker: Optional[EquityTracker] = None,
         session_manager: Optional[SessionManager] = None,
+        use_trailing_stop: bool = False,
+        trailing_atr_multiplier: float = 2.0,
+        max_daily_loss_pct: float = 0.0,
     ) -> None:
         """
         Initialize the backtester.
@@ -49,6 +52,9 @@ class Backtester:
             order_ttl: Time-to-live for orders in bars (0 means no expiration)
             equity_tracker: Custom equity tracker (optional)
             session_manager: Custom session manager (optional)
+            use_trailing_stop: If True, enable trailing stop loss
+            trailing_atr_multiplier: ATR multiplier for trailing distance
+            max_daily_loss_pct: Max daily loss as fraction of equity (0=disabled)
         """
         self.strategy = strategy
 
@@ -63,6 +69,9 @@ class Backtester:
             margin_rate=margin_rate,
             position_size=position_size,
             position_sizer=position_sizer,
+            use_trailing_stop=use_trailing_stop,
+            trailing_atr_multiplier=trailing_atr_multiplier,
+            max_daily_loss_pct=max_daily_loss_pct,
         )
 
         # Session manager
@@ -146,6 +155,9 @@ class Backtester:
             bar: dict = bars[idx]
             timestamp = timestamps[idx]
 
+            # --- 0. DAILY P&L TRACKING ---
+            self.trade_manager.update_daily_pnl(timestamp)
+
             # --- 1. EXECUTION ---
             # This first action occured when a signal was generated on the previous bar,
             # so we execute it at the open of the current bar (open price of current bar)
@@ -169,7 +181,17 @@ class Backtester:
 
             # --- 2. POSITION MANAGEMENT ---
             # Check for stop-loss, take-profit, EOD close, etc.
+            was_flat_before = self.trade_manager.position.is_flat
             self.trade_manager.check_sl_tp(bar, timestamp)
+            # Record trade P&L if position was just closed by SL/TP
+            if not was_flat_before and self.trade_manager.position.is_flat:
+                if (
+                    self.trade_manager._current_trade is None
+                    and self.trade_manager._trades
+                ):
+                    last_trade = self.trade_manager._trades[-1]
+                    if last_trade.pnl != 0:
+                        self.trade_manager.record_trade_pnl(last_trade.pnl)
 
             # Check EOD Close
             if (
@@ -185,7 +207,10 @@ class Backtester:
                 pending_order_age = 0
 
             # --- 3. SIGNAL GENERATION ---
-            if not self.session_manager.should_skip_signal_generation(timestamp):
+            skip_signal = self.session_manager.should_skip_signal_generation(timestamp)
+            if not skip_signal and self.trade_manager.is_daily_loss_hit:
+                skip_signal = True  # Max daily loss reached, no new trades
+            if not skip_signal:
                 try:
                     signal = self.strategy.generate_signal(
                         bar=bar,

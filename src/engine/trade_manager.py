@@ -28,6 +28,9 @@ class TradeManager:
         margin_rate: float = 0.18,
         position_size: int = 1,
         position_sizer: Optional["PositionSizer"] = None,
+        use_trailing_stop: bool = False,
+        trailing_atr_multiplier: float = 2.0,
+        max_daily_loss_pct: float = 0.0,
     ) -> None:
         """
         Initialize the Trade Manager.
@@ -39,6 +42,9 @@ class TradeManager:
             contract_multiplier: Multiplier for contract size (e.g., 1 for index futures)
             margin_rate: Margin requirement as a percentage (e.g., 0.18 for 18%)
             position_size: Number of contracts to trade per signal
+            use_trailing_stop: If True, move SL to lock in profits as price moves
+            trailing_atr_multiplier: Trail distance in ATR units
+            max_daily_loss_pct: Max daily loss as fraction of equity (0 = disabled)
         """
 
         # Validate inputs
@@ -57,6 +63,9 @@ class TradeManager:
         self.margin_rate = margin_rate
         self.position_size = position_size
         self.position_sizer = position_sizer
+        self.use_trailing_stop = use_trailing_stop
+        self.trailing_atr_multiplier = trailing_atr_multiplier
+        self.max_daily_loss_pct = max_daily_loss_pct
 
         # State
         self.position = Position(multiplier=contract_multiplier)
@@ -67,6 +76,9 @@ class TradeManager:
         self._trades: List[Trade] = []  # Store completed trades for analysis
         self._trade_counter: int = 0
         self._current_trade: Optional[Trade] = None  # Track the current open trade
+        self._daily_pnl: float = 0.0  # Track daily P&L
+        self._current_trading_date = None  # Track current day for daily reset
+        self._daily_loss_hit: bool = False  # Flag when max daily loss is reached
 
     def reset(self) -> None:
         """Reset state for new backtest."""
@@ -77,6 +89,9 @@ class TradeManager:
         self._trades = []
         self._trade_counter = 0
         self._current_trade = None
+        self._daily_pnl = 0.0
+        self._current_trading_date = None
+        self._daily_loss_hit = False
 
     @property
     def trades(self) -> List[Trade]:
@@ -534,6 +549,55 @@ class TradeManager:
                 exit_reason="Take profit",
             )
             return
+
+        # --- TRAILING STOP ---
+        if self.use_trailing_stop and self.position.stop_loss is not None:
+            # Find any ATR column in the bar
+            atr = 0.0
+            for key in bar:
+                if str(key).startswith("atr_"):
+                    val = bar[key]
+                    if val and val > 0:
+                        atr = val
+                        break
+            if atr > 0:
+                trail_distance = self.trailing_atr_multiplier * atr
+                close = bar["close"]
+
+                if self.position.is_long:
+                    new_sl = close - trail_distance
+                    if new_sl > self.position.stop_loss:
+                        self.position.stop_loss = new_sl
+                elif self.position.is_short:
+                    new_sl = close + trail_distance
+                    if new_sl < self.position.stop_loss:
+                        self.position.stop_loss = new_sl
+
+    def update_daily_pnl(self, timestamp: datetime) -> None:
+        """Track daily P&L. Reset on new trading day."""
+        trading_date = timestamp.date() if hasattr(timestamp, "date") else None
+        if trading_date and trading_date != self._current_trading_date:
+            self._current_trading_date = trading_date
+            self._daily_pnl = 0.0
+            self._daily_loss_hit = False
+
+    def record_trade_pnl(self, pnl: float) -> None:
+        """Record P&L from a closed trade for daily tracking."""
+        self._daily_pnl += pnl
+        if self.max_daily_loss_pct > 0 and self._daily_pnl < -(
+            self.max_daily_loss_pct * self.equity
+        ):
+            self._daily_loss_hit = True
+            logger.info(
+                "Max daily loss reached: daily_pnl=%.2f, limit=%.2f",
+                self._daily_pnl,
+                -(self.max_daily_loss_pct * self.equity),
+            )
+
+    @property
+    def is_daily_loss_hit(self) -> bool:
+        """Check if max daily loss has been reached."""
+        return self._daily_loss_hit
 
     def update_equity(self, current_price: float) -> None:
         """
