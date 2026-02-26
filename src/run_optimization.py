@@ -1,15 +1,14 @@
 """
-Script to run Optuna-based Bayesian optimization on strategy parameters.
+Script to run Optuna-based Bayesian optimization for ORB strategy parameters.
 Run as:
-    python src/run_optimization.py --sample is --trials 200
-
-This uses Optuna's TPE sampler to intelligently explore the parameter space
-instead of exhaustively testing every combination (grid search).
+    python -m src.run_optimization_orb --sample is --trials 300
 
 Composite objective:
     score = sharpe - |0.1 * max_drawdown| - |0.1 * trades/1000|
     If trades <= 50: score = -1.0 (invalid)
     If sharpe <= 0: use total_return / 100 as fallback
+
+Also optimizes the resampling timeframe (1min, 5min) alongside strategy parameters.
 """
 
 import json
@@ -21,11 +20,11 @@ import pandas as pd
 from src.data.preprocessor import Preprocessor
 from src.optimization.optuna_search import OptunaSearch
 from src.run_data_loader import load_data
-from src.strategy.BB import BollingerMeanReversion
+from src.strategy.ORB import OpeningRangeBreakout
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 
-logger = setup_logging(__name__, log_file="logs/optuna.log")
+logger = setup_logging(__name__, log_file="logs/optuna_orb.log")
 
 
 def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
@@ -35,9 +34,6 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     2. Filter trading hours
     3. Add all indicators with the trial's parameters
 
-    This function receives raw (cleaned) tick data and returns
-    a fully preprocessed DataFrame ready for backtesting.
-
     Args:
         df: Cleaned tick data with datetime, price, volume columns.
         params: Trial parameters including resample_freq and indicator params.
@@ -45,13 +41,9 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     Returns:
         OHLC DataFrame with all indicators calculated.
     """
-    resample_freq = params.get("resample_freq", "5min")
+    resample_freq = params.get("resample_freq", "1min")
 
     preprocessor = Preprocessor(
-        sma_period=params.get("bb_period", 20),
-        bb_std=params.get("bb_std", 2.0),
-        rsi_period=params.get("rsi_period", 14),
-        adx_period=params.get("adx_period", 14),
         atr_period=params.get("atr_period", 14),
     )
 
@@ -71,44 +63,53 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     return df
 
 
-def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 200) -> None:
-    """Run Optuna optimization."""
-    logger.info("Starting Optuna Optimization with %d trials...", n_trials)
+def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
+    """Run Optuna optimization for ORB strategy."""
+    logger.info("Starting ORB Optuna Optimization with %d trials...", n_trials)
 
-    # Define parameter search space
-    # Includes resample_freq for timeframe optimization
+    # Focused search space — narrowed around known-good ORB params
+    # Fixed: 5min, long_only=True (proven best from previous runs)
     param_space = {
         "resample_freq": {
             "type": "categorical",
-            "choices": ["1min", "5min", "15min"],
+            "choices": ["5min", "15min", "1h"],
         },
-        "bb_period": {"type": "int", "low": 5, "high": 30, "step": 1},
-        "bb_std": {"type": "float", "low": 1.5, "high": 3.0, "step": 0.1},
-        "bb_pctb_entry": {"type": "float", "low": 0.05, "high": 0.35, "step": 0.05},
-        "bb_bandwidth_min": {"type": "float", "low": 0.002, "high": 0.02, "step": 0.002},
-        "adx_threshold": {"type": "int", "low": 20, "high": 40, "step": 1},
-        "rsi_period": {"type": "int", "low": 5, "high": 30, "step": 1},
-        "rsi_oversold": {"type": "int", "low": 10, "high": 40, "step": 1},
-        "rsi_overbought": {"type": "int", "low": 55, "high": 75, "step": 1},
+        "orb_minutes": {"type": "int", "low": 15, "high": 60, "step": 5},
         "atr_period": {"type": "int", "low": 5, "high": 30, "step": 1},
-        "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.1},
-        "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 6.0, "step": 0.1},
-        "cooldown_bars": {"type": "int", "low": 0, "high": 10, "step": 1},
+        "atr_tp_multiplier": {"type": "float", "low": 1.5, "high": 5.0, "step": 0.1},
+        "atr_sl_multiplier": {"type": "float", "low": 1.0, "high": 3.0, "step": 0.1},
+        "breakout_buffer": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.05},
+        "use_range_sl": {"type": "categorical", "choices": [True, False]},
+        "min_range_atr": {"type": "float", "low": 0.3, "high": 1.5, "step": 0.1},
+        "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.5},
+        "long_only": {"type": "categorical", "choices": [True, False]},
+        "use_volume_filter": {"type": "categorical", "choices": [True, False]},
+        "use_adx_filter": {"type": "categorical", "choices": [True, False]},
+        "adx_min": {"type": "float", "low": 15.0, "high": 35.0, "step": 1.0},
+        # Risk management
+        "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
+        "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.5},
+    }
+
+    # Extract risk params for backtester
+    risk_params = config.get("risk", {})
+    backtester_kwargs = {
+        "max_daily_loss_pct": risk_params.get("max_daily_loss", 0.0),
     }
 
     # Initialize Optuna optimizer
     optimizer = OptunaSearch(
-        strategy_class=BollingerMeanReversion,
+        strategy_class=OpeningRangeBreakout,
         param_space=param_space,
-        indicator_fn=preprocess_data,  # Handles resampling + indicators
+        indicator_fn=preprocess_data,
         min_trades=100,
         drawdown_penalty=0.1,
         turnover_penalty=0.1,
         n_trials=n_trials,
+        backtester_kwargs=backtester_kwargs,
     )
 
     # Run optimization with raw_data=True since we pass tick data
-    # and preprocess_data handles resampling per trial
     results = optimizer.optimize(data, raw_data=True)
 
     # Print results
@@ -125,19 +126,24 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 200) -> None:
         params_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d")
-        params_path = params_dir / f"optuna_{timestamp}.json"
+        params_path = params_dir / f"orb_optuna_{timestamp}.json"
 
         best_config = {
-            "name": f"Optuna Optimized {timestamp}",
-            "description": "Auto-optimized parameters from Optuna TPE",
+            "name": f"ORB Optuna Optimized {timestamp}",
+            "description": "Auto-optimized ORB parameters from Optuna TPE",
             "version": config.get("version", "1.0.0"),
             "strategy": config.get("strategy", {}).copy(),
             "risk": config.get("risk", {}).copy(),
-            "trading_hours": config.get("trading_hours", {}).copy(),
         }
 
         # Update with optimized parameters (including resample_freq)
-        best_config["strategy"].update(optimizer.best_params)
+        # Separate risk params from strategy params
+        risk_keys = {"use_trailing_stop", "trailing_atr_multiplier"}
+        strategy_update = {k: v for k, v in optimizer.best_params.items() if k not in risk_keys}
+        risk_update = {k: v for k, v in optimizer.best_params.items() if k in risk_keys}
+
+        best_config["strategy"].update(strategy_update)
+        best_config["risk"].update(risk_update)
 
         with open(params_path, "w") as f:
             json.dump(best_config, f, indent=2)
@@ -145,13 +151,15 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 200) -> None:
         logger.info("Best params saved to: %s", params_path)
         print(f"\nBest config saved to: {params_path}")
         print("Run backtest with:")
-        print(f"  python src/run_backtest.py --sample is --config {params_path}")
+        print(
+            f"  python -m src.run_backtest_orb --sample is --config {params_path}"
+        )
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run Optuna optimization.")
+    parser = argparse.ArgumentParser(description="Run ORB Optuna optimization.")
     parser.add_argument(
         "--sample",
         choices=["is", "os"],
@@ -164,14 +172,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--trials",
         type=int,
-        default=200,
-        help="Number of Optuna trials (default: 200).",
+        default=300,
+        help="Number of Optuna trials (default: 300).",
     )
     args = parser.parse_args()
 
     # Load configuration
-    config = load_config()
-    logger.info("Loaded configuration from default path")
+    config = load_config("config/strategy_params/orb_default.json")
+    logger.info("Loaded ORB configuration")
 
     # Load raw data (tick data)
     data = load_data(sample=args.sample, contract=args.contract)

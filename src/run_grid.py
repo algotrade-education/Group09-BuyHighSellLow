@@ -60,10 +60,7 @@ def run_optimization(data: pd.DataFrame, config: dict) -> None:
         "rsi_oversold": [30, 35, 40],
         "rsi_overbought": [60, 65, 70],
         "atr_sl_multiplier": [1.0, 1.5, 2.0, 3.0],
-<<<<<<< Updated upstream
-=======
         "atr_tp_multiplier": [2.0, 3.0, 4.0, 5.0],
->>>>>>> Stashed changes
     }
 
     total = 1

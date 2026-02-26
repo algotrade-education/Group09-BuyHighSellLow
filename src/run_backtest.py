@@ -1,13 +1,12 @@
 """
-Script to run backtest on a given strategy and parameter set.
+Script to run backtest for ORB (Opening Range Breakout) strategy.
 Run as:
-    python src/run_backtest.py --sample is --contract VN30F1M --config config/strategy_params/default.json
-for in-sample backtest with default parameters, or adjust arguments as needed.
+    python -m src.run_backtest_orb --sample is --config config/strategy_params/orb_default.json
 
 This script will:
 1. Load the specified data (in-sample or out-of-sample).
-2. Preprocess the data (resample, add indicators).
-3. Initialize the strategy with parameters from the config file.
+2. Preprocess the data (resample, add ATR indicator).
+3. Initialize the ORB strategy with parameters from the config file.
 4. Run the backtest and collect results.
 5. Save detailed results (equity curve, trades) to the results directory.
 """
@@ -30,11 +29,11 @@ from src.engine.position_sizer import PercentRiskSizer
 from src.engine.result import BacktestResult
 from src.metrics.plotter import BacktestPlotter
 from src.run_data_loader import load_data
-from src.strategy.BB import BollingerMeanReversion
+from src.strategy.ORB import OpeningRangeBreakout
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 
-logger = setup_logging(__name__, log_file="logs/backtest.log")
+logger = setup_logging(__name__, log_file="logs/backtest_orb.log")
 
 
 def run_backtest(
@@ -56,7 +55,7 @@ def run_backtest(
     }
 
     # Initialize strategy
-    strategy = BollingerMeanReversion(**strategy_kwargs)
+    strategy = OpeningRangeBreakout(**strategy_kwargs)
 
     # Extract risk management params
     risk_params = params.get("risk", {})
@@ -93,7 +92,7 @@ def run_backtest(
 
     # Print summary to console
     print("\n" + "=" * 60)
-    print("BACKTEST RESULTS")
+    print("BACKTEST RESULTS — ORB Strategy")
     print("=" * 60)
     print(f"\nStrategy: {strategy.name}")
     print(f"Parameters: {strategy.params}")
@@ -115,7 +114,7 @@ def run_backtest(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Subdirectory for this run
-    run_dir = output_dir / timestamp
+    run_dir = output_dir / f"orb_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Save equity curve
@@ -141,7 +140,6 @@ def run_backtest(
     )
 
     # 2. Backtest Results (Price, Indicators, Signals)
-    # The 'data' passed to this function already has the indicators from Preprocessor
     plotter.plot_backtest_results(
         data=data, trades=result.trades, filename="backtest_results.png"
     )
@@ -156,7 +154,7 @@ def run_backtest(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run strategy backtest.")
+    parser = argparse.ArgumentParser(description="Run ORB strategy backtest.")
     parser.add_argument(
         "--sample",
         choices=["is", "os"],
@@ -168,8 +166,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--config",
-        default="config/strategy_params/default.json",
-        help="Path to strategy configuration file (default: config/strategy_params/default.json).",
+        default="config/strategy_params/orb_default.json",
+        help="Path to strategy configuration file.",
     )
     args = parser.parse_args()
 
@@ -179,8 +177,8 @@ if __name__ == "__main__":
     # Load data based on arguments
     data = load_data(sample=args.sample, contract=args.contract)
 
-    # Get resample frequency from config, default to 5min if not specified
-    resample_freq = config.get("strategy", {}).get("resample_freq", "5min")
+    # Get resample frequency from config — ORB typically uses 1min
+    resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
     logger.info(
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
@@ -188,12 +186,8 @@ if __name__ == "__main__":
     # Get strategy parameters to initialize preprocessor with matching parameters
     strategy_params = config.get("strategy", {})
 
-    # Create preprocessor with matching parameters from config
+    # Create preprocessor — ORB only needs ATR, but we include all indicators
     preprocessor = Preprocessor(
-        sma_period=strategy_params.get("bb_period", 20),
-        bb_std=strategy_params.get("bb_std", 2.0),
-        rsi_period=strategy_params.get("rsi_period", 14),
-        adx_period=strategy_params.get("adx_period", 14),
         atr_period=strategy_params.get("atr_period", 14),
     )
 
