@@ -141,6 +141,47 @@ class MetricsCalculator:
         self.max_dd = MaximumDrawdown()
         self.longest_dd = LongestDrawdown()
 
+    def _infer_periods_per_year(self, equity: Union[pd.Series, pd.DataFrame]) -> float:
+        """
+        Infer annualization factor from equity timestamps.
+
+        For intraday data, this estimates bars-per-day from observed data and
+        multiplies by 252 trading days. Falls back to configured default when
+        timestamp information is unavailable.
+        """
+        datetimes = None
+
+        if isinstance(equity, pd.DataFrame):
+            if "datetime" in equity.columns:
+                datetimes = pd.to_datetime(equity["datetime"], errors="coerce")
+            elif isinstance(equity.index, pd.DatetimeIndex):
+                datetimes = pd.to_datetime(equity.index, errors="coerce")
+        elif isinstance(equity, pd.Series) and isinstance(
+            equity.index, pd.DatetimeIndex
+        ):
+            datetimes = pd.to_datetime(equity.index, errors="coerce")
+
+        if datetimes is None:
+            return self.periods_per_year
+
+        datetimes = pd.Series(datetimes).dropna()
+        if datetimes.empty:
+            return self.periods_per_year
+
+        bars_per_day = datetimes.dt.date.value_counts()
+        if bars_per_day.empty:
+            return self.periods_per_year
+
+        median_bars_per_day = float(bars_per_day.median())
+        if median_bars_per_day <= 0:
+            return self.periods_per_year
+
+        # If approximately daily data, keep daily convention.
+        if median_bars_per_day <= 1.5:
+            return 252.0
+
+        return median_bars_per_day * 252.0
+
     def calculate(
         self,
         equity: Union[pd.Series, pd.DataFrame],
@@ -167,18 +208,29 @@ class MetricsCalculator:
         else:
             equity_series = equity
 
+        periods_per_year = self._infer_periods_per_year(equity)
+
+        sharpe_metric = SharpeRatio(
+            annualization_factor=periods_per_year,
+            risk_free_rate=self.risk_free_rate,
+        )
+        sortino_metric = SortinoRatio(
+            annualization_factor=periods_per_year,
+            minimum_acceptable_return=self.risk_free_rate,
+        )
+
         # Calculate returns
         returns = calculate_returns(equity_series)
 
         # Return metrics
         total_return = calculate_total_return(equity_series)
-        annualized_return = calculate_annualized_return(returns, self.periods_per_year)
-        cagr = calculate_cagr(equity_series, self.periods_per_year)
-        volatility = calculate_volatility(returns, True, self.periods_per_year)
+        annualized_return = calculate_annualized_return(returns, periods_per_year)
+        cagr = calculate_cagr(equity_series, periods_per_year)
+        volatility = calculate_volatility(returns, True, periods_per_year)
 
         # Risk-adjusted
-        sharpe_ratio = self.sharpe.calculate(returns)
-        sortino_ratio = self.sortino.calculate(returns)
+        sharpe_ratio = sharpe_metric.calculate(returns)
+        sortino_ratio = sortino_metric.calculate(returns)
 
         # Drawdown
         max_drawdown = self.max_dd.calculate(equity_series)
@@ -214,7 +266,7 @@ class MetricsCalculator:
         # Information ratio
         ir = None
         if benchmark is not None:
-            ir = calculate_information_ratio(returns, benchmark, self.periods_per_year)
+            ir = calculate_information_ratio(returns, benchmark, periods_per_year)
 
         return PerformanceMetrics(
             total_return=total_return,
