@@ -1,5 +1,5 @@
 # Strategy module
 from .base import Signal, Strategy, TradeSignal
-from .BB import BollingerMeanReversion
+from .ORB import OpeningRangeBreakout
 
-__all__ = ["Signal", "TradeSignal", "Strategy", "BollingerMeanReversion"]
+__all__ = ["Signal", "TradeSignal", "Strategy", "OpeningRangeBreakout"]
