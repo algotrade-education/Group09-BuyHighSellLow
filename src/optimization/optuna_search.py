@@ -9,9 +9,9 @@ Composite objective function:
     score = sharpe - |0.1 * max_drawdown| - |0.1 * turnover_penalty|
 
 Guardrails:
-    - If total_trades <= min_trades: score = -1.0 (invalid)
+    - If total_trades <= min_trades: score = -10.0 (invalid)
     - If sharpe <= 0: fall back to total_return as secondary metric
-    - If any error: score = -1.0
+    - If any error: score = -100.0
 """
 
 import logging
