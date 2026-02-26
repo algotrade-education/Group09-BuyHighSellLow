@@ -22,7 +22,7 @@ import pandas as pd
 from src.data.preprocessor import Preprocessor
 from src.optimization.grid_search import GridSearch
 from src.run_data_loader import load_data
-from src.strategy.BB import BollingerMeanReversion
+from src.strategy.ORB import OpeningRangeBreakout
 from src.utils.config_loader import load_config
 from src.utils.logger import setup_logging
 
@@ -35,9 +35,6 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     This function will be called by the optimization process for each parameter set.
     """
     preprocessor = Preprocessor(
-        sma_period=params.get("bb_period", 20),
-        bb_std=params.get("bb_std", 2.0),
-        rsi_period=params.get("rsi_period", 14),
         adx_period=params.get("adx_period", 14),
         atr_period=params.get("atr_period", 14),
     )
@@ -50,17 +47,20 @@ def run_optimization(data: pd.DataFrame, config: dict) -> None:
     """Run grid search optimization."""
     logger.info("Starting Grid Search Optimization...")
 
-    # Parameter grid: test a range around defaults for the most impactful params
-    # Keeping bb_period, rsi_period, adx_period, atr_period fixed to reduce
-    # search space (changing periods requires indicator recalculation anyway).
+    # Parameter grid for ORB strategy.
     param_grid = {
-        "bb_period": [20],
-        "bb_std": [2.0, 2.5, 3.0, 5.0],
-        "adx_threshold": [25, 30, 35],
-        "rsi_oversold": [30, 35, 40],
-        "rsi_overbought": [60, 65, 70],
+        "orb_minutes": [10, 15, 20, 30],
+        "atr_period": [10, 14, 20],
+        "breakout_buffer": [0.0, 0.1, 0.2, 0.3],
+        "min_range_atr": [0.3, 0.5, 0.8, 1.0],
+        "max_range_atr": [2.5, 3.0, 4.0],
         "atr_sl_multiplier": [1.0, 1.5, 2.0, 3.0],
-        "atr_tp_multiplier": [2.0, 3.0, 4.0, 5.0],
+        "atr_tp_multiplier": [2.0, 3.0, 4.0],
+        "use_range_sl": [True, False],
+        "long_only": [True, False],
+        "use_volume_filter": [False, True],
+        "use_adx_filter": [False, True],
+        "adx_min": [15.0, 20.0, 25.0, 30.0],
     }
 
     total = 1
@@ -73,7 +73,7 @@ def run_optimization(data: pd.DataFrame, config: dict) -> None:
     # (gross_profit / gross_loss). Unlike Sharpe alone, it penalizes strategies
     # that win often but lose big, or win big but lose often.
     grid_search = GridSearch(
-        strategy_class=BollingerMeanReversion,
+        strategy_class=OpeningRangeBreakout,
         param_grid=param_grid,
         objective="profit_factor",
         indicator_fn=recalculate_indicators,
@@ -136,8 +136,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load configuration
-    config = load_config()
-    logger.info("Loaded configuration from default path")
+    config = load_config("config/strategy_params/orb_default.json")
+    logger.info("Loaded ORB configuration")
 
     # Load data based on arguments
     data = load_data(sample=args.sample, contract=args.contract)

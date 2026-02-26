@@ -86,6 +86,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         "use_volume_filter": {"type": "categorical", "choices": [True, False]},
         "use_adx_filter": {"type": "categorical", "choices": [True, False]},
         "adx_min": {"type": "float", "low": 15.0, "high": 35.0, "step": 1.0},
+        
         # Risk management
         "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
         "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.5},
