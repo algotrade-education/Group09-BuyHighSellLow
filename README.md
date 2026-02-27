@@ -1,5 +1,45 @@
 # Opening Range Breakout (ORB) Strategy
 
+<!--toc:start-->
+- [Opening Range Breakout (ORB) Strategy](#opening-range-breakout-orb-strategy)
+  - [Abstract](#abstract)
+  - [Introduction](#introduction)
+  - [Trading Hypothesis](#trading-hypothesis)
+    - [Target Market](#target-market)
+    - [Entry Conditions](#entry-conditions)
+      - [Buy Signal (Bullish Hypothesis)](#buy-signal-bullish-hypothesis)
+      - [Sell Signal (Bearish Hypothesis)](#sell-signal-bearish-hypothesis)
+    - [Indicators Used](#indicators-used)
+    - [Order Execution](#order-execution)
+    - [Exit Conditions](#exit-conditions)
+  - [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Setup](#setup)
+    - [Usage](#usage)
+      - [Fetch/Load Data](#fetchload-data)
+      - [Run Backtest](#run-backtest)
+      - [Run Optimization](#run-optimization)
+      - [Run Walk-Forward Analysis](#run-walk-forward-analysis)
+    - [Parameter Configuration](#parameter-configuration)
+  - [Data](#data)
+    - [Data Collection](#data-collection)
+    - [Data Processing](#data-processing)
+  - [In-sample Backtesting](#in-sample-backtesting)
+    - [Parameters](#parameters)
+    - [Results](#results)
+      - [Equity Curve](#equity-curve)
+      - [Drawdown Curve](#drawdown-curve)
+      - [Trade Distribution](#trade-distribution)
+      - [Exit Reasons](#exit-reasons)
+  - [Optimization](#optimization)
+    - [Optimization Scoring Function](#optimization-scoring-function)
+    - [Process](#process)
+    - [Results](#results-1)
+  - [Out-of-sample Backtesting](#out-of-sample-backtesting)
+    - [Comparison: IS vs Optimized IS vs Optimized OOS](#comparison-is-vs-optimized-is-vs-optimized-oos)
+  - [Reference](#reference)
+<!--toc:end-->
+
 ## Abstract
 
 This repository implements an **Opening Range Breakout (ORB)** trading strategy specifically designed for the VN30F1M (Vietnam VN30 Index Futures). It takes advantage of early-session volatility by identifying an opening range and trading breakouts beyond this range.
@@ -98,7 +138,7 @@ cp .env.example .env
 1. **Load data** (requires database connection)
 
 ```bash
-python -m src.run_data_loader
+python -m src.run_data_loader --mode fetch --contract VN30F1M
 ```
 
 ### Usage
@@ -415,4 +455,8 @@ Performance Metrics:
 | Total Trades          | 503      | 135          | 86            | -417 (OOS vs Default)       | -82.90%         |
 
 > Note: Improvement values use **Optimized OOS vs Default IS** as the baseline. Percentage improvement is based on the absolute value of the default metric when the default metric is negative.
+
+## Reference
+
+[1] ALGOTRADE, Algorithmic Trading Theory and Practice - A Practical Guide with Applications on the Vietnamese Stock Market, 1st ed. DIMI BOOK, 2023, pp. 52–53. Accessed: May 12, 2025. [Online]. Available: [Link](https://hub.algotrade.vn/knowledge-hub/market-making-strategy/)
 
