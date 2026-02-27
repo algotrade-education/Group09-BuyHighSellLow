@@ -1,15 +1,19 @@
 # Opening Range Breakout (ORB) Strategy
 
 ## Abstract
-This repository implements an **Opening Range Breakout (ORB)** trading strategy specifically designed for the VN30F1M (Vietnam VN30 Index Futures). It takes advantage of early-session volatility by identifying an opening range and trading breakouts beyond this range. 
+
+This repository implements an **Opening Range Breakout (ORB)** trading strategy specifically designed for the VN30F1M (Vietnam VN30 Index Futures). It takes advantage of early-session volatility by identifying an opening range and trading breakouts beyond this range.
 
 ## Introduction
+
 The Opening Range Breakout (ORB) strategy is a widely used intraday trading technique. It relies on the premise that the highest high and lowest low of the first few minutes of a trading session establish significant support and resistance levels. A breakout of this range often signals a strong intraday trend.
 
 ## Trading Hypothesis
+
 The core hypothesis is that early morning or early afternoon sessions, when liquidity enters the market, create significant price movements. Once the market breaches the initial consolidation range, it tends to continue in the breakout direction.
 
 ### Target Market
+
 - **Instrument**: VN30F1M (VN30 Index Futures)
 - **Timeframe**: Tick-by-tick data, typically resampled to 5-minute OHLC bars.
 - **Sessions**: The strategy accounts for the two distinct trading sessions in the Vietnamese market:
@@ -17,26 +21,32 @@ The core hypothesis is that early morning or early afternoon sessions, when liqu
   - Afternoon Session: 13:00 - 14:30
 
 ### Entry Conditions
+
 An "opening range" is established during the first $N$ minutes (e.g., 15 minutes) of *each* session. The strategy waits for the range to form before generating any signals. Maximum of 1 trade per session.
 
 #### Buy Signal (Bullish Hypothesis)
+
 - **Condition**: $\text{Close price} > \text{Range High} + (\text{Breakout Buffer} \times \text{ATR})$
-- **Logic**: A strong close above the opening range high, plus a volatility-adjusted buffer (ATR), indicates bullish momentum. 
+- **Logic**: A strong close above the opening range high, plus a volatility-adjusted buffer (ATR), indicates bullish momentum.
 
 #### Sell Signal (Bearish Hypothesis)
+
 - **Condition**: $\text{Close price} < \text{Range Low} - (\text{Breakout Buffer} \times \text{ATR})$
 - **Logic**: A strong close below the opening range low, minus a volatility-adjusted buffer, indicates bearish momentum. (Can be disabled via `long_only` mode).
 
 ### Indicators Used
+
 - **Average True Range (ATR)**: Used for measuring volatility, determining the breakout buffer, evaluating range viability, and setting take profits / stop losses.
 - **Volume Moving Average (Volume MA)** *(Optional)*: A volume filter ensuring breakouts are supported by above-average volume.
 - **Average Directional Index (ADX)** *(Optional)*: A trend filter to ensure the breakout occurs in a sufficiently trending market environment before entering.
 
 ### Order Execution
+
 - **Type**: Market Orders. The strategy enters immediately when the entry conditions are met.
 
 ### Exit Conditions
-- **Stop Loss**: 
+
+- **Stop Loss**:
   - *Range-based SL*: Stop loss is placed at the opposite side of the opening range.
   - *ATR-based SL*: Fallback stop loss based on entry price minus (Multiplier * ATR).
 - **Take Profit**: ATR-based. Take profit is set at a distance from the entry price equal to (Multiplier * ATR).
@@ -60,7 +70,7 @@ git clone https://github.com/rlukas2/BuyHigh-SellLow.git
 cd BuyHigh-SellLow
 ```
 
-2. **Create virtual environment**
+1. **Create virtual environment**
 
 ```bash
 python -m venv .venv
@@ -72,20 +82,20 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. **Install dependencies**
+1. **Install dependencies**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Set up environment variables** (for database access)
+1. **Set up environment variables** (for database access)
 
 ```bash
 cp .env.example .env
 # Edit .env with your database credentials
 ```
 
-5. **Load data** (requires database connection)
+1. **Load data** (requires database connection)
 
 ```bash
 python -m src.run_data_loader
@@ -95,6 +105,10 @@ python -m src.run_data_loader
 
 #### Fetch/Load Data
 
+The script has two modes: `fetch` to retrieve data from the database and save to the folder `data`, and `load` to load data from the cache if it exists and output the dimension of the loaded DataFrame.
+
+The fetch mode will use the `DataLoader` with database credentials from the `.env` file to query the database for tick data, it uses the time configured in `config.py` to determine the start and end date of the data to fetch. And it automatically fetch in chunk of 30 days to avoid timeout and memory issues, then concatenate the chunks into a single DataFrame.
+
 ```bash
 python -m src.run_data_loader --mode [fetch|load] --sample [is|os] --contract [contract_name]
 
@@ -103,6 +117,15 @@ python -m src.run_data_loader --mode fetch --contract VN30F1M
 ```
 
 #### Run Backtest
+
+This will run a backtest for the specified contract and sample period (in-sample or out-of-sample). You can optionally provide a custom configuration file with optimized parameters.
+
+We configured the backtest to do this each bar:
+
+1. **Execute pending order** at current bar open (or limit logic), including order TTL expiration handling.
+2. **Manage position** via stop-loss/take-profit checks, then EOD forced close if session says so.
+3. **Generate new signal** (if session allows), then convert signal to order and queue it as pending.
+4. **Mark-to-market and record equity**.
 
 ```bash
 python -m src.run_backtest --sample [is|os] --contract [contract_name] --config [config_file]
@@ -117,7 +140,7 @@ python -m src.run_backtest --sample os --contract VN30F1M --config config/strate
 This will perform an Optuna optimization to find the best parameters for the strategy based on in-sample data.
 
 ```bash
-python -m src.run_optimization --contract [contract_name]
+python -m src.run_optimization --sample [is|os] --trials [number_of_trials]
 ```
 
 #### Run Walk-Forward Analysis
@@ -171,16 +194,16 @@ The strategy relies on high-quality tick-by-tick market data, specifically for t
 
 By default, the system fetches **VN30F1M** tick-by-tick data from a PostgreSQL database. The data pipeline is designed for reliability and performance:
 
-1.  **Database Querying**:
-    -   **Matched Data**: The core query fetches trade execution data (`price`, `datetime`) from the `quote.matched` table. It joins with `quote.futurecontractcode` to filter for the specific future contract and `quote.total` to retrieve cumulative volume (`quantity`) at each tick.
-    -   **Chunking**: To prevent timeouts and memory issues with large datasets, data is fetched in **30-day chunks**. These chunks are then concatenated into a single DataFrame.
-    -   **Close Data**: Daily close prices are fetched separately from `quote.close` to provide reference points if needed.
+1. **Database Querying**:
+    - **Matched Data**: The core query fetches trade execution data (`price`, `datetime`) from the `quote.matched` table. It joins with `quote.futurecontractcode` to filter for the specific future contract and `quote.total` to retrieve cumulative volume (`quantity`) at each tick.
+    - **Chunking**: To prevent timeouts and memory issues with large datasets, data is fetched in **30-day chunks**. These chunks are then concatenated into a single DataFrame.
+    - **Close Data**: Daily close prices are fetched separately from `quote.close` to provide reference points if needed.
 
-2.  **Caching Mechanism**:
-    -   The system implements a robust caching layer using **Parquet** files (`.parquet`) to minimize database load.
-    -   **Load**: Before querying the database, the `DataLoader` checks the `data/cache/` directory for an existing file matching the request (contract name, start date, end date). If found, data is loaded instantly from the cache.
-    -   **Save**: If data is fetched from the database, it is automatically saved to the cache for future runs.
-    -   **Format**: Cache filenames follow a consistent pattern: `{contract}_{start}_{end}.parquet`.
+2. **Caching Mechanism**:
+    - The system implements a robust caching layer using **Parquet** files (`.parquet`) to minimize database load.
+    - **Load**: Before querying the database, the `DataLoader` checks the `data/cache/` directory for an existing file matching the request (contract name, start date, end date). If found, data is loaded instantly from the cache.
+    - **Save**: If data is fetched from the database, it is automatically saved to the cache for future runs.
+    - **Format**: Cache filenames follow a consistent pattern: `{contract}_{start}_{end}.parquet`.
 
 ### Data Processing
 
@@ -190,6 +213,8 @@ Raw tick data undergoes a rigorous preprocessing pipeline before being used in b
 2. **Feature Engineering**: derive per-tick volume from cumulative quantity and resample tick data into OHLC bars (e.g., 5min, 15min, 1h).
 3. **Filtering**: restrict data to active trading hours (e.g., 09:00–14:30) unless ATC is requested.
 4. **Indicators**: compute 20-period SMA with slope, 20-period Bollinger Bands (2.0 std), 20-period Volume MA, 14-period RSI, and 14-period ADX
+5.
+
 ---
 
 ## In-sample Backtesting
@@ -197,6 +222,7 @@ Raw tick data undergoes a rigorous preprocessing pipeline before being used in b
 ### Parameters
 
 Using the default parameters defined in `config/strategy_params/orb_default.json`:
+
 - Opening Range: 15 minutes
 - ATR configurations: 14-period ATR, TP multiplier 2.0, SL multiplier 1.5
 - Breakout Buffer: 0.1 ATR
@@ -211,6 +237,7 @@ Using the default parameters defined in `config/strategy_params/orb_default.json
 Period: January 1, 2024 - March 31, 2025 (in-sample period)
 
 Performance Metrics:
+
 | Metric                  | Value           |
 | ----------------------- | --------------- |
 | Total P&L               | -405,042,322.14 |
@@ -249,15 +276,18 @@ Performance Metrics:
 
 The strategy uses a custom composite objective function designed to balance risk-adjusted returns with drawdown and trade frequency.
 
-1. **Score Calculation for each trials**:
+1. **Score Calculation for each trial**:
 
 $$
 \text{Score} = \text{Sharpe} - |0.1 \times \text{Max Drawdown}| - \left|0.1 \times \frac{\text{Trades}}{1000}\right|
 $$
+
 - **Sharpe Ratio**: Rewards higher risk-adjusted returns.
 - **Drawdown Penalty**: Penalizes strategies with large drawdowns, scaled by 0.1 to balance its influence.
 - **Trade Frequency Penalty**: Penalizes strategies that overfit to noise by taking too many trades, scaled by 0.1 and normalized by 1000 to keep it in a comparable range with the Sharpe ratio.
-2. **Additional Safeguards**:
+
+1. **Additional Safeguards**:
+
 - **Minimum Trade Penalty**: If total trades $\le 100$, the score defaults to `-10.0` to prevent overfitting to low-frequency noise.
 - **Negative Sharpe Fallback**: If the Sharpe ratio is $\le 0$, `Total Return / 100` is used as a fallback score to help guide the optimizer toward positive expectancy.
 
@@ -284,7 +314,6 @@ Optimized parameters (from `src/run_optimization.py`):
 - **Risk parameters**
   - `use_trailing_stop`: categorical → `True`, `False`
   - `trailing_atr_multiplier`: float range `1.0` to `4.0` (step `0.25`)
-
 
 ### Results
 
@@ -320,25 +349,25 @@ After optimization, the best parameters found were:
 
 Performance Metrics:
 
-| Metric                  | Value         |
-| ----------------------- | ------------- |
+| Metric                  | Value          |
+| ----------------------- | -------------- |
 | Total P&L               | 133,104,939.09 |
-| Total Return (%)        | 26.6210       |
-| Annualized Return (%)   | 24.0164       |
-| CAGR (%)                | 24.0164       |
-| Volatility (%)          | 13.6582       |
-| Sharpe Ratio            | 1.6441        |
-| Sortino Ratio           | 0.8590        |
-| Max Drawdown (%)        | -7.9991       |
-| Longest Drawdown (bars) | 1,665         |
-| Total Trades            | 135           |
-| Winning Trades          | 33            |
-| Losing Trades           | 102           |
-| Win Rate (%)            | 24.4444       |
-| Profit Factor           | 1.4226        |
-| Average Win             | 13,577,375.48 |
-| Average Loss            | 3,087,729.92  |
-| Information Ratio       | None          |
+| Total Return (%)        | 26.6210        |
+| Annualized Return (%)   | 24.0164        |
+| CAGR (%)                | 24.0164        |
+| Volatility (%)          | 13.6582        |
+| Sharpe Ratio            | 1.6441         |
+| Sortino Ratio           | 0.8590         |
+| Max Drawdown (%)        | -7.9991        |
+| Longest Drawdown (bars) | 1,665          |
+| Total Trades            | 135            |
+| Winning Trades          | 33             |
+| Losing Trades           | 102            |
+| Win Rate (%)            | 24.4444        |
+| Profit Factor           | 1.4226         |
+| Average Win             | 13,577,375.48  |
+| Average Loss            | 3,087,729.92   |
+| Information Ratio       | None           |
 
 ![Portfolio Equity Curve](reports/Optimized%20IS/equity_curve.png)
 
@@ -348,25 +377,25 @@ Period: April 1, 2025 - December 31, 2025 (out-of-sample period)
 
 Performance Metrics:
 
-| Metric                  | Value         |
-| ----------------------- | ------------- |
+| Metric                  | Value          |
+| ----------------------- | -------------- |
 | Total P&L               | 197,126,341.34 |
-| Total Return (%)        | 39.4253       |
-| Annualized Return (%)   | 54.5407       |
-| CAGR (%)                | 54.5407       |
-| Volatility (%)          | 26.1306       |
-| Sharpe Ratio            | 1.7961        |
-| Sortino Ratio           | 0.9970        |
-| Max Drawdown (%)        | -13.4789      |
-| Longest Drawdown (bars) | 781           |
-| Total Trades            | 86            |
-| Winning Trades          | 19            |
-| Losing Trades           | 67            |
-| Win Rate (%)            | 22.0930       |
-| Profit Factor           | 1.5569        |
-| Average Win             | 29,005,398.06 |
-| Average Loss            | 5,283,227.19  |
-| Information Ratio       | None          |
+| Total Return (%)        | 39.4253        |
+| Annualized Return (%)   | 54.5407        |
+| CAGR (%)                | 54.5407        |
+| Volatility (%)          | 26.1306        |
+| Sharpe Ratio            | 1.7961         |
+| Sortino Ratio           | 0.9970         |
+| Max Drawdown (%)        | -13.4789       |
+| Longest Drawdown (bars) | 781            |
+| Total Trades            | 86             |
+| Winning Trades          | 19             |
+| Losing Trades           | 67             |
+| Win Rate (%)            | 22.0930        |
+| Profit Factor           | 1.5569         |
+| Average Win             | 29,005,398.06  |
+| Average Loss            | 5,283,227.19   |
+| Information Ratio       | None           |
 
 ![Portfolio Equity Curve](reports/Optimized%20OOS/equity_curve.png)
 
@@ -386,3 +415,4 @@ Performance Metrics:
 | Total Trades          | 503      | 135          | 86            | -417 (OOS vs Default)       | -82.90%         |
 
 > Note: Improvement values use **Optimized OOS vs Default IS** as the baseline. Percentage improvement is based on the absolute value of the default metric when the default metric is negative.
+
