@@ -122,6 +122,8 @@ python -m src.run_optimization --contract [contract_name]
 
 #### Run Walk-Forward Analysis
 
+Walk-Forward Analysis runs the strategy across expanding/shifting data windows (In-Sample vs. Out-of-Sample) to validate its robustness over different market regimes and prevent curve-fitting.
+
 ```bash
 python -m src.run_walk_forward --contract [contract_name]
 ```
@@ -368,7 +370,7 @@ Performance Metrics:
 
 ![Portfolio Equity Curve](reports/Optimized%20OOS/equity_curve.png)
 
-![Portfolio Equity Curve](reports/Optimized%20OOS/trade_analysis.png)
+![Trade Analysis](reports/Optimized%20OOS/trade_analysis.png)
 
 ### Comparison: IS vs Optimized IS vs Optimized OOS
 
