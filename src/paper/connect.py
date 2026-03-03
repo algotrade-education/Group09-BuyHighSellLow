@@ -51,7 +51,9 @@ def on_logon_error(session_id=None, reason=None, **kw):
     logger.error(f"❌ FIX logon error: session={session_id}, reason={reason}")
 
 
-def resolve_fix_sender_comp_id(rest_base_url: str, username: str, password: str) -> str | None:
+def resolve_fix_sender_comp_id(
+    rest_base_url: str, username: str, password: str
+) -> str | None:
     """Resolve FIX SenderCompID from REST API (fixAccountID)."""
     url = f"{rest_base_url.rstrip('/')}/api/fix-account-info/get-fix-id"
     try:
@@ -77,10 +79,16 @@ def main():
     rest_base_url = os.getenv("PAPER_REST_BASE_URL", "http://localhost:9090")
 
     env_sender_comp_id = os.getenv("SENDER_COMP_ID")
-    resolved_sender_comp_id = resolve_fix_sender_comp_id(rest_base_url, username, password)
+    resolved_sender_comp_id = resolve_fix_sender_comp_id(
+        rest_base_url, username, password
+    )
     sender_comp_id = resolved_sender_comp_id or env_sender_comp_id or "cross-FIX"
 
-    if resolved_sender_comp_id and env_sender_comp_id and resolved_sender_comp_id != env_sender_comp_id:
+    if (
+        resolved_sender_comp_id
+        and env_sender_comp_id
+        and resolved_sender_comp_id != env_sender_comp_id
+    ):
         logger.warning(
             "⚠️ SENDER_COMP_ID from .env differs from server fixAccountID; using server fixAccountID for FIX logon"
         )
@@ -125,7 +133,9 @@ def main():
 
         else:
             error = client.last_logon_error()
-            logger.error(f"❌ Logon failed: {error or 'No reason returned by package/server'}")
+            logger.error(
+                f"❌ Logon failed: {error or 'No reason returned by package/server'}"
+            )
             return
 
         # Keep connection alive for a moment

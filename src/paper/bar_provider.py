@@ -40,7 +40,9 @@ def _bar_bucket(dt: datetime, freq_minutes: int) -> datetime:
     """Floor a datetime to the nearest bar boundary."""
     total_minutes = dt.hour * 60 + dt.minute
     bucket_start = (total_minutes // freq_minutes) * freq_minutes
-    return dt.replace(hour=bucket_start // 60, minute=bucket_start % 60, second=0, microsecond=0)
+    return dt.replace(
+        hour=bucket_start // 60, minute=bucket_start % 60, second=0, microsecond=0
+    )
 
 
 def _in_session(t: time) -> bool:
@@ -178,9 +180,7 @@ class BarProvider:
             self._history = self._history[-max_history:]
 
         if len(self._history) < self._warmup:
-            logger.debug(
-                "Warming up (%d/%d bars)…", len(self._history), self._warmup
-            )
+            logger.debug("Warming up (%d/%d bars)…", len(self._history), self._warmup)
             return
 
         # Build DataFrame and add ATR
@@ -232,7 +232,11 @@ class BarProvider:
         )
 
         for row in df.itertuples(index=False):
-            dt: datetime = row.datetime if isinstance(row.datetime, datetime) else pd.Timestamp(row.datetime).to_pydatetime()
+            dt: datetime = (
+                row.datetime
+                if isinstance(row.datetime, datetime)
+                else pd.Timestamp(row.datetime).to_pydatetime()
+            )
             price_close = float(row.close)
             price_open = float(row.open)
             price_high = float(row.high)
@@ -265,7 +269,9 @@ class BarProvider:
                 continue
 
             df_hist = pd.DataFrame(self._history)
-            df_hist = self._preprocessor.add_atr(df_hist, period=self.atr_period, copy=True)
+            df_hist = self._preprocessor.add_atr(
+                df_hist, period=self.atr_period, copy=True
+            )
             bar = df_hist.iloc[-1].to_dict()
             self._bars_emitted += 1
 

@@ -93,7 +93,9 @@ class SessionStats:
         print(f"\n  Initial Capital : {initial:>18,.0f} VND")
         print(f"  Final Equity    : {final_equity:>18,.0f} VND")
         direction = "+" if total_pnl >= 0 else ""
-        print(f"  Net P&L         : {direction}{total_pnl:>17,.0f} VND  ({direction}{pnl_pct:.2f}%)")
+        print(
+            f"  Net P&L         : {direction}{total_pnl:>17,.0f} VND  ({direction}{pnl_pct:.2f}%)"
+        )
         print(f"  Total Commission: {total_commission:>18,.0f} VND")
 
         # Trade stats
@@ -122,11 +124,11 @@ class SessionStats:
             print()
             print("  --- Performance Metrics ---")
             metric_labels = {
-                "sharpe_ratio":      "Sharpe Ratio",
-                "sortino_ratio":     "Sortino Ratio",
-                "max_drawdown_pct":  "Max Drawdown (%)",
-                "profit_factor":     "Profit Factor",
-                "total_return_pct":  "Total Return (%)",
+                "sharpe_ratio": "Sharpe Ratio",
+                "sortino_ratio": "Sortino Ratio",
+                "max_drawdown_pct": "Max Drawdown (%)",
+                "profit_factor": "Profit Factor",
+                "total_return_pct": "Total Return (%)",
             }
             for key, label in metric_labels.items():
                 val = metrics.get(key)
@@ -162,18 +164,18 @@ class SessionStats:
         if trades:
             rows = [
                 {
-                    "trade_id":    t.trade_id,
-                    "side":        t.side.value,
-                    "entry_time":  t.entry_time,
+                    "trade_id": t.trade_id,
+                    "side": t.side.value,
+                    "entry_time": t.entry_time,
                     "entry_price": t.entry_price,
-                    "exit_time":   t.exit_time,
-                    "exit_price":  t.exit_price,
-                    "quantity":    t.quantity,
-                    "pnl":         t.pnl,
-                    "pnl_pct":     t.pnl_pct,
-                    "commission":  t.commission,
+                    "exit_time": t.exit_time,
+                    "exit_price": t.exit_price,
+                    "quantity": t.quantity,
+                    "pnl": t.pnl,
+                    "pnl_pct": t.pnl_pct,
+                    "commission": t.commission,
                     "exit_reason": t.exit_reason,
-                    "duration_s":  t.duration,
+                    "duration_s": t.duration,
                 }
                 for t in trades
             ]

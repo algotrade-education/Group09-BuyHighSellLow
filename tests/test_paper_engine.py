@@ -20,7 +20,10 @@ import pytest
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-def make_quote(price: float, volume: float = 100.0, ts: float = None, dt: datetime = None):
+
+def make_quote(
+    price: float, volume: float = 100.0, ts: float = None, dt: datetime = None
+):
     """Build a minimal QuoteSnapshot-like object."""
     q = MagicMock()
     q.latest_matched_price = price
@@ -68,14 +71,16 @@ def make_sim_df(n_bars: int = 20, start: datetime = None) -> pd.DataFrame:
         # Stay inside morning session (09:00-11:30)
         if dt.time() >= time(11, 30):
             break
-        rows.append({
-            "datetime": dt,
-            "open": price,
-            "high": price + 5,
-            "low": price - 5,
-            "close": price + 2,
-            "volume": 100.0,
-        })
+        rows.append(
+            {
+                "datetime": dt,
+                "open": price,
+                "high": price + 5,
+                "low": price - 5,
+                "close": price + 2,
+                "volume": 100.0,
+            }
+        )
         price += 1.0
     return pd.DataFrame(rows)
 
@@ -84,11 +89,13 @@ def make_sim_df(n_bars: int = 20, start: datetime = None) -> pd.DataFrame:
 # BarProvider
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestBarProvider:
     """Tests for BarProvider — OHLC accumulation and ATR warmup."""
 
     def test_invalid_bar_freq_raises(self):
         from src.paper.bar_provider import BarProvider
+
         with pytest.raises(ValueError, match="Unsupported bar_freq"):
             BarProvider(bar_freq="10min")
 
@@ -129,20 +136,28 @@ class TestBarProvider:
 
         period = 3
         emitted = []
-        provider = BarProvider(bar_freq="5min", atr_period=period, on_bar=emitted.append)
+        provider = BarProvider(
+            bar_freq="5min", atr_period=period, on_bar=emitted.append
+        )
 
         base = datetime(2025, 1, 6, 9, 0, 0)
         # Feed enough distinct 5-min buckets to clear warmup (period+1 = 4 needed before emit)
         for i in range(10):
-            provider._tick(base.replace(minute=i * 5), price=1300.0 + i * 2, volume=100.0)
+            provider._tick(
+                base.replace(minute=i * 5), price=1300.0 + i * 2, volume=100.0
+            )
         # Flush last open bar
         provider._tick(base.replace(minute=50), price=1320.0, volume=10.0)
 
         assert len(emitted) > 0
         for bar in emitted:
-            assert f"atr_{period}" in bar, f"Bar missing atr_{period}: {list(bar.keys())}"
+            assert f"atr_{period}" in bar, (
+                f"Bar missing atr_{period}: {list(bar.keys())}"
+            )
             atr_val = bar[f"atr_{period}"]
-            assert atr_val > 0 or pd.isna(atr_val), "ATR should be positive or NaN (not computed)"
+            assert atr_val > 0 or pd.isna(atr_val), (
+                "ATR should be positive or NaN (not computed)"
+            )
 
     def test_bar_ohlc_values(self):
         """Open/high/low/close should be correctly accumulated within a bucket."""
@@ -179,7 +194,9 @@ class TestBarProvider:
 
         asyncio.run(run())
 
-        assert provider._current_bucket is None, "No bucket should be started for out-of-session ticks"
+        assert provider._current_bucket is None, (
+            "No bucket should be started for out-of-session ticks"
+        )
         assert emitted == []
 
     def test_sim_replay_emits_bars(self):
@@ -201,7 +218,9 @@ class TestBarProvider:
 
         period = 3
         emitted = []
-        provider = BarProvider(bar_freq="5min", atr_period=period, on_bar=emitted.append)
+        provider = BarProvider(
+            bar_freq="5min", atr_period=period, on_bar=emitted.append
+        )
         df = make_sim_df(n_bars=20)
 
         asyncio.run(provider.replay(df, speed=0.0))
@@ -215,15 +234,17 @@ class TestBarProvider:
 # PositionTracker
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestPositionTracker:
     """Tests for PositionTracker — position lifecycle and P&L calculation."""
 
     @pytest.fixture()
     def tracker(self):
         from src.paper.position_tracker import PositionTracker
+
         return PositionTracker(
             initial_capital=10_000_000,
-            commission_rate=0.0,       # zero commission for simple P&L checks
+            commission_rate=0.0,  # zero commission for simple P&L checks
             contract_multiplier=1.0,
         )
 
@@ -234,8 +255,14 @@ class TestPositionTracker:
 
     def test_record_open_creates_trade(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts,
-                            stop_loss=1280.0, take_profit=1340.0)
+        tracker.record_open(
+            fill_price=1300.0,
+            qty=1,
+            side="LONG",
+            timestamp=ts,
+            stop_loss=1280.0,
+            take_profit=1340.0,
+        )
         assert not tracker.is_flat
         assert len(tracker.trades) == 1
         assert tracker.trades[0].entry_price == 1300.0
@@ -247,7 +274,9 @@ class TestPositionTracker:
 
         trade = tracker.trades[0]
         assert trade.is_closed
-        assert trade.pnl == pytest.approx(50.0, abs=1e-6), f"Expected 50, got {trade.pnl}"
+        assert trade.pnl == pytest.approx(50.0, abs=1e-6), (
+            f"Expected 50, got {trade.pnl}"
+        )
 
     def test_short_pnl_positive_on_price_fall(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
@@ -280,22 +309,40 @@ class TestPositionTracker:
 
     def test_check_sl_tp_stop_loss(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts,
-                            stop_loss=1280.0, take_profit=1340.0)
+        tracker.record_open(
+            fill_price=1300.0,
+            qty=1,
+            side="LONG",
+            timestamp=ts,
+            stop_loss=1280.0,
+            take_profit=1340.0,
+        )
         bar = make_bar(low=1275.0, high=1305.0)  # low hits SL
         assert tracker.check_sl_tp(bar) == "STOP_LOSS"
 
     def test_check_sl_tp_take_profit(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts,
-                            stop_loss=1280.0, take_profit=1340.0)
+        tracker.record_open(
+            fill_price=1300.0,
+            qty=1,
+            side="LONG",
+            timestamp=ts,
+            stop_loss=1280.0,
+            take_profit=1340.0,
+        )
         bar = make_bar(low=1305.0, high=1345.0)  # high hits TP
         assert tracker.check_sl_tp(bar) == "TAKE_PROFIT"
 
     def test_check_sl_tp_no_trigger(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts,
-                            stop_loss=1280.0, take_profit=1340.0)
+        tracker.record_open(
+            fill_price=1300.0,
+            qty=1,
+            side="LONG",
+            timestamp=ts,
+            stop_loss=1280.0,
+            take_profit=1340.0,
+        )
         bar = make_bar(low=1295.0, high=1320.0)  # neither hits
         assert tracker.check_sl_tp(bar) is None
 
@@ -305,8 +352,14 @@ class TestPositionTracker:
 
     def test_short_sl_triggered_by_high(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(fill_price=1300.0, qty=1, side="SHORT", timestamp=ts,
-                            stop_loss=1330.0, take_profit=1260.0)
+        tracker.record_open(
+            fill_price=1300.0,
+            qty=1,
+            side="SHORT",
+            timestamp=ts,
+            stop_loss=1330.0,
+            take_profit=1260.0,
+        )
         bar = make_bar(low=1295.0, high=1335.0)  # high > SL
         assert tracker.check_sl_tp(bar) == "STOP_LOSS"
 
@@ -321,6 +374,7 @@ class TestPositionTracker:
 # PositionTracker — cash accounting correctness
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestPositionTrackerCashAccounting:
     """
     Numerical tests for PositionTracker cash / equity accounting.
@@ -334,12 +388,13 @@ class TestPositionTrackerCashAccounting:
     """
 
     INITIAL = 10_000_000
-    RATE = 0.0003          # 0.03% per leg — realistic VN30 commission rate
-    MULT = 100_000.0       # VN30 contract multiplier
+    RATE = 0.0003  # 0.03% per leg — realistic VN30 commission rate
+    MULT = 100_000.0  # VN30 contract multiplier
 
     @pytest.fixture()
     def tracker(self):
         from src.paper.position_tracker import PositionTracker
+
         return PositionTracker(
             initial_capital=self.INITIAL,
             commission_rate=self.RATE,
@@ -404,7 +459,7 @@ class TestPositionTrackerCashAccounting:
         into trade.pnl which was then added to cash that already had it removed).
         """
         ts = datetime(2025, 1, 6, 9, 15)
-        entry, exit_ = 1300.0, 1300.0   # break-even trade (gross = 0)
+        entry, exit_ = 1300.0, 1300.0  # break-even trade (gross = 0)
         tracker.record_open(entry, qty=1, side="LONG", timestamp=ts)
         tracker.record_close(exit_, timestamp=ts, exit_reason="EOD")
 
@@ -437,15 +492,15 @@ class TestPositionTrackerCashAccounting:
 
         ts = datetime(2025, 1, 6, 9, 0)
         trades_data = [
-            ("LONG",  1300.0, 1350.0),  # +50 pts
+            ("LONG", 1300.0, 1350.0),  # +50 pts
             ("SHORT", 1350.0, 1300.0),  # +50 pts
-            ("LONG",  1300.0, 1280.0),  # -20 pts (loss)
+            ("LONG", 1300.0, 1280.0),  # -20 pts (loss)
             ("SHORT", 1280.0, 1290.0),  # -10 pts (loss)
-            ("LONG",  1290.0, 1310.0),  # +20 pts
+            ("LONG", 1290.0, 1310.0),  # +20 pts
         ]
 
         for i, (side, entry, exit_) in enumerate(trades_data):
-            t_open  = ts.replace(minute=i * 10)
+            t_open = ts.replace(minute=i * 10)
             t_close = ts.replace(minute=i * 10 + 5)
             tracker.record_open(entry, qty=1, side=side, timestamp=t_open)
             tracker.record_close(exit_, timestamp=t_close, exit_reason="test")
@@ -460,14 +515,20 @@ class TestPositionTrackerCashAccounting:
     def test_multi_trade_final_equity_consistent_with_net_pnl(self, tracker):
         """Final Equity = Initial Capital + Net P&L (when all positions closed)."""
         ts = datetime(2025, 1, 6, 9, 0)
-        for i, (side, entry, exit_) in enumerate([
-            ("LONG",  1300.0, 1340.0),
-            ("LONG",  1340.0, 1330.0),
-        ]):
-            tracker.record_open(entry, qty=1, side=side, timestamp=ts.replace(minute=i*10))
-            tracker.record_close(exit_, timestamp=ts.replace(minute=i*10+5), exit_reason="test")
+        for i, (side, entry, exit_) in enumerate(
+            [
+                ("LONG", 1300.0, 1340.0),
+                ("LONG", 1340.0, 1330.0),
+            ]
+        ):
+            tracker.record_open(
+                entry, qty=1, side=side, timestamp=ts.replace(minute=i * 10)
+            )
+            tracker.record_close(
+                exit_, timestamp=ts.replace(minute=i * 10 + 5), exit_reason="test"
+            )
 
-        tracker.update_unrealized(0.0)   # position is flat, unrealized = 0
+        tracker.update_unrealized(0.0)  # position is flat, unrealized = 0
         net_pnl = sum(t.pnl for t in tracker.trades)
         assert tracker.equity == pytest.approx(self.INITIAL + net_pnl, rel=1e-9)
 
@@ -475,6 +536,7 @@ class TestPositionTrackerCashAccounting:
 # ═══════════════════════════════════════════════════════════════════════════
 # SessionStats
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestSessionStats:
     """Tests for SessionStats — metrics computation."""
@@ -495,7 +557,9 @@ class TestSessionStats:
             ts = base_ts.replace(minute=15 + i * 5)
             tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
             close_ts = ts.replace(minute=ts.minute + 2)
-            tracker.record_close(fill_price=1350.0, timestamp=close_ts, exit_reason="Take Profit")
+            tracker.record_close(
+                fill_price=1350.0, timestamp=close_ts, exit_reason="Take Profit"
+            )
             tracker.equity_snapshot(close_ts)
 
         # Simulate losing trades
@@ -503,7 +567,9 @@ class TestSessionStats:
             ts = base_ts.replace(hour=13, minute=0 + i * 5)
             tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
             close_ts = ts.replace(minute=ts.minute + 2)
-            tracker.record_close(fill_price=1270.0, timestamp=close_ts, exit_reason="Stop Loss")
+            tracker.record_close(
+                fill_price=1270.0, timestamp=close_ts, exit_reason="Stop Loss"
+            )
             tracker.equity_snapshot(close_ts)
 
         return tracker

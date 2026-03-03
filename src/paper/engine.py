@@ -178,7 +178,9 @@ class PaperTrader:
         """Sim mode: replay historical bars through the BarProvider."""
         logger.info(
             "[SIM] Replaying %d bars for %s at %s freq…",
-            len(sim_df), self.symbol, self.bar_freq,
+            len(sim_df),
+            self.symbol,
+            self.bar_freq,
         )
         await self._bar_provider.replay(sim_df, speed=0.0)
         await self.stop()
@@ -233,7 +235,9 @@ class PaperTrader:
         if not self._tracker.is_flat:
             exit_trigger = self._tracker.check_sl_tp(bar)
             if exit_trigger:
-                self._order_mgr.submit_exit(reason=exit_trigger.replace("_", " ").title())
+                self._order_mgr.submit_exit(
+                    reason=exit_trigger.replace("_", " ").title()
+                )
                 return  # Don't generate new entry on same bar
 
         # --- Strategy signal ---

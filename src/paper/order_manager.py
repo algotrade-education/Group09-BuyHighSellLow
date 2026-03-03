@@ -95,8 +95,12 @@ class OrderManager:
         logger.info(
             "%sSubmitting ENTRY: %s %d %s @ %.2f | SL=%.2f | TP=%.2f",
             "[DRY-RUN] " if self._dry_run else "",
-            side, qty, self._symbol, price,
-            signal.stop_loss or 0, signal.take_profit or 0,
+            side,
+            qty,
+            self._symbol,
+            price,
+            signal.stop_loss or 0,
+            signal.take_profit or 0,
         )
 
         if self._dry_run:
@@ -170,7 +174,11 @@ class OrderManager:
         logger.info(
             "%sSubmitting EXIT (%s): %s %d %s @ %.2f",
             "[DRY-RUN] " if self._dry_run else "",
-            reason, side, qty, self._symbol, price,
+            reason,
+            side,
+            qty,
+            self._symbol,
+            price,
         )
 
         if self._dry_run:
@@ -242,7 +250,9 @@ class OrderManager:
             reason = self._pending_exit_reason
             self._pending_exit_id = None
             self._pending_exit_reason = ""
-            logger.info("Exit filled (%s): %s @ %.2f x %d", reason, cl_ord_id, avg_px, cum_qty)
+            logger.info(
+                "Exit filled (%s): %s @ %.2f x %d", reason, cl_ord_id, avg_px, cum_qty
+            )
             self._tracker.record_close(
                 fill_price=avg_px,
                 timestamp=datetime.now(),
@@ -252,4 +262,6 @@ class OrderManager:
                 self.on_fill("exit", avg_px, cum_qty)
             return
 
-        logger.debug("Unknown execution report for clOrdId=%s (status=%s)", cl_ord_id, ord_status)
+        logger.debug(
+            "Unknown execution report for clOrdId=%s (status=%s)", cl_ord_id, ord_status
+        )

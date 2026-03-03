@@ -106,8 +106,11 @@ class PositionTracker:
 
         logger.info(
             "Position opened: %s %d @ %.2f | SL=%.2f | TP=%.2f",
-            side, qty, fill_price,
-            stop_loss or 0, take_profit or 0,
+            side,
+            qty,
+            fill_price,
+            stop_loss or 0,
+            take_profit or 0,
         )
 
     def record_close(
@@ -137,9 +140,13 @@ class PositionTracker:
 
         # Calculate gross P&L from position prices (before any commission)
         if pos.is_long:
-            gross_pnl = (fill_price - pos.entry_price) * pos.quantity * self.contract_multiplier
+            gross_pnl = (
+                (fill_price - pos.entry_price) * pos.quantity * self.contract_multiplier
+            )
         else:
-            gross_pnl = (pos.entry_price - fill_price) * pos.quantity * self.contract_multiplier
+            gross_pnl = (
+                (pos.entry_price - fill_price) * pos.quantity * self.contract_multiplier
+            )
 
         # Update cash: gross P&L realised, minus exit commission
         # (entry commission was already subtracted in record_open)
@@ -159,10 +166,11 @@ class PositionTracker:
 
         logger.info(
             "Position closed (%s): fill=%.2f | P&L=%.2f",
-            exit_reason, fill_price, trade.pnl,
+            exit_reason,
+            fill_price,
+            trade.pnl,
         )
         return trade
-
 
     # ------------------------------------------------------------------
     # Real-time updates

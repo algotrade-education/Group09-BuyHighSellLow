@@ -253,7 +253,6 @@ Raw tick data undergoes a rigorous preprocessing pipeline before being used in b
 2. **Feature Engineering**: derive per-tick volume from cumulative quantity and resample tick data into OHLC bars (e.g., 5min, 15min, 1h).
 3. **Filtering**: restrict data to active trading hours (e.g., 09:00-14:30) unless ATC is requested.
 4. **Indicators**: compute 20-period SMA with slope, 20-period Bollinger Bands (2.0 std), 20-period Volume MA, 14-period RSI, and 14-period ADX
-5.
 
 ---
 

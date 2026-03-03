@@ -344,7 +344,9 @@ class TestTradeManagerExecution:
         trade = tm.trades[0]
         assert tm.cash == pytest.approx(INITIAL + trade.pnl, rel=1e-9)
         # trade.pnl should be negative (round-trip commission only)
-        assert trade.pnl < 0, "Break-even trade with commission should show negative pnl"
+        assert trade.pnl < 0, (
+            "Break-even trade with commission should show negative pnl"
+        )
 
     def test_slippage_widens_fill_price(self):
         """
@@ -415,7 +417,6 @@ class TestBacktesterEquityInvariant:
             f"NeverTrade equity should stay flat at {INITIAL:,.0f}, "
             f"got range [{equity.min():,.2f}, {equity.max():,.2f}]"
         )
-
 
     def test_commission_reduces_final_equity(self):
         """With commission, final equity after round-trips should be lower than zero-commission."""

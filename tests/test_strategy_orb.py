@@ -97,7 +97,7 @@ def _strategy(**kwargs) -> OpeningRangeBreakout:
         atr_period=14,
         atr_tp_multiplier=2.0,
         atr_sl_multiplier=1.5,
-        breakout_buffer=0.0,   # no buffer so breakout = exact range boundary
+        breakout_buffer=0.0,  # no buffer so breakout = exact range boundary
         use_range_sl=True,
         min_range_atr=0.5,
         max_range_atr=3.0,
@@ -111,13 +111,14 @@ def _strategy(**kwargs) -> OpeningRangeBreakout:
 # Formation phase
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestORBFormationPhase:
     """Bars within the first orb_minutes should HOLD and update the range."""
 
     def test_formation_bar_returns_hold(self):
         """A bar inside the opening window must return HOLD."""
         strat = _strategy()
-        bar = _morning(0)   # 09:00 — inside 15-min window
+        bar = _morning(0)  # 09:00 — inside 15-min window
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.HOLD
 
@@ -140,18 +141,20 @@ class TestORBFormationPhase:
         strat = _strategy()
         for minute in range(0, 15, 5):
             sig = strat.generate_signal(_morning(minute))
-            assert sig.signal == Signal.HOLD, f"Unexpected {sig.signal} at minute {minute}"
+            assert sig.signal == Signal.HOLD, (
+                f"Unexpected {sig.signal} at minute {minute}"
+            )
 
     def test_out_of_session_returns_hold(self):
         """Bars outside both sessions (e.g. 12:00 lunch) must return HOLD."""
         strat = _strategy()
-        dt = datetime(2025, 1, 6, 12, 0, 0)   # lunch break
+        dt = datetime(2025, 1, 6, 12, 0, 0)  # lunch break
         sig = strat.generate_signal(_bar(dt))
         assert sig.signal == Signal.HOLD
 
     def test_formation_window_exactly_at_boundary(self):
         """Bar at minute==orb_minutes is NOT in the formation window."""
-        strat = _strategy(orb_minutes=15)   # window is [0, 15)
+        strat = _strategy(orb_minutes=15)  # window is [0, 15)
         # Feed 09:00-09:10 as formation
         strat.generate_signal(_morning(0, high=1310.0, low=1290.0))
         strat.generate_signal(_morning(5, high=1310.0, low=1290.0))
@@ -166,6 +169,7 @@ class TestORBFormationPhase:
 # ═══════════════════════════════════════════════════════════════════════════
 # Long breakout
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestORBLongBreakout:
     """Close > range_high (+ buffer) → LONG signal with correct SL/TP."""
@@ -193,8 +197,12 @@ class TestORBLongBreakout:
 
     def test_long_signal_stop_loss_at_range_low(self):
         """use_range_sl=True → stop_loss == range_low."""
-        strat = _strategy(breakout_buffer=0.0, use_range_sl=True,
-                          min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0,
+            use_range_sl=True,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         bar = _morning(15, close=1311.0, high=1312.0, low=1305.0, atr=10.0)
@@ -205,8 +213,13 @@ class TestORBLongBreakout:
 
     def test_long_signal_take_profit_atr_based(self):
         """take_profit = close + atr_tp_multiplier * ATR."""
-        strat = _strategy(breakout_buffer=0.0, atr_tp_multiplier=2.0,
-                          use_range_sl=True, min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0,
+            atr_tp_multiplier=2.0,
+            use_range_sl=True,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         close = 1311.0
@@ -218,8 +231,13 @@ class TestORBLongBreakout:
 
     def test_long_signal_with_atr_sl(self):
         """use_range_sl=False → stop_loss = close - atr_sl_multiplier * ATR."""
-        strat = _strategy(breakout_buffer=0.0, use_range_sl=False,
-                          atr_sl_multiplier=1.5, min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0,
+            use_range_sl=False,
+            atr_sl_multiplier=1.5,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         close = 1311.0
@@ -261,6 +279,7 @@ class TestORBLongBreakout:
 # Short breakout
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestORBShortBreakout:
     """Close < range_low (- buffer) → SHORT signal."""
 
@@ -280,8 +299,12 @@ class TestORBShortBreakout:
 
     def test_short_stop_loss_at_range_high(self):
         """use_range_sl=True for SHORT → stop_loss == range_high."""
-        strat = _strategy(breakout_buffer=0.0, use_range_sl=True,
-                          min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0,
+            use_range_sl=True,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         bar = _morning(15, close=1289.0, high=1295.0, low=1288.0, atr=10.0)
@@ -290,8 +313,13 @@ class TestORBShortBreakout:
 
     def test_short_take_profit_atr_based(self):
         """take_profit = close - atr_tp_multiplier * ATR."""
-        strat = _strategy(breakout_buffer=0.0, atr_tp_multiplier=2.0,
-                          use_range_sl=True, min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0,
+            atr_tp_multiplier=2.0,
+            use_range_sl=True,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         close = 1289.0
@@ -302,8 +330,9 @@ class TestORBShortBreakout:
 
     def test_long_only_suppresses_short(self):
         """With long_only=True, downward breakout returns HOLD not SHORT."""
-        strat = _strategy(breakout_buffer=0.0, long_only=True,
-                          min_range_atr=0.5, max_range_atr=10.0)
+        strat = _strategy(
+            breakout_buffer=0.0, long_only=True, min_range_atr=0.5, max_range_atr=10.0
+        )
         self._setup_range(strat, high=1310.0, low=1290.0)
 
         bar = _morning(15, close=1285.0, high=1295.0, low=1284.0, atr=10.0)
@@ -314,6 +343,7 @@ class TestORBShortBreakout:
 # ═══════════════════════════════════════════════════════════════════════════
 # Range size filters
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestORBRangeFilters:
     """Range too narrow or too wide → HOLD (filtered out)."""
@@ -363,6 +393,7 @@ class TestORBRangeFilters:
 # ═══════════════════════════════════════════════════════════════════════════
 # Already-traded guard & session reset
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestORBSessionManagement:
     """Max 1 trade per session; new session resets state."""
@@ -416,7 +447,7 @@ class TestORBSessionManagement:
         d2 = datetime(2025, 1, 7, 9, 0)
         strat.generate_signal(_bar(d2, high=1310.0, low=1290.0))
         assert strat._current_date == d2.date()
-        assert not strat._range_formed   # just started day 2 formation
+        assert not strat._range_formed  # just started day 2 formation
 
     def test_position_open_returns_hold(self):
         """If current_position is not flat, always return HOLD."""
@@ -434,6 +465,7 @@ class TestORBSessionManagement:
 # Optional filters
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class TestORBOptionalFilters:
     """Volume and ADX filters can suppress otherwise-valid breakout signals."""
 
@@ -445,67 +477,102 @@ class TestORBOptionalFilters:
     def test_volume_filter_suppresses_breakout_when_below_ma(self):
         """use_volume_filter=True: volume < volume_ma → HOLD."""
         strat = _strategy(
-            breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=10.0,
+            breakout_buffer=0.0,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
             use_volume_filter=True,
         )
         self._setup_range(strat)
 
         # volume (100) < volume_ma (200) → filtered
-        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0,
-                       atr=10.0, volume=100.0, volume_ma=200.0)
+        bar = _morning(
+            15,
+            close=1315.0,
+            high=1316.0,
+            low=1310.0,
+            atr=10.0,
+            volume=100.0,
+            volume_ma=200.0,
+        )
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.HOLD
 
     def test_volume_filter_allows_breakout_when_above_ma(self):
         """use_volume_filter=True: volume > volume_ma → signal passes."""
         strat = _strategy(
-            breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=10.0,
+            breakout_buffer=0.0,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
             use_volume_filter=True,
         )
         self._setup_range(strat)
 
-        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0,
-                       atr=10.0, volume=300.0, volume_ma=200.0)
+        bar = _morning(
+            15,
+            close=1315.0,
+            high=1316.0,
+            low=1310.0,
+            atr=10.0,
+            volume=300.0,
+            volume_ma=200.0,
+        )
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.LONG
 
     def test_adx_filter_suppresses_breakout_when_adx_too_low(self):
         """use_adx_filter=True: ADX < adx_min → HOLD."""
         strat = _strategy(
-            breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=10.0,
-            use_adx_filter=True, adx_min=25.0,
+            breakout_buffer=0.0,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+            use_adx_filter=True,
+            adx_min=25.0,
         )
         self._setup_range(strat)
 
-        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0,
-                       atr=10.0, adx=15.0)   # adx below threshold
+        bar = _morning(
+            15, close=1315.0, high=1316.0, low=1310.0, atr=10.0, adx=15.0
+        )  # adx below threshold
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.HOLD
 
     def test_adx_filter_allows_breakout_when_adx_sufficient(self):
         """use_adx_filter=True: ADX >= adx_min → signal passes."""
         strat = _strategy(
-            breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=10.0,
-            use_adx_filter=True, adx_min=25.0,
+            breakout_buffer=0.0,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+            use_adx_filter=True,
+            adx_min=25.0,
         )
         self._setup_range(strat)
 
-        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0,
-                       atr=10.0, adx=30.0)
+        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0, atr=10.0, adx=30.0)
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.LONG
 
     def test_both_filters_off_no_suppression(self):
         """With both filters off, valid breakout signals regardless of volume/ADX."""
         strat = _strategy(
-            breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=10.0,
-            use_volume_filter=False, use_adx_filter=False,
+            breakout_buffer=0.0,
+            min_range_atr=0.5,
+            max_range_atr=10.0,
+            use_volume_filter=False,
+            use_adx_filter=False,
         )
         self._setup_range(strat)
 
         # Terrible volume and ADX — but filters are off
-        bar = _morning(15, close=1315.0, high=1316.0, low=1310.0,
-                       atr=10.0, volume=1.0, volume_ma=9999.0, adx=1.0)
+        bar = _morning(
+            15,
+            close=1315.0,
+            high=1316.0,
+            low=1310.0,
+            atr=10.0,
+            volume=1.0,
+            volume_ma=9999.0,
+            adx=1.0,
+        )
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.LONG
 
@@ -513,6 +580,7 @@ class TestORBOptionalFilters:
 # ═══════════════════════════════════════════════════════════════════════════
 # Signal metadata
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestORBSignalMetadata:
     """Breakout signals should carry correct metadata fields."""
@@ -528,7 +596,14 @@ class TestORBSignalMetadata:
 
         assert sig.signal == Signal.LONG
         assert sig.metadata is not None
-        for key in ("session", "range_high", "range_low", "range_size", "atr", "sl_type"):
+        for key in (
+            "session",
+            "range_high",
+            "range_low",
+            "range_size",
+            "atr",
+            "sl_type",
+        ):
             assert key in sig.metadata, f"Missing metadata key: {key}"
 
     def test_long_signal_session_is_morning(self):
