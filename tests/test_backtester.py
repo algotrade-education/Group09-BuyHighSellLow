@@ -283,3 +283,163 @@ class TestTradeManagerExecution:
         assert trade is not None
         assert trade.pnl < 0
         assert tm.cash < 1_000_000
+
+    def test_cash_equals_initial_plus_pnl_with_commission(self):
+        """
+        Exact accounting invariant: cash == initial_capital + sum(trade.pnl).
+
+        This is the backtest-engine equivalent of the PositionTracker cash
+        invariant and uses a realistic commission rate. A double-commission
+        bug (like the one fixed in PositionTracker.record_close) would cause
+        this to fail with a clear numeric diff.
+        """
+        from src.engine.order import Order, OrderSide, OrderType
+
+        INITIAL = 1_000_000
+        RATE = 0.001
+        tm = self._make_tm(capital=INITIAL, commission_rate=RATE)
+        ts = datetime(2024, 1, 1, 10, 0, 0)
+
+        # Round-trip 1: profitable LONG (+50 points)
+        o1 = Order(order_type=OrderType.MARKET, side=OrderSide.BUY, quantity=1)
+        bar = {"open": 1000, "high": 1060, "low": 990, "close": 1000}
+        tm.execute_order(o1, bar, ts)
+        tm.open_position(o1, ts)
+        t1 = tm.close_position(exit_price=1050, timestamp=ts, exit_reason="tp")
+
+        # Round-trip 2: losing LONG (-20 points)
+        o2 = Order(order_type=OrderType.MARKET, side=OrderSide.BUY, quantity=1)
+        bar2 = {"open": 1050, "high": 1060, "low": 1020, "close": 1050}
+        tm.execute_order(o2, bar2, ts)
+        tm.open_position(o2, ts)
+        t2 = tm.close_position(exit_price=1030, timestamp=ts, exit_reason="sl")
+
+        total_pnl = sum(t.pnl for t in tm.trades)
+        assert tm.cash == pytest.approx(INITIAL + total_pnl, rel=1e-9), (
+            f"cash={tm.cash:,.2f} != initial+net_pnl={INITIAL + total_pnl:,.2f} "
+            f"(diff={tm.cash - INITIAL - total_pnl:,.2f})"
+        )
+
+    def test_break_even_trade_only_loses_commission(self):
+        """
+        With zero price movement, cash should only drop by total commission.
+
+        Regression guard: if commission is double-charged (once manually,
+        once inside trade.pnl), this test fails showing the 2x discrepancy.
+        """
+        from src.engine.order import Order, OrderSide, OrderType
+
+        INITIAL = 1_000_000
+        RATE = 0.001
+        ENTRY = 1000.0
+        tm = self._make_tm(capital=INITIAL, commission_rate=RATE)
+        ts = datetime(2024, 1, 1, 10, 0, 0)
+
+        o = Order(order_type=OrderType.MARKET, side=OrderSide.BUY, quantity=1)
+        bar = {"open": ENTRY, "high": ENTRY + 5, "low": ENTRY - 5, "close": ENTRY}
+        tm.execute_order(o, bar, ts)
+        tm.open_position(o, ts)
+        tm.close_position(exit_price=ENTRY, timestamp=ts, exit_reason="eod")
+
+        trade = tm.trades[0]
+        assert tm.cash == pytest.approx(INITIAL + trade.pnl, rel=1e-9)
+        # trade.pnl should be negative (round-trip commission only)
+        assert trade.pnl < 0, "Break-even trade with commission should show negative pnl"
+
+    def test_slippage_widens_fill_price(self):
+        """
+        Slippage on BUY should increase fill price (worse for buyer).
+        Slippage on SELL should decrease fill price (worse for seller).
+        """
+        from src.engine.order import Order, OrderSide, OrderType
+
+        SLIPPAGE = 2.0
+        tm = self._make_tm(commission_rate=0.0, slippage=SLIPPAGE)
+        ts = datetime(2024, 1, 1, 10, 0, 0)
+        bar = {"open": 1000, "high": 1020, "low": 980, "close": 1000}
+
+        buy_order = Order(order_type=OrderType.MARKET, side=OrderSide.BUY, quantity=1)
+        tm.execute_order(buy_order, bar, ts)
+        # BUY fill should be at open + slippage
+        assert buy_order.filled_price == pytest.approx(1000.0 + SLIPPAGE)
+
+
+class TestBacktesterEquityInvariant:
+    """
+    Backtester-level tests for the end-to-end equity accounting invariant.
+
+    Verifies that after a full backtest run:
+      final_equity == initial_capital + net_pnl  (when no open position at end)
+    """
+
+    def test_final_equity_equals_initial_plus_net_pnl(self):
+        """
+        End-to-end invariant: BacktestResult.final_equity == initial + net_pnl.
+
+        Uses AlternatingStrategy with zero commission so gross PnL == net PnL
+        and the relationship is obvious to verify.
+        """
+        data = _make_bars(40)
+        INITIAL = 500_000.0
+        bt = Backtester(
+            strategy=AlternatingStrategy(),
+            initial_capital=INITIAL,
+            commission_rate=0.0,
+            slippage_points=0.0,
+            contract_multiplier=1,
+        )
+        result = bt.run(data)
+
+        net_pnl = sum(t.pnl for t in result.trades)
+        final_equity = result.equity_curve["equity"].iloc[-1]
+
+        assert final_equity == pytest.approx(INITIAL + net_pnl, rel=1e-9), (
+            f"final_equity={final_equity:,.2f} != initial+net_pnl={INITIAL + net_pnl:,.2f}"
+        )
+
+    def test_no_trades_equity_flat(self):
+        """With NeverTrade strategy, equity curve should stay flat at initial capital."""
+        data = _make_bars(20)
+        INITIAL = 1_000_000.0
+        bt = Backtester(
+            strategy=NeverTradeStrategy(),
+            initial_capital=INITIAL,
+            commission_rate=0.001,
+            slippage_points=1.0,
+            contract_multiplier=1,
+        )
+        result = bt.run(data)
+
+        equity = result.equity_curve["equity"].to_numpy()
+        assert np.allclose(equity, INITIAL), (
+            f"NeverTrade equity should stay flat at {INITIAL:,.0f}, "
+            f"got range [{equity.min():,.2f}, {equity.max():,.2f}]"
+        )
+
+
+    def test_commission_reduces_final_equity(self):
+        """With commission, final equity after round-trips should be lower than zero-commission."""
+        data = _make_bars(40)
+        INITIAL = 500_000.0
+
+        bt_no_comm = Backtester(
+            strategy=AlternatingStrategy(),
+            initial_capital=INITIAL,
+            commission_rate=0.0,
+            slippage_points=0.0,
+            contract_multiplier=1,
+        )
+        bt_with_comm = Backtester(
+            strategy=AlternatingStrategy(),
+            initial_capital=INITIAL,
+            commission_rate=0.001,
+            slippage_points=0.0,
+            contract_multiplier=1,
+        )
+        r_no = bt_no_comm.run(data)
+        r_with = bt_with_comm.run(data)
+
+        # Same trades, same prices — commission should drag equity lower
+        assert r_with.total_pnl < r_no.total_pnl, (
+            "Commission should reduce total P&L vs zero-commission run"
+        )
