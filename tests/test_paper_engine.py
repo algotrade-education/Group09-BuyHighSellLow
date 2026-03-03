@@ -65,7 +65,7 @@ def make_sim_df(n_bars: int = 20, start: datetime = None) -> pd.DataFrame:
             hour=start.hour + minute // 60,
             minute=(start.minute + minute) % 60,
         )
-        # Stay inside morning session (09:00–11:30)
+        # Stay inside morning session (09:00-11:30)
         if dt.time() >= time(11, 30):
             break
         rows.append({

@@ -251,7 +251,7 @@ Raw tick data undergoes a rigorous preprocessing pipeline before being used in b
 
 1. **Cleaning**: remove duplicates, forward-fill missing prices, and drop rows with missing key timestamps.
 2. **Feature Engineering**: derive per-tick volume from cumulative quantity and resample tick data into OHLC bars (e.g., 5min, 15min, 1h).
-3. **Filtering**: restrict data to active trading hours (e.g., 09:00–14:30) unless ATC is requested.
+3. **Filtering**: restrict data to active trading hours (e.g., 09:00-14:30) unless ATC is requested.
 4. **Indicators**: compute 20-period SMA with slope, 20-period Bollinger Bands (2.0 std), 20-period Volume MA, 14-period RSI, and 14-period ADX
 5.
 
@@ -458,5 +458,5 @@ Performance Metrics:
 
 ## Reference
 
-[1] ALGOTRADE, Algorithmic Trading Theory and Practice - A Practical Guide with Applications on the Vietnamese Stock Market, 1st ed. DIMI BOOK, 2023, pp. 52–53. Accessed: May 12, 2025. [Online]. Available: [Link](https://hub.algotrade.vn/knowledge-hub/market-making-strategy/)
+[1] ALGOTRADE, Algorithmic Trading Theory and Practice - A Practical Guide with Applications on the Vietnamese Stock Market, 1st ed. DIMI BOOK, 2023, pp. 52-53. Accessed: May 12, 2025. [Online]. Available: [Link](https://hub.algotrade.vn/knowledge-hub/market-making-strategy/)
 
