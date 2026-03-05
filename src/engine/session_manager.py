@@ -150,7 +150,7 @@ class VN30Session(SessionManager):
             time.fromisoformat("14:30:00"),
         )
         self.atc_start = time.fromisoformat("14:30:00")
-        self.atc_end = time.fromisoformat("15:45:00")
+        self.atc_end = time.fromisoformat("14:45:00")
 
         self.close_at_eod = close_at_eod
 
