@@ -3,10 +3,11 @@ Script to fetch and load market data for specified contracts.
 Defaults to VN30F1M contract.
 
 Run as:
-    python src/run_data_loader.py --mode fetch
-to fetch data from database, or
-    python src/run_data_loader.py --mode load
-to load existing data.
+    py -m src.run_data_loader --mode fetch
+to fetch from the database and save monthly CSV chunks to data/.
+
+    py -m src.run_data_loader --mode load --sample is
+to load IS data (reads parquet cache or rebuilds from chunks).
 """
 
 import argparse
@@ -27,44 +28,40 @@ from src.utils.logger import setup_logging
 logger = setup_logging(__name__, log_file="logs/data_loader.log")
 
 
-def fetch_data(contract: str = "VN30F1M"):
+def fetch_data(contract: str = "VN30F1M", chunk_by: str = "month"):
     """
-    Fetch in-sample and out-of-sample data from database.
+    Fetch market data from the database and save as CSV chunks in data/.
+
+    Fetches the full IS+OS date range in one request and splits it into
+    monthly (or yearly) CSV files: data/<contract>_YYYYMM.csv.
+    IS and OS parquets are generated automatically on the first load.
 
     Args:
         contract (str): Contract symbol to fetch data for
+        chunk_by (str): 'month' or 'year' — controls chunk file granularity
     """
     loader = DataLoader()
 
-    try:
-        # Fetch in-sample
-        logger.info(
-            "Fetching in-sample data for %s (%s to %s)",
-            contract,
-            IS_SAMPLE_START,
-            IS_SAMPLE_END,
-        )
-        loader.fetch_from_database(
-            contract_name=contract,
-            start_date=IS_SAMPLE_START,
-            end_date=IS_SAMPLE_END,
-            save_path=f"data/is/{contract}_data.csv",
-        )
+    # Fetch the full range covering both IS and OS periods in one go.
+    # The IS/OS split happens at load time via load_in_sample / load_out_of_sample.
+    full_start = IS_SAMPLE_START
+    full_end = OUT_SAMPLE_END
 
-        # Fetch out-of-sample
+    try:
         logger.info(
-            "Fetching out-of-sample data for %s (%s to %s)",
+            "Fetching %s data (%s to %s) with chunk_by='%s'",
             contract,
-            OUT_SAMPLE_START,
-            OUT_SAMPLE_END,
+            full_start,
+            full_end,
+            chunk_by,
         )
         loader.fetch_from_database(
             contract_name=contract,
-            start_date=OUT_SAMPLE_START,
-            end_date=OUT_SAMPLE_END,
-            save_path=f"data/os/{contract}_data.csv",
+            start_date=full_start,
+            end_date=full_end,
+            chunk_by=chunk_by,
         )
-        logger.info("Data fetch complete.")
+        logger.info("Data fetch complete. Chunks saved to data/.")
     except Exception as e:
         logger.error("Error fetching data: %s", e)
         logger.error("Ensure database credentials are set in .env")
@@ -112,12 +109,19 @@ if __name__ == "__main__":
         "--sample",
         choices=["is", "os"],
         default="is",
-        help="Sample type: is (in-sample) or os (out-of-sample).",
+        help="Sample type for --mode load: 'is' or 'os' (default: is).",
+    )
+    parser.add_argument(
+        "--chunk-by",
+        choices=["month", "year"],
+        default="month",
+        dest="chunk_by",
+        help="Chunk granularity when saving CSVs (default: month).",
     )
     args = parser.parse_args()
 
     if args.mode == "fetch":
-        fetch_data(args.contract)
+        fetch_data(args.contract, args.chunk_by)
     else:
         df = load_data(args.sample, args.contract)
         logger.info("Loaded %s rows.", len(df))

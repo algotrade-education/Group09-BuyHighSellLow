@@ -135,7 +135,7 @@ class DataService:
         params: Tuple,
     ) -> List[Tuple]:
         """
-        Helper to execute a query and return results.
+        Execute a query and return raw rows.
 
         Args:
             query: SQL query string
@@ -150,11 +150,8 @@ class DataService:
 
         try:
             with self.connection.cursor() as cursor:
-                # Execute query
                 cursor.execute(query, params)
-                results = list(cursor)
-
-                return results
+                return list(cursor)
 
         except psycopg2.extensions.QueryCanceledError as e:
             raise TimeoutError(f"Query timed out: {e}")
@@ -162,39 +159,45 @@ class DataService:
         except Exception as e:
             raise RuntimeError(f"Database query failed: {e}")
 
+    def _query_to_df(
+        self,
+        query: str,
+        params: Tuple,
+        columns: List[str],
+        label: str,
+    ) -> pd.DataFrame:
+        """
+        Execute a query and return results as a DataFrame.
+
+        Args:
+            query:   SQL query string.
+            params:  Query parameters.
+            columns: Column names for the resulting DataFrame.
+            label:   Human-readable name used in error log messages.
+
+        Returns:
+            pd.DataFrame with *columns*, empty on any error.
+        """
+        try:
+            rows = self._execute_query(query, params)
+            return pd.DataFrame(rows, columns=columns)
+        except Exception as e:
+            logger.error("Unexpected error fetching %s data: %s", label, e)
+            return pd.DataFrame()
+
     def get_matched_data(
         self,
         from_date: str,
         to_date: str,
         contract_name: str,
     ) -> pd.DataFrame:
-        """
-        Retrieves matched data from the database based on the specified criteria.
-
-        Args:
-            from_date (str): The start date for data retrieval.
-            to_date (str): The end date for data retrieval.
-            contract_name (str): The type of contract to filter data.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the matched data.
-        """
-        try:
-            queries = self._execute_query(
-                MATCHED_QUERY, (contract_name, from_date, to_date)
-            )
-
-            columns = [
-                "datetime",
-                "tickersymbol",
-                "price",
-                "quantity",
-            ]
-            return pd.DataFrame(queries, columns=columns)
-
-        except Exception as e:
-            logger.error("Unexpected error fetching matched data: %s", e)
-            return pd.DataFrame()
+        """Retrieve matched (trade) tick data for *contract_name*."""
+        return self._query_to_df(
+            MATCHED_QUERY,
+            (contract_name, from_date, to_date),
+            ["datetime", "tickersymbol", "price", "quantity"],
+            label="matched",
+        )
 
     def get_bid_ask_data(
         self,
@@ -202,34 +205,13 @@ class DataService:
         to_date: str,
         contract_name: str,
     ) -> pd.DataFrame:
-        """
-        Retrieves bid-ask data from the database based on the specified criteria.
-
-        Args:
-            from_date (str): The start date for data retrieval.
-            to_date (str): The end date for data retrieval.
-            contract_name (str): The type of contract to filter data.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the bid-ask data.
-        """
-        try:
-            queries = self._execute_query(
-                BID_ASK_QUERY, (contract_name, from_date, to_date)
-            )
-
-            columns = [
-                "datetime",
-                "tickersymbol",
-                "best-bid",
-                "best-ask",
-                "spread",
-            ]
-            return pd.DataFrame(queries, columns=columns)
-
-        except Exception as e:
-            logger.error("Unexpected error fetching bid-ask data: %s", e)
-            return pd.DataFrame()
+        """Retrieve best bid/ask spread data for *contract_name*."""
+        return self._query_to_df(
+            BID_ASK_QUERY,
+            (contract_name, from_date, to_date),
+            ["datetime", "tickersymbol", "best-bid", "best-ask", "spread"],
+            label="bid-ask",
+        )
 
     def get_close_data(
         self,
@@ -237,31 +219,13 @@ class DataService:
         to_date: str,
         contract_name: str,
     ) -> pd.DataFrame:
-        """
-        Retrieves close data from the database based on the specified criteria.
-
-        Args:
-            from_date (str): The start date for data retrieval.
-            to_date (str): The end date for data retrieval.
-            contract_name (str): The type of contract to filter data.
-        Returns:
-            pd.DataFrame: A DataFrame containing the close data.
-        """
-        try:
-            queries = self._execute_query(
-                CLOSE_QUERY, (contract_name, from_date, to_date)
-            )
-
-            columns = [
-                "date",
-                "tickersymbol",
-                "close",
-            ]
-            return pd.DataFrame(queries, columns=columns)
-
-        except Exception as e:
-            logger.error("Unexpected error fetching close data: %s", e)
-            return pd.DataFrame()
+        """Retrieve daily close price data for *contract_name*."""
+        return self._query_to_df(
+            CLOSE_QUERY,
+            (contract_name, from_date, to_date),
+            ["date", "tickersymbol", "close"],
+            label="close",
+        )
 
     def close(self) -> None:
         """Close the database connection."""
@@ -321,13 +285,13 @@ def fetch_in_chunks(
     )
 
     while current <= end:
-        next_chunk = current + pd.Timedelta(chunk_size)
+        next_chunk = current + pd.Timedelta(days=chunk_size)  # days, not nanoseconds
         chunk_end = min(next_chunk, end)
 
         s_date = current.strftime("%Y-%m-%d")
         e_date = chunk_end.strftime("%Y-%m-%d")
 
-        logger.debug("Fetching chunk: %s to %s", s_date, e_date)
+        logger.info("Fetching chunk: %s to %s", s_date, e_date)
 
         try:
             df_chunk = fetch_method(
