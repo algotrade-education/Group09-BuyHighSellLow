@@ -45,6 +45,7 @@ venv.bak/
 
 # Data files (CSV, Excel)
 # Uncomment if you don't want to commit data
+data/*.csv
 data/*/*.csv
 data/*/*.xlsx
 # But keep the directory structure
