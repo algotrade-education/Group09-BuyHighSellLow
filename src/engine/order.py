@@ -1,5 +1,5 @@
 """
-Order management for the trading engine
+Order domain models for the trading engine.
 """
 
 from dataclasses import dataclass, field
@@ -10,21 +10,21 @@ from typing import ClassVar, Optional
 
 
 class OrderType(Enum):
-    """Types of orders supported by the backtester"""
+    """Order types supported by the backtester."""
 
     MARKET = "MARKET"
     LIMIT = "LIMIT"
 
 
 class OrderSide(Enum):
-    """Sides of orders supported by the backtester"""
+    """Order sides supported by the backtester."""
 
     BUY = "BUY"
     SELL = "SELL"
 
 
 class OrderStatus(Enum):
-    """Statuses of orders supported by the backtester"""
+    """Order lifecycle statuses supported by the backtester."""
 
     PENDING = "PENDING"
     FILLED = "FILLED"
@@ -76,32 +76,32 @@ class Order:
 
     @classmethod
     def reset_id_counter(cls) -> None:
-        """Reset order ID counter"""
+        """Reset the class-level order ID counter."""
         cls._id_counter = itertools.count(1)
 
     @property
     def is_buy(self) -> bool:
-        """Returns True if the order is a buy order"""
+        """Return whether this is a buy order."""
         return self.side == OrderSide.BUY
 
     @property
     def is_sell(self) -> bool:
-        """Returns True if the order is a sell order"""
+        """Return whether this is a sell order."""
         return self.side == OrderSide.SELL
 
     @property
     def is_filled(self) -> bool:
-        """Returns True if the order is filled"""
+        """Return whether this order has been filled."""
         return self.status == OrderStatus.FILLED
 
     @property
     def is_pending(self) -> bool:
-        """Returns True if the order is pending"""
+        """Return whether this order is pending."""
         return self.status == OrderStatus.PENDING
 
     @property
     def total_cost(self) -> Optional[float]:
-        """Calculates the total cost of the order"""
+        """Return total transaction cost (commission + absolute slippage)."""
         if self.filled_price is None:
             return 0.0
 
@@ -150,9 +150,7 @@ class Order:
         self.reason = reason
 
     def expire(self) -> None:
-        """
-        Expires the order (for orders that have a time-to-live and are not filled within that time)
-        """
+        """Mark order as expired (e.g., TTL exceeded before fill)."""
         self.status = OrderStatus.EXPIRED
 
     def __repr__(self) -> str:

@@ -1,17 +1,20 @@
 """
 Trading session management for the backtesting engine.
-This module defines the SessionManager class, which is responsible for managing trading sessions,
-including starting and ending sessions, tracking session information,
-and providing utilities for session management.
+
+Defines session abstractions used to decide when trading is allowed,
+when signals should be skipped, and when positions must be closed at EOD.
 """
 
 from abc import ABC, abstractmethod
 from datetime import datetime, time
 
+
 class SessionManager(ABC):
     """
-    Abstract base class for trading session management.
-    This class defines the interface for managing trading sessions
+    Abstract interface for trading session rules.
+
+    Implementations define trading-hours checks, end-of-day closing logic,
+    and signal-generation guardrails.
     """
 
     @abstractmethod
@@ -70,15 +73,15 @@ class AlwaysOpenSession(SessionManager):
     """
 
     def is_trading_hours(self, dt: datetime) -> bool:
-        """Always return True, indicating that all times are trading hours."""
+        """Always return `True` (every timestamp is tradable)."""
         return True
 
     def should_close_eod(self, dt: datetime) -> bool:
-        """Never closes EOD - since no end of day in this session."""
+        """Always return `False` (no EOD close in always-open mode)."""
         return False
 
     def should_skip_signal_generation(self, dt: datetime) -> bool:
-        """Never skip signal generation - since all times are valid for trading."""
+        """Always return `False` (never skip signal generation)."""
         return False
 
 
@@ -155,7 +158,7 @@ class VN30Session(SessionManager):
         self.close_at_eod = close_at_eod
 
     def is_trading_hours(self, dt: datetime) -> bool:
-        """Check if within trading hours (including ATC)"""
+        """Return whether the timestamp is within VN30 tradable windows (incl. ATC)."""
         dt_time = dt.time()
 
         return (
@@ -165,7 +168,7 @@ class VN30Session(SessionManager):
         )
 
     def is_atc_session(self, dt: datetime) -> bool:
-        """Check if within ATC session"""
+        """Return whether timestamp falls inside the ATC session."""
         dt_time = dt.time()
         return self.atc_start <= dt_time < self.atc_end
 

@@ -1,10 +1,10 @@
 """
-Simple Login Example - Event-Based Design
+Simple FIX login example using event callbacks.
 
 Demonstrates:
-- Clean event-based login flow
-- Automatic connection management with context manager
-- Error handling
+- Event-driven login lifecycle
+- SenderCompID resolution from REST metadata
+- Basic account checks after FIX logon
 """
 
 import os
@@ -32,29 +32,29 @@ logger = logging.getLogger(__name__)
 
 
 def on_logon(session_id, **kw):
-    """Event handler for successful logon."""
+    """Handle successful FIX logon events."""
     logger.info(f"✅ FIX session established: {session_id}")
 
 
 def on_logout(session_id, reason=None, **kw):
-    """Event handler for logout."""
+    """Handle FIX logout events."""
     logger.info(f"👋 FIX session closed: {session_id}, reason: {reason}")
 
 
 def on_reject(reason, msg_type, **kw):
-    """Event handler for rejected messages."""
+    """Handle broker/FIX message rejects."""
     logger.error(f"❌ Message rejected - Type: {msg_type}, Reason: {reason}")
 
 
 def on_logon_error(session_id=None, reason=None, **kw):
-    """Event handler for logon failure details."""
+    """Handle FIX logon failures."""
     logger.error(f"❌ FIX logon error: session={session_id}, reason={reason}")
 
 
 def resolve_fix_sender_comp_id(
     rest_base_url: str, username: str, password: str
 ) -> str | None:
-    """Resolve FIX SenderCompID from REST API (fixAccountID)."""
+    """Resolve SenderCompID via REST `fixAccountID` metadata."""
     url = f"{rest_base_url.rstrip('/')}/api/fix-account-info/get-fix-id"
     try:
         response = requests.post(
@@ -72,7 +72,7 @@ def resolve_fix_sender_comp_id(
 
 
 def main():
-    """Simple login demonstration."""
+    """Run login demo and print a minimal connectivity sanity check."""
 
     username = os.getenv("PAPER_USERNAME", "BL01")
     password = os.getenv("PAPER_PASSWORD", "123")

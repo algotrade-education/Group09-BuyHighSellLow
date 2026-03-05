@@ -4,6 +4,7 @@ Grid Search optimization for strategy parameters.
 
 import concurrent.futures
 import itertools
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,10 +17,12 @@ from tqdm import tqdm
 from config.config import CONTRACT_MULTIPLIER, DEFAULT_INITIAL_CAPITAL, RESULTS_DIR
 from src.engine.backtester import Backtester
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class OptimizationResult:
-    """Container for optimization results."""
+    """Serializable result for one parameter combination."""
 
     params: Dict[str, Any]
     metrics: Dict[str, float]
@@ -29,7 +32,7 @@ class OptimizationResult:
     total_trades: int
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Flatten params + metrics for tabular export."""
         result = self.params.copy()
         result.update(self.metrics)
         return result
@@ -76,7 +79,7 @@ class GridSearch:
         self.results: List[OptimizationResult] = []
 
     def _generate_combinations(self) -> Iterator[Dict[str, Any]]:
-        """Generate all parameter combinations."""
+        """Yield Cartesian-product parameter dictionaries."""
         keys = list(self.param_grid.keys())
         values = list(self.param_grid.values())
 
@@ -85,7 +88,7 @@ class GridSearch:
 
     @property
     def total_combinations(self) -> int:
-        """Total number of parameter combinations."""
+        """Return total search-space size."""
         total = 1
         for values in self.param_grid.values():
             total *= len(values)
@@ -131,8 +134,8 @@ class GridSearch:
                 max_drawdown=result.metrics.get("max_drawdown_pct", 0),
                 total_trades=int(result.metrics.get("total_trades", 0)),
             )
-        except Exception as e:
-            print(f"Error with params {params}: {e}")
+        except Exception:
+            logger.exception("Backtest failed for params=%s", params)
             return None
 
     def optimize(
@@ -223,8 +226,8 @@ class GridSearch:
                         result = future.result()
                         if result:
                             self.results.append(result)
-                    except Exception as e:
-                        print(f"Optimization job failed: {e}")
+                    except Exception:
+                        logger.exception("Optimization worker job failed")
 
         # Sort by objective
         self.results.sort(
@@ -236,20 +239,20 @@ class GridSearch:
 
     @property
     def best_params(self) -> Optional[Dict[str, Any]]:
-        """Get best parameters."""
+        """Return params of the top-ranked result (if available)."""
         if not self.results:
             return None
         return self.results[0].params
 
     @property
     def best_result(self) -> Optional[OptimizationResult]:
-        """Get best optimization result."""
+        """Return the top-ranked optimization result (if available)."""
         if not self.results:
             return None
         return self.results[0]
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert results to DataFrame."""
+        """Convert all optimization results to a DataFrame."""
         if not self.results:
             return pd.DataFrame()
 
@@ -288,7 +291,7 @@ class GridSearch:
         return output_path
 
     def print_top_results(self, n: int = 10) -> None:
-        """Print top N results."""
+        """Print a console summary for the top N parameter sets."""
         if not self.results:
             print("No results available")
             return

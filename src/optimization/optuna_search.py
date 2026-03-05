@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class OptunaResult:
-    """Container for a single Optuna trial result."""
+    """Serializable snapshot of one Optuna trial outcome."""
 
     trial_number: int
     params: Dict[str, Any]
@@ -117,6 +117,12 @@ class OptunaSearch:
         self.results: List[OptunaResult] = []
         self.study: Optional[optuna.Study] = None
         self.backtester_kwargs = backtester_kwargs or {}
+
+    @property
+    def _study_name(self) -> str:
+        """Build study name from strategy class to avoid stale naming."""
+        strategy_name = getattr(self.strategy_class, "__name__", "Strategy")
+        return f"{strategy_name}_Optimization"
 
     def _sample_params(self, trial: "Trial") -> Dict[str, Any]:
         """
@@ -281,7 +287,8 @@ class OptunaSearch:
             return score
 
         except Exception as e:
-            logger.error("Trial %d failed: %s", trial.number, e)
+            logger.exception("Trial %d failed", trial.number)
+            trial.set_user_attr("error", str(e))
             return -100.0
 
     def optimize(
@@ -329,7 +336,7 @@ class OptunaSearch:
         self.study = optuna.create_study(
             direction="maximize",
             sampler=sampler,
-            study_name="BB_MeanReversion_Optimization",
+            study_name=self._study_name,
         )
 
         if show_progress:
@@ -350,20 +357,20 @@ class OptunaSearch:
 
     @property
     def best_params(self) -> Optional[Dict[str, Any]]:
-        """Get best parameters."""
+        """Return params from the highest-scoring trial (if available)."""
         if not self.results:
             return None
         return self.results[0].params
 
     @property
     def best_result(self) -> Optional[OptunaResult]:
-        """Get best result."""
+        """Return the highest-scoring Optuna trial result."""
         if not self.results:
             return None
         return self.results[0]
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert results to DataFrame."""
+        """Convert all trial results to a DataFrame."""
         if not self.results:
             return pd.DataFrame()
         return pd.DataFrame([r.to_dict() for r in self.results])
@@ -373,7 +380,7 @@ class OptunaSearch:
         filename: Optional[str] = None,
         directory: str = RESULTS_DIR,
     ) -> Path:
-        """Save optimization results to CSV."""
+        """Persist all trial results to CSV and return output path."""
         if not self.results:
             raise ValueError("No results to save")
 
@@ -390,7 +397,7 @@ class OptunaSearch:
         return output_path
 
     def print_top_results(self, n: int = 10) -> None:
-        """Print top N results."""
+        """Print a concise leaderboard for the top N trials."""
         if not self.results:
             print("No results available")
             return
@@ -416,7 +423,7 @@ class OptunaSearch:
             print()
 
     def print_study_summary(self) -> None:
-        """Print Optuna study summary."""
+        """Print aggregate Optuna study statistics to stdout."""
         if self.study is None:
             print("No study available")
             return

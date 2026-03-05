@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 class PaperTrader:
     """
-    Orchestrates live or simulated paper trading.
+    Orchestrate live or simulated paper trading.
 
     Wires together: BarProvider → Strategy → OrderManager → PositionTracker → SessionStats.
     """
@@ -130,7 +130,7 @@ class PaperTrader:
             await self._run_live()
 
     async def _run_live(self) -> None:
-        """Live mode: connect FIX, subscribe Redis, process continuously."""
+        """Run live mode: connect FIX, subscribe Redis, and process incoming quotes."""
         if self._client is None or self._redis_client is None:
             logger.error(
                 "Live mode requires both client and redis_client. "
@@ -175,7 +175,7 @@ class PaperTrader:
             await self.stop()
 
     async def _run_sim(self, sim_df: "pd.DataFrame") -> None:
-        """Sim mode: replay historical bars through the BarProvider."""
+        """Run sim mode by replaying historical bars through `BarProvider`."""
         logger.info(
             "[SIM] Replaying %d bars for %s at %s freq…",
             len(sim_df),
@@ -186,7 +186,7 @@ class PaperTrader:
         await self.stop()
 
     async def stop(self) -> None:
-        """Gracefully stop the engine and print final stats."""
+        """Stop the engine, attempt cleanup, and print session statistics."""
         self._running = False
 
         # Close any open position at last price
@@ -213,7 +213,7 @@ class PaperTrader:
     # ------------------------------------------------------------------
 
     def _on_new_bar(self, bar: Dict[str, Any]) -> None:
-        """Process a completed OHLC + ATR bar through the strategy."""
+        """Handle one completed bar through risk checks, strategy, and orders."""
         dt: datetime = bar.get("datetime", datetime.now())
         close = float(bar.get("close", 0))
 
@@ -256,7 +256,7 @@ class PaperTrader:
             self._order_mgr.submit_exit(reason="Strategy Close")
 
     def _submit_entry(self, signal, bar: Dict[str, Any]) -> None:
-        """Calculate quantity and submit entry."""
+        """Compute position size from risk config and submit entry order."""
         qty = self._qty
         # Simple percent-risk sizing if configured
         risk = self.config.get("risk", {})

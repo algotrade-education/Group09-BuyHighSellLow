@@ -1,5 +1,5 @@
 """
-Backtest results class
+Backtest result models and convenience accessors.
 """
 
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ from src.engine.position import Trade
 @dataclass
 class BacktestResult:
     """
-    Container for backtest results
+    Container for one backtest run result.
 
     Attributes:
         trades (List[Trade]): list of executed trades
@@ -30,7 +30,7 @@ class BacktestResult:
 
     @property
     def total_trades(self) -> int:
-        """Total number of trades executed"""
+        """Return total number of executed trades."""
         return len(self.trades)
 
     @property
@@ -87,7 +87,7 @@ class BacktestResult:
         return (self.winning_trades / self.total_trades) * 100
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert trades to DataFrame."""
+        """Convert trade records to a tabular DataFrame."""
         if not self.trades:
             return pd.DataFrame()
 
