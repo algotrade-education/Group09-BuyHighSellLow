@@ -1,7 +1,7 @@
 """
 Script to run backtest for ORB (Opening Range Breakout) strategy.
 Run as:
-    python -m src.run_backtest_orb --sample is --config config/strategy_params/orb_default.json
+    python -m src.run_backtest --sample is --config config/strategy_params/orb_default.json
 
 This script will:
 1. Load the specified data (in-sample or out-of-sample).
@@ -23,14 +23,16 @@ from config.config import (
     MARGIN_RATE,
     RESULTS_DIR,
 )
-from src.data.preprocessor import Preprocessor
 from src.engine.backtester import Backtester
 from src.engine.position_sizer import PercentRiskSizer
 from src.engine.result import BacktestResult
 from src.metrics.plotter import BacktestPlotter
-from src.run_data_loader import load_data
-from src.strategy.ORB import OpeningRangeBreakout
-from src.utils.config_loader import load_config
+from src.utils.cli_helpers import (
+    build_orb_strategy,
+    load_orb_config_context,
+    load_sample_data,
+    prepare_backtest_dataset,
+)
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/backtest_orb.log")
@@ -44,18 +46,11 @@ def run_backtest(
     contract_multiplier: float = CONTRACT_MULTIPLIER,
     margin_rate: float = MARGIN_RATE,
 ) -> None:
-    """Run backtest with given parameters."""
+    """Run one ORB backtest and persist report artifacts."""
 
     # Extract strategy parameters from config
     strategy_params = params.get("strategy", {})
-
-    # Remove non-strategy keys that the constructor doesn't accept
-    strategy_kwargs = {
-        k: v for k, v in strategy_params.items() if k not in ("resample_freq",)
-    }
-
-    # Initialize strategy
-    strategy = OpeningRangeBreakout(**strategy_kwargs)
+    strategy = build_orb_strategy(strategy_params)
 
     # Extract risk management params
     risk_params = params.get("risk", {})
@@ -172,26 +167,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load configuration
-    config = load_config(args.config)
+    config, strategy_params, resample_freq = load_orb_config_context(
+        args.config,
+        default_resample_freq="1min",
+    )
     logger.info("Loaded configuration from %s", args.config)
     # Load data based on arguments
-    data = load_data(sample=args.sample, contract=args.contract)
+    data = load_sample_data(sample=args.sample, contract=args.contract)
 
-    # Get resample frequency from config — ORB typically uses 1min
-    resample_freq = config.get("strategy", {}).get("resample_freq", "1min")
+    # Resample frequency comes from config (fallback kept for compatibility)
     logger.info(
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
 
-    # Get strategy parameters to initialize preprocessor with matching parameters
-    strategy_params = config.get("strategy", {})
-
-    # Create preprocessor — ORB only needs ATR, but we include all indicators
-    preprocessor = Preprocessor(
-        atr_period=strategy_params.get("atr_period", 14),
-    )
-
-    # Resample to OHLC bars and add indicators
-    data = preprocessor.prepare_for_backtest(data, resample_freq=resample_freq)
+    data = prepare_backtest_dataset(data, strategy_params, resample_freq)
 
     run_backtest(data, config)

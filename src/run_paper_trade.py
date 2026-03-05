@@ -24,11 +24,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from config.config import DEFAULT_INITIAL_CAPITAL
-from src.data.preprocessor import Preprocessor
 from src.paper.engine import PaperTrader
-from src.run_data_loader import load_data
-from src.strategy.ORB import OpeningRangeBreakout
-from src.utils.config_loader import load_config
+from src.utils.cli_helpers import (
+    build_orb_strategy,
+    load_orb_config_context,
+    load_sample_data,
+    prepare_backtest_dataset,
+)
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/paper_trade.log")
@@ -97,22 +99,16 @@ async def main(args: argparse.Namespace) -> None:
     load_dotenv()
 
     # Load config
-    config = load_config(args.config)
-    strategy_params = config.get("strategy", {})
-    resample_freq = strategy_params.get("resample_freq", "5min")
-
-    # Build strategy (exclude non-constructor keys)
-    strategy_kwargs = {k: v for k, v in strategy_params.items() if k != "resample_freq"}
-    strategy = OpeningRangeBreakout(**strategy_kwargs)
+    config, strategy_params, resample_freq = load_orb_config_context(args.config)
+    strategy = build_orb_strategy(strategy_params)
 
     sim_df = None
 
     if args.sim:
         # ── Sim mode: load + preprocess historical data ──────────────────
         logger.info("Sim mode: loading %s data for %s…", args.sample, args.symbol)
-        raw = load_data(sample=args.sample, contract=args.symbol.split(":")[-1])
-        preprocessor = Preprocessor(atr_period=strategy_params.get("atr_period", 14))
-        sim_df = preprocessor.prepare_for_backtest(raw, resample_freq=resample_freq)
+        raw = load_sample_data(sample=args.sample, contract=args.symbol.split(":")[-1])
+        sim_df = prepare_backtest_dataset(raw, strategy_params, resample_freq)
         logger.info("Sim data ready: %d bars.", len(sim_df))
 
         trader = PaperTrader(

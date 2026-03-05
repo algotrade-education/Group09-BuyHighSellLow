@@ -1,9 +1,9 @@
 """
 Script to run optimization (grid search) on strategy parameters.
 Run as:
-    python src/run_grid.py --sample is
+    python -m src.run_grid --sample is
 to optimize on in-sample data, or
-    python src/run_grid.py --sample os
+    python -m src.run_grid --sample os
 to optimize on out-of-sample data.
 
 This script will:
@@ -21,9 +21,12 @@ import pandas as pd
 
 from src.data.preprocessor import Preprocessor
 from src.optimization.grid_search import GridSearch
-from src.run_data_loader import load_data
 from src.strategy.ORB import OpeningRangeBreakout
-from src.utils.config_loader import load_config
+from src.utils.cli_helpers import (
+    load_orb_config_context,
+    load_sample_data,
+    prepare_optimization_dataset,
+)
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/optimization.log")
@@ -44,7 +47,7 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_optimization(data: pd.DataFrame, config: dict) -> None:
-    """Run grid search optimization."""
+    """Run ORB grid search and persist ranked parameter results."""
     logger.info("Starting Grid Search Optimization...")
 
     # Parameter grid for ORB strategy.
@@ -136,20 +139,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load configuration
-    config = load_config("config/strategy_params/orb_default.json")
+    config, _, resample_freq = load_orb_config_context(
+        "config/strategy_params/orb_default.json",
+        default_resample_freq="5min",
+    )
     logger.info("Loaded ORB configuration")
 
     # Load data based on arguments
-    data = load_data(sample=args.sample, contract=args.contract)
+    data = load_sample_data(sample=args.sample, contract=args.contract)
 
-    resample_freq = config.get("strategy", {}).get("resample_freq", "5min")
     logger.info(
         "Preprocessing %s data for %s (resample: %s)...",
         args.sample,
         args.contract,
         resample_freq,
     )
-    data = Preprocessor().prepare_for_optimization(data, resample_freq=resample_freq)
+    data = prepare_optimization_dataset(data, resample_freq=resample_freq)
     logger.info("Data shape for optimization: %s", data.shape)
 
     run_optimization(data, config)

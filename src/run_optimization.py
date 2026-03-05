@@ -1,11 +1,11 @@
 """
 Script to run Optuna-based Bayesian optimization for ORB strategy parameters.
 Run as:
-    python -m src.run_optimization_orb --sample is --trials 300
+    python -m src.run_optimization --sample is --trials 300
 
 Composite objective:
     score = sharpe - |0.1 * max_drawdown| - |0.1 * trades/1000|
-    If trades <= 50: score = -1.0 (invalid)
+    If trades <= trade_threshold: score = -1.0 (invalid)
     If sharpe <= 0: use total_return / 100 as fallback
 
 Also optimizes the resampling timeframe (1min, 5min) alongside strategy parameters.
@@ -19,9 +19,12 @@ import pandas as pd
 
 from src.data.preprocessor import Preprocessor
 from src.optimization.optuna_search import OptunaSearch
-from src.run_data_loader import load_data
 from src.strategy.ORB import OpeningRangeBreakout
-from src.utils.config_loader import load_config
+from src.utils.cli_helpers import (
+    load_orb_config_context,
+    load_sample_data,
+    prepare_optuna_dataset,
+)
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/optuna_orb.log")
@@ -64,11 +67,10 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
-    """Run Optuna optimization for ORB strategy."""
+    """Run ORB Optuna search and save ranked results/best config."""
     logger.info("Starting ORB Optuna Optimization with %d trials...", n_trials)
 
-    # Focused search space — narrowed around known-good ORB params
-    # Fixed: 5min, long_only=True (proven best from previous runs)
+    # Search space for ORB parameters and optional risk controls.
     param_space = {
         "resample_freq": {
             "type": "categorical",
@@ -111,7 +113,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
     )
 
     # Run optimization with raw_data=True since we pass tick data
-    results = optimizer.optimize(data, raw_data=True)
+    optimizer.optimize(data, raw_data=True)
 
     # Print results
     optimizer.print_study_summary()
@@ -153,7 +155,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         print(f"\nBest config saved to: {params_path}")
         print("Run backtest with:")
         print(
-            f"  python -m src.run_backtest_orb --sample is --config {params_path}"
+            f"  python -m src.run_backtest --sample is --config {params_path}"
         )
 
 
@@ -179,17 +181,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load configuration
-    config = load_config("config/strategy_params/orb_default.json")
+    config, _, _ = load_orb_config_context("config/strategy_params/orb_default.json")
     logger.info("Loaded ORB configuration")
 
     # Load raw data (tick data)
-    data = load_data(sample=args.sample, contract=args.contract)
-
-    # Only clean and derive volume — do NOT resample here
-    # Each Optuna trial will resample to its own timeframe
-    preprocessor = Preprocessor()
-    data = preprocessor.clean_data(data)
-    data = preprocessor._derive_volume(data, copy=False)
+    data = load_sample_data(sample=args.sample, contract=args.contract)
+    data = prepare_optuna_dataset(data)
     logger.info("Cleaned tick data shape: %s", data.shape)
 
     run_optuna(data, config, n_trials=args.trials)

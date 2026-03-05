@@ -1,7 +1,7 @@
 """
 Script to run walk-forward optimization.
 Run as:
-    python src/run_walk_forward.py --sample is
+    python -m src.run_walk_forward --sample is
 to run on in-sample data.
 
 Walk-forward optimization guards against overfitting by:
@@ -38,7 +38,7 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
-    """Run walk-forward optimization."""
+    """Run walk-forward analysis and report out-of-sample robustness."""
     logger.info("Starting Walk-Forward Optimization...")
 
     # ORB parameter grid for walk-forward optimization
