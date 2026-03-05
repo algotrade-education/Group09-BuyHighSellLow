@@ -27,7 +27,8 @@ All parameters are constructor kwargs for easy optimization via Optuna.
 """
 
 import logging
-from datetime import datetime, time
+from dataclasses import dataclass
+from datetime import date, datetime, time
 from typing import Any, Dict, Optional
 
 from src.strategy.base import Signal, Strategy, TradeSignal
@@ -40,6 +41,16 @@ MORNING_START = time(9, 0)
 MORNING_END = time(11, 30)
 AFTERNOON_START = time(13, 0)
 AFTERNOON_END = time(14, 30)
+
+
+@dataclass(frozen=True)
+class ParsedBar:
+    """Parsed bar fields used by ORB decision flow."""
+
+    dt: datetime
+    close: float
+    high: float
+    low: float
 
 
 class OpeningRangeBreakout(Strategy):
@@ -102,7 +113,7 @@ class OpeningRangeBreakout(Strategy):
         self.adx_min = adx_min
 
         # Session state
-        self._current_date: Optional[datetime] = None
+        self._current_date: Optional[date] = None
         self._current_session: Optional[str] = None  # "morning" or "afternoon"
         self._range_high: float = 0.0
         self._range_low: float = float("inf")
@@ -161,6 +172,164 @@ class OpeningRangeBreakout(Strategy):
         self._traded_this_session = False
         self._range_start_time = None
 
+    def _parse_bar(self, bar: Dict[str, Any]) -> Optional[ParsedBar]:
+        """Extract and coerce datetime/close/high/low from bar."""
+        dt = bar.get("datetime")
+        if dt is None:
+            return None
+
+        if not isinstance(dt, datetime):
+            try:
+                dt = datetime.fromisoformat(str(dt))
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            close = float(bar["close"])
+            high = float(bar["high"])
+            low = float(bar["low"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        return ParsedBar(dt=dt, close=close, high=high, low=low)
+
+    def _update_session_state(self, dt: datetime, session: str) -> None:
+        """Reset and initialize state when session/day changes."""
+        current_date = dt.date()
+        if current_date != self._current_date or session != self._current_session:
+            self._current_date = current_date
+            self._current_session = session
+            self._reset_session_state()
+            self._range_start_time = dt
+
+    def _update_formation(self, high: float, low: float) -> None:
+        """Expand opening range boundaries during formation phase."""
+        if high > self._range_high:
+            self._range_high = high
+        if low < self._range_low:
+            self._range_low = low
+
+    def _check_range_filters(self, atr: float) -> Optional[TradeSignal]:
+        """Validate range quality constraints for breakout eligibility."""
+        range_size = self._range_high - self._range_low
+        if range_size <= 0:
+            return TradeSignal(signal=Signal.HOLD, reason="Invalid range (size <= 0)")
+
+        range_in_atr = range_size / atr
+
+        if range_in_atr < self.min_range_atr:
+            return TradeSignal(
+                signal=Signal.HOLD,
+                reason=f"Range too narrow ({range_in_atr:.1f} ATR < {self.min_range_atr})",
+            )
+
+        if range_in_atr > self.max_range_atr:
+            return TradeSignal(
+                signal=Signal.HOLD,
+                reason=f"Range too wide ({range_in_atr:.1f} ATR > {self.max_range_atr})",
+            )
+
+        return None
+
+    def _check_optional_filters(self, bar: Dict[str, Any]) -> Optional[TradeSignal]:
+        """Run optional volume/ADX filters before breakout checks."""
+        if self.use_volume_filter:
+            volume = bar.get("volume", 0)
+            volume_ma = bar.get("volume_ma_20", 0)
+            if volume_ma > 0 and volume < volume_ma:
+                return TradeSignal(signal=Signal.HOLD, reason="Volume below average")
+
+        if self.use_adx_filter:
+            adx_col = f"adx_{self.atr_period}"
+            adx = bar.get(adx_col, 0.0)
+            if adx < self.adx_min:
+                return TradeSignal(
+                    signal=Signal.HOLD,
+                    reason=f"ADX too low ({adx:.1f} < {self.adx_min})",
+                )
+
+        return None
+
+    def _build_long_signal(
+        self,
+        close: float,
+        atr: float,
+        range_size: float,
+        session: str,
+    ) -> TradeSignal:
+        """Build validated long breakout signal."""
+        if self.use_range_sl:
+            stop_loss = self._range_low
+        else:
+            stop_loss = close - (self.atr_sl_multiplier * atr)
+
+        take_profit = close + (self.atr_tp_multiplier * atr)
+
+        if take_profit <= close:
+            return TradeSignal(signal=Signal.HOLD, reason="TP <= entry (skip)")
+        if stop_loss >= close:
+            return TradeSignal(signal=Signal.HOLD, reason="SL >= entry (skip)")
+
+        self._traded_this_session = True
+        range_in_atr = range_size / atr
+
+        return TradeSignal(
+            signal=Signal.LONG,
+            entry_price=0.0,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            reason=f"ORB Long breakout ({session}, range={range_size:.1f})",
+            metadata={
+                "session": session,
+                "range_high": self._range_high,
+                "range_low": self._range_low,
+                "range_size": range_size,
+                "range_in_atr": range_in_atr,
+                "atr": atr,
+                "sl_type": "range" if self.use_range_sl else "atr",
+            },
+        )
+
+    def _build_short_signal(
+        self,
+        close: float,
+        atr: float,
+        range_size: float,
+        session: str,
+    ) -> TradeSignal:
+        """Build validated short breakout signal."""
+        if self.use_range_sl:
+            stop_loss = self._range_high
+        else:
+            stop_loss = close + (self.atr_sl_multiplier * atr)
+
+        take_profit = close - (self.atr_tp_multiplier * atr)
+
+        if take_profit >= close:
+            return TradeSignal(signal=Signal.HOLD, reason="TP >= entry (skip)")
+        if stop_loss <= close:
+            return TradeSignal(signal=Signal.HOLD, reason="SL <= entry (skip)")
+
+        self._traded_this_session = True
+        range_in_atr = range_size / atr
+
+        return TradeSignal(
+            signal=Signal.SHORT,
+            entry_price=0.0,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            reason=f"ORB Short breakout ({session}, range={range_size:.1f})",
+            metadata={
+                "session": session,
+                "range_high": self._range_high,
+                "range_low": self._range_low,
+                "range_size": range_size,
+                "range_in_atr": range_in_atr,
+                "atr": atr,
+                "sl_type": "range" if self.use_range_sl else "atr",
+            },
+        )
+
     def generate_signal(
         self,
         bar: Dict[str, Any],
@@ -181,32 +350,24 @@ class OpeningRangeBreakout(Strategy):
         if not self.validate_bar(bar, self.REQUIRED_FIELDS):
             return TradeSignal(signal=Signal.HOLD)
 
-        # Get datetime from bar
-        dt = bar.get("datetime")
-        if dt is None:
+        if bar.get("datetime") is None:
             return TradeSignal(signal=Signal.HOLD, reason="No datetime in bar")
 
-        if not isinstance(dt, datetime):
-            dt = datetime.fromisoformat(str(dt)) if dt else None
-            if dt is None:
-                return TradeSignal(signal=Signal.HOLD, reason="Invalid datetime")
+        parsed = self._parse_bar(bar)
+        if parsed is None:
+            return TradeSignal(signal=Signal.HOLD, reason="Invalid bar data")
+
+        dt = parsed.dt
+        close = parsed.close
+        high = parsed.high
+        low = parsed.low
 
         # Determine current session
         session = self._get_session(dt)
         if session is None:
             return TradeSignal(signal=Signal.HOLD, reason="Outside trading session")
 
-        # Detect session change → reset state
-        current_date = dt.date()
-        if current_date != self._current_date or session != self._current_session:
-            self._current_date = current_date
-            self._current_session = session
-            self._reset_session_state()
-            self._range_start_time = dt
-
-        close = bar["close"]
-        high = bar["high"]
-        low = bar["low"]
+        self._update_session_state(dt, session)
 
         # If already in a position, hold (exits via SL/TP/EOD)
         if current_position is not None and not current_position.is_flat:
@@ -218,11 +379,7 @@ class OpeningRangeBreakout(Strategy):
 
         # --- FORMATION PHASE ---
         if self._is_in_formation_window(dt, session):
-            # Update range boundaries
-            if high > self._range_high:
-                self._range_high = high
-            if low < self._range_low:
-                self._range_low = low
+            self._update_formation(high, low)
 
             return TradeSignal(
                 signal=Signal.HOLD,
@@ -247,120 +404,31 @@ class OpeningRangeBreakout(Strategy):
         if atr <= 0:
             return TradeSignal(signal=Signal.HOLD, reason="ATR is zero or negative")
 
-        # Range size filter
+        range_filter = self._check_range_filters(atr)
+        if range_filter is not None:
+            return range_filter
+
         range_size = self._range_high - self._range_low
-        if range_size <= 0:
-            return TradeSignal(signal=Signal.HOLD, reason="Invalid range (size <= 0)")
 
-        range_in_atr = range_size / atr
-
-        if range_in_atr < self.min_range_atr:
-            return TradeSignal(
-                signal=Signal.HOLD,
-                reason=f"Range too narrow ({range_in_atr:.1f} ATR < {self.min_range_atr})",
-            )
-
-        if range_in_atr > self.max_range_atr:
-            return TradeSignal(
-                signal=Signal.HOLD,
-                reason=f"Range too wide ({range_in_atr:.1f} ATR > {self.max_range_atr})",
-            )
-
-        # --- OPTIONAL FILTERS ---
-        # Volume filter
-        if self.use_volume_filter:
-            volume = bar.get("volume", 0)
-            volume_ma = bar.get("volume_ma_20", 0)
-            if volume_ma > 0 and volume < volume_ma:
-                return TradeSignal(signal=Signal.HOLD, reason="Volume below average")
-
-        # ADX trend filter
-        if self.use_adx_filter:
-            adx_col = f"adx_{self.atr_period}"  # Use same period as ATR
-            adx = bar.get(adx_col, 0.0)
-            if adx < self.adx_min:
-                return TradeSignal(
-                    signal=Signal.HOLD,
-                    reason=f"ADX too low ({adx:.1f} < {self.adx_min})",
-                )
+        optional_filter = self._check_optional_filters(bar)
+        if optional_filter is not None:
+            return optional_filter
 
         # Breakout levels
         buffer = self.breakout_buffer * atr
         breakout_high = self._range_high + buffer
         breakout_low = self._range_low - buffer
 
-        tp_distance = self.atr_tp_multiplier * atr
-
         # --- LONG BREAKOUT ---
         if close > breakout_high:
-            if self.use_range_sl:
-                stop_loss = self._range_low  # SL at bottom of range
-            else:
-                stop_loss = close - (self.atr_sl_multiplier * atr)
-
-            take_profit = close + tp_distance
-
-            # Sanity checks
-            if take_profit <= close:
-                return TradeSignal(signal=Signal.HOLD, reason="TP <= entry (skip)")
-            if stop_loss >= close:
-                return TradeSignal(signal=Signal.HOLD, reason="SL >= entry (skip)")
-
-            self._traded_this_session = True
-
-            return TradeSignal(
-                signal=Signal.LONG,
-                entry_price=0.0,  # Market order
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                reason=f"ORB Long breakout ({session}, range={range_size:.1f})",
-                metadata={
-                    "session": session,
-                    "range_high": self._range_high,
-                    "range_low": self._range_low,
-                    "range_size": range_size,
-                    "range_in_atr": range_in_atr,
-                    "atr": atr,
-                    "sl_type": "range" if self.use_range_sl else "atr",
-                },
-            )
+            return self._build_long_signal(close, atr, range_size, session)
 
         # --- SHORT BREAKOUT ---
         if self.long_only:
             return TradeSignal(signal=Signal.HOLD)
 
         if close < breakout_low:
-            if self.use_range_sl:
-                stop_loss = self._range_high  # SL at top of range
-            else:
-                stop_loss = close + (self.atr_sl_multiplier * atr)
-
-            take_profit = close - tp_distance
-
-            # Sanity checks
-            if take_profit >= close:
-                return TradeSignal(signal=Signal.HOLD, reason="TP >= entry (skip)")
-            if stop_loss <= close:
-                return TradeSignal(signal=Signal.HOLD, reason="SL <= entry (skip)")
-
-            self._traded_this_session = True
-
-            return TradeSignal(
-                signal=Signal.SHORT,
-                entry_price=0.0,  # Market order
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                reason=f"ORB Short breakout ({session}, range={range_size:.1f})",
-                metadata={
-                    "session": session,
-                    "range_high": self._range_high,
-                    "range_low": self._range_low,
-                    "range_size": range_size,
-                    "range_in_atr": range_in_atr,
-                    "atr": atr,
-                    "sl_type": "range" if self.use_range_sl else "atr",
-                },
-            )
+            return self._build_short_signal(close, atr, range_size, session)
 
         # No breakout yet
         return TradeSignal(signal=Signal.HOLD)
