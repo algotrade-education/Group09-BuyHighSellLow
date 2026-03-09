@@ -5,7 +5,7 @@ These helpers intentionally do not manage argparse to keep each runner's
 command-line surface independent and easy to extend.
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 import pandas as pd
 
@@ -83,7 +83,7 @@ def prepare_backtest_dataset(
     raw_data: pd.DataFrame,
     strategy_params: Dict[str, Any],
     resample_freq: str,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
     """Prepare bar+indicator dataset for backtest or sim execution.
 
     Important: indicator columns must align with the strategy parameters
@@ -128,9 +128,33 @@ def prepare_backtest_dataset(
     # Session VWAP + std bands (used by VWAP strategy)
     df = preprocessor.add_session_vwap(df, copy=False)
 
+    incomplete_bar = None
+    if not df.empty:
+        # Check if the very last bar is "incomplete" (in the future or currently forming)
+        # by looking at whether it has valid indicator values (which dropna will strip) or
+        # if the system time is within its bucket. In our case, the easiest way to preserve
+        # the currently forming intraday bar is to extract the last row *before* we run dropna().
+        last_row = df.iloc[-1].copy()
+
+        # Check if the last row's datetime is "today" and the time matches the current forming bucket.
+        # Alternatively, we just extract it if its volume is > 0 and it would be dropped.
+        # But safely, we can just extract the raw OHLCV of the last row before dropping NA
+        incomplete_bar = {
+            "datetime": last_row["datetime"],
+            "open": float(last_row["open"]),
+            "high": float(last_row["high"]),
+            "low": float(last_row["low"]),
+            "close": float(last_row["close"]),
+            "volume": float(last_row["volume"]),
+        }
+
     df.dropna(inplace=True)
     df.reset_index(drop=True, inplace=True)
-    return df
+
+    # Only return the incomplete bar if we actually dropped it (meaning it was the incomplete leading edge)
+    # OR if it's explicitly today's currently forming bar.
+    # For paper trading, we return it so the engine can decide whether to seed it.
+    return df, incomplete_bar
 
 
 def prepare_optimization_dataset(
@@ -138,7 +162,9 @@ def prepare_optimization_dataset(
     resample_freq: str,
 ) -> pd.DataFrame:
     """Prepare optimization dataset with configured resampling/indicators."""
-    return Preprocessor().prepare_for_optimization(raw_data, resample_freq=resample_freq)
+    return Preprocessor().prepare_for_optimization(
+        raw_data, resample_freq=resample_freq
+    )
 
 
 def prepare_optuna_dataset(raw_data: pd.DataFrame) -> pd.DataFrame:

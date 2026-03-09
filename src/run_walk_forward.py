@@ -1,10 +1,10 @@
 """
 Script to run walk-forward optimization for the ORB strategy.
 
-Walk-forward optimization is a robust validation technique that splits 
-historical data into moving windows. Parameters are optimized on a 'Train' 
-period and then tested on an immediately following 'Test' (Out-Of-Sample) 
-period. This process detects if a strategy's edge is persistent or just a 
+Walk-forward optimization is a robust validation technique that splits
+historical data into moving windows. Parameters are optimized on a 'Train'
+period and then tested on an immediately following 'Test' (Out-Of-Sample)
+period. This process detects if a strategy's edge is persistent or just a
 result of curve-fitting.
 
 Run as:
@@ -32,8 +32,8 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Indicator calculation hook for the walk-forward cycle.
 
-    Invoked by the GridSearch optimizer inside the walk-forward loop. 
-    Resets indicators (ATR, ADX) using the specific periods chosen 
+    Invoked by the GridSearch optimizer inside the walk-forward loop.
+    Resets indicators (ATR, ADX) using the specific periods chosen
     for the current trial.
     """
     preprocessor = Preprocessor(
@@ -49,8 +49,8 @@ def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
     """
     Initialize and run the Walk-Forward Optimizer.
 
-    Defines the parameter grid to search, partitions the data into 
-    N windows, and performs the train-test cycles. Outputs a detailed 
+    Defines the parameter grid to search, partitions the data into
+    N windows, and performs the train-test cycles. Outputs a detailed
     summary of performance degradation and final robustness.
     """
     logger.info("Starting Walk-Forward Optimization...")

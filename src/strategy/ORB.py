@@ -271,6 +271,7 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """
         Build a LONG breakout signal with associated risk parameters.
@@ -322,6 +323,7 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """
         Build a SHORT breakout signal with associated risk parameters.

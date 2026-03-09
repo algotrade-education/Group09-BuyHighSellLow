@@ -1,16 +1,16 @@
 """
 Real-time Bar Aggregator and Replay Engine.
 
-The `BarProvider` is responsible for transforming raw price ticks (from a live 
-Redis feed) or historical OHLC rows (from a simulation) into a consistent 
+The `BarProvider` is responsible for transforming raw price ticks (from a live
+Redis feed) or historical OHLC rows (from a simulation) into a consistent
 stream of enriched bars for strategy execution.
 
 Core Functions:
-1.  **Live Aggregation**: Subscribes to `RedisMarketDataClient` and buckets 
+1.  **Live Aggregation**: Subscribes to `RedisMarketDataClient` and buckets
     QuoteSnapshots into OHLC bars based on a system-time clock.
-2.  **Simulation Replay**: Processes historical DataFrames bar-by-bar, 
+2.  **Simulation Replay**: Processes historical DataFrames bar-by-bar,
     recomputing indicators at each step to mirror live data behavior.
-3.  **Indicator Warmup**: Uses the `Preprocessor` and a historical buffer to 
+3.  **Indicator Warmup**: Uses the `Preprocessor` and a historical buffer to
     ensure indicators (like ATR) are stable before emitting the first bar.
 """
 
@@ -62,11 +62,11 @@ class BarProvider:
     Stateful aggregator that converts ticks into strategy-ready bars.
 
     Supports two operation modes:
-    - **Live Mode**: Uses `on_quote` as an async callback for Redis updates. 
-      It uses system-time to bucket ticks, ensuring bars are emitted 
+    - **Live Mode**: Uses `on_quote` as an async callback for Redis updates.
+      It uses system-time to bucket ticks, ensuring bars are emitted
       precisely at boundary crossings (e.g., exactly at 10:00:00).
-    - **Sim Mode**: Uses `replay` to push historical rows through the same 
-      indicator pipeline, allowing for high-fidelity backtesting of 
+    - **Sim Mode**: Uses `replay` to push historical rows through the same
+      indicator pipeline, allowing for high-fidelity backtesting of
       real-time logic.
 
     Attributes:
@@ -160,7 +160,7 @@ class BarProvider:
         self._quote_with_trade_price += 1
 
         # Derive timestamp
-        # Always use local system time for live bar bucketing to prevent 
+        # Always use local system time for live bar bucketing to prevent
         # stale trade timestamps from delaying bar emission.
         dt = datetime.now()
 
@@ -169,6 +169,8 @@ class BarProvider:
 
         volume = float(quote.latest_matched_quantity or 0.0)
         self._tick(dt, price, volume)
+
+        # logger.info("Tick %s: %f %f %f", dt, bid, ask, price)
         self._log_quote_diagnostics(instrument)
 
     def _log_quote_diagnostics(self, instrument: str) -> None:
@@ -177,7 +179,7 @@ class BarProvider:
             return
 
         now = monotonic()
-        if (now - self._quote_last_diag_ts) <= 15 and self._quote_callbacks % 100 != 0:
+        if (now - self._quote_last_diag_ts) <= 5 and self._quote_callbacks % 100 != 0:
             return
 
         self._quote_last_diag_ts = now
@@ -277,15 +279,15 @@ class BarProvider:
             return
 
         expected_bucket = _bar_bucket(now, self.freq_minutes)
-        
+
         while expected_bucket > self._current_bucket:
             self._emit_bar()
             next_bucket = self._current_bucket + timedelta(minutes=self.freq_minutes)
-            
+
             if not _in_session(next_bucket.time()):
                 self._current_bucket = None
                 break
-                
+
             self._start_bar(next_bucket, self._bar_close)
 
     # ------------------------------------------------------------------
@@ -296,16 +298,18 @@ class BarProvider:
         """
         Cold-Start Fix: Prime the internal history buffer.
 
-        This method injects historical bars directly into the provider's 
-        history list *without* triggering the `on_bar` callback. This 
-        prevents "cold starts" where the strategy would otherwise have to 
+        This method injects historical bars directly into the provider's
+        history list *without* triggering the `on_bar` callback. This
+        prevents "cold starts" where the strategy would otherwise have to
         wait for `atr_period` bars of live data before generating a signal.
 
         Args:
             df: Historical OHLC DataFrame (must contain 'datetime' column).
         """
         if df.empty:
-            logger.info("BarProvider.preload_history(): empty DataFrame, no history loaded.")
+            logger.info(
+                "BarProvider.preload_history(): empty DataFrame, no history loaded."
+            )
             return
 
         required = {"datetime", "open", "high", "low", "close"}
@@ -319,7 +323,7 @@ class BarProvider:
                 if isinstance(row.datetime, datetime)
                 else pd.Timestamp(row.datetime).to_pydatetime()
             )
-            
+
             # Use raw datetimes if they are already buckets, otherwise bucket them
             bucket = _bar_bucket(dt, self.freq_minutes)
 
@@ -338,7 +342,57 @@ class BarProvider:
         if len(self._history) > max_history:
             self._history = self._history[-max_history:]
 
-        logger.info("Preloaded %d historical bars for indicator warmup.", len(self._history))
+        logger.info(
+            "Preloaded %d historical bars for indicator warmup.", len(self._history)
+        )
+
+    def seed_current_live_bar(self, bar_dict: Dict[str, Any]) -> None:
+        """
+        Seeds the currently forming live bar with intraday data fetched from the DB.
+        This prevents dropping the first partially complete bar of the session when
+        starting the engine mid-day.
+
+        Args:
+            bar_dict: Dictionary containing datetime, open, high, low, close, volume
+        """
+        if not bar_dict or "datetime" not in bar_dict:
+            return
+
+        dt: datetime = (
+            bar_dict["datetime"]
+            if isinstance(bar_dict["datetime"], datetime)
+            else pd.Timestamp(bar_dict["datetime"]).to_pydatetime()
+        )
+
+        # Verify the seeded bar belongs to the current actual time bucket
+        now = datetime.now()
+        expected_bucket = _bar_bucket(now, self.freq_minutes)
+        bar_bucket = _bar_bucket(dt, self.freq_minutes)
+
+        if expected_bucket != bar_bucket:
+            logger.warning(
+                "Skipping live bar seed: seeded bucket %s does not match current bucket %s",
+                bar_bucket.strftime("%H:%M"),
+                expected_bucket.strftime("%H:%M"),
+            )
+            return
+
+        self._current_bucket = bar_bucket
+        self._bar_open = float(bar_dict.get("open", 0.0))
+        self._bar_high = float(bar_dict.get("high", 0.0))
+        self._bar_low = float(bar_dict.get("low", 0.0))
+        self._bar_close = float(bar_dict.get("close", 0.0))
+        self._bar_volume = float(bar_dict.get("volume", 0.0))
+
+        logger.info(
+            "Seeded incomplete live bar for %s: O=%.1f H=%.1f L=%.1f C=%.1f V=%.0f",
+            bar_bucket.strftime("%H:%M"),
+            self._bar_open,
+            self._bar_high,
+            self._bar_low,
+            self._bar_close,
+            self._bar_volume,
+        )
 
     # ------------------------------------------------------------------
     # Sim mode - replay a historical OHLC DataFrame
@@ -412,9 +466,7 @@ class BarProvider:
                 continue
 
             df_hist = pd.DataFrame(self._history)
-            df_hist = self._preprocessor.add_all_indicators(
-                df_hist, copy=True
-            )
+            df_hist = self._preprocessor.add_all_indicators(df_hist, copy=True)
             bar = df_hist.iloc[-1].to_dict()
             self._bars_emitted += 1
 

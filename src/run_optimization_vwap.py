@@ -1,9 +1,9 @@
 """
 Optuna optimization runner for the VWAP Band Reversion strategy.
 
-This script executes Bayesian optimization for VWAP entries. Since VWAP 
-itself has no tunable lookback (it is a volume-weighted average since 
-session start), the search space focuses on standard deviation band widths, 
+This script executes Bayesian optimization for VWAP entries. Since VWAP
+itself has no tunable lookback (it is a volume-weighted average since
+session start), the search space focuses on standard deviation band widths,
 session warmup periods, and risk management filters.
 
 Run as:
@@ -115,7 +115,10 @@ def run_optuna(
         # Risk management
         "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
         "trailing_atr_multiplier": {
-            "type": "float", "low": 1.0, "high": 3.0, "step": 0.25,
+            "type": "float",
+            "low": 1.0,
+            "high": 3.0,
+            "step": 0.25,
         },
     }
 
@@ -129,9 +132,9 @@ def run_optuna(
         param_space=param_space,
         indicator_fn=preprocess_data,
         min_trades=min_trades,
-        drawdown_penalty=0.1,   # penalize larger drawdowns
-        turnover_penalty=0.0,   # do not penalize higher trade count
-        trade_count_bonus=0.05, # softer reward for more trades vs ORB/KSB
+        drawdown_penalty=0.1,  # penalize larger drawdowns
+        turnover_penalty=0.0,  # do not penalize higher trade count
+        trade_count_bonus=0.05,  # softer reward for more trades vs ORB/KSB
         n_trials=n_trials,
         backtester_kwargs=backtester_kwargs,
     )
@@ -163,9 +166,7 @@ def run_optuna(
         strategy_update = {
             k: v for k, v in optimizer.best_params.items() if k not in risk_keys
         }
-        risk_update = {
-            k: v for k, v in optimizer.best_params.items() if k in risk_keys
-        }
+        risk_update = {k: v for k, v in optimizer.best_params.items() if k in risk_keys}
 
         best_config["strategy"].update(strategy_update)
         best_config["risk"].update(risk_update)
@@ -176,9 +177,7 @@ def run_optuna(
         logger.info("Best params saved to: %s", params_path)
         print(f"\nBest config saved to: {params_path}")
         print("Run backtest with:")
-        print(
-            f"  python -m src.run_backtest_vwap --sample is --config {params_path}"
-        )
+        print(f"  python -m src.run_backtest_vwap --sample is --config {params_path}")
 
 
 if __name__ == "__main__":
@@ -186,18 +185,27 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run VWAP Optuna optimization.")
     parser.add_argument(
-        "--sample", choices=["is", "os"], default="is",
+        "--sample",
+        choices=["is", "os"],
+        default="is",
         help="Sample type: is (in-sample) or os (out-of-sample).",
     )
     parser.add_argument(
-        "--contract", default="VN30F1M", help="Contract symbol (default: VN30F1M).",
+        "--contract",
+        default="VN30F1M",
+        help="Contract symbol (default: VN30F1M).",
     )
     parser.add_argument(
-        "--trials", type=int, default=300,
+        "--trials",
+        type=int,
+        default=300,
         help="Number of Optuna trials (default: 300).",
     )
     parser.add_argument(
-        "--min-trades", type=int, default=50, metavar="N",
+        "--min-trades",
+        type=int,
+        default=50,
+        metavar="N",
         help="Minimum trades for a valid trial (default: 100).",
     )
     args = parser.parse_args()
@@ -210,7 +218,8 @@ if __name__ == "__main__":
     logger.info("Cleaned tick data shape: %s", data.shape)
 
     run_optuna(
-        data, config,
+        data,
+        config,
         n_trials=args.trials,
         min_trades=args.min_trades,
     )

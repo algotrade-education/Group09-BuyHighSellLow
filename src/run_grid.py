@@ -1,8 +1,8 @@
 """
 Exhaustive Grid Search Optimization Runner.
 
-This script executes a brute-force search across all combinations of 
-parameters defined in the `param_grid`. It is recommended for small 
+This script executes a brute-force search across all combinations of
+parameters defined in the `param_grid`. It is recommended for small
 search spaces or final fine-tuning of a strategy's core logic.
 
 Run as:
@@ -41,7 +41,7 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Data-processing hook for grid search.
 
-    This function is called by the `GridSearch` engine for every individual 
+    This function is called by the `GridSearch` engine for every individual
     parameter combination to ensure indicators are fresh.
     """
     preprocessor = Preprocessor(

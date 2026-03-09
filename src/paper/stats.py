@@ -1,18 +1,18 @@
 """
 Session Statistics and Performance Reporting.
 
-The `SessionStats` module is responsible for analyzing the results of a live 
-paper trading session. It aggregates data from the `PositionTracker` and 
+The `SessionStats` module is responsible for analyzing the results of a live
+paper trading session. It aggregates data from the `PositionTracker` and
 `Trade` history to produce a comprehensive performance audit.
 
 Reporting Features:
-- **Real-time Metrics**: Calculates Sharpe Ratio, Sortino Ratio, and Max 
+- **Real-time Metrics**: Calculates Sharpe Ratio, Sortino Ratio, and Max
   Drawdown using the `MetricsCalculator`.
-- **Trade Analysis**: Computes win rates, average win/loss, and best/worst 
+- **Trade Analysis**: Computes win rates, average win/loss, and best/worst
   trade outcomes.
-- **Capital Tracking**: Displays initial capital, final equity, net P&L, 
+- **Capital Tracking**: Displays initial capital, final equity, net P&L,
   and total commissions spent.
-- **Artifact Generation**: Saves detailed trade logs and equity curves 
+- **Artifact Generation**: Saves detailed trade logs and equity curves
   to CSV for post-session analysis.
 """
 
@@ -36,7 +36,7 @@ class SessionStats:
     """
     Performance Analyzer for the PaperTrader Engine.
 
-    This class serves as the 'end-of-session' reporter. It translates the 
+    This class serves as the 'end-of-session' reporter. It translates the
     raw trade sequence into human-readable performance indicators.
 
     Attributes:

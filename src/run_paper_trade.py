@@ -1,7 +1,7 @@
 """
 Unified Paper Trading Entry Point.
 
-This script wires any implemented strategy (ORB, KSB, VWAP) to the 
+This script wires any implemented strategy (ORB, KSB, VWAP) to the
 `PaperTrader` engine. It supports three distinct modes of operation:
 
 1. LIVE:     Connects to Redis (market data) and FIX (order execution).
@@ -137,7 +137,7 @@ async def main(args: argparse.Namespace) -> None:
     """
     Orchestrate the PaperTrader setup and execution loop.
 
-    Handles configuration loading, historical data warmup, 
+    Handles configuration loading, historical data warmup,
     and asynchronous engine lifecycle.
     """
     load_dotenv()
@@ -154,7 +154,7 @@ async def main(args: argparse.Namespace) -> None:
         # ── Sim mode: load + preprocess historical data ──────────────────
         logger.info("Sim mode: loading %s data for %s…", args.sample, args.symbol)
         raw = load_sample_data(sample=args.sample, contract=args.symbol.split(":")[-1])
-        sim_df = prepare_backtest_dataset(raw, strategy_params, resample_freq)
+        sim_df, _ = prepare_backtest_dataset(raw, strategy_params, resample_freq)
         logger.info("Sim data ready: %d bars.", len(sim_df))
 
         trader = PaperTrader(
@@ -177,10 +177,10 @@ async def main(args: argparse.Namespace) -> None:
         from src.database.data_service import fetch_and_merge_data
 
         logger.info("Fetching recent history for indicator warmup...")
-        # Fetch last 3 days to be safe (covering weekends)
+        # Fetch last 5 days to be safe (covering weekends and holidays)
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=2)
-        
+        start_date = end_date - timedelta(days=5)
+
         # Database stores continuous futures data under VN30F1M, not the specific contract code (e.g., VN30F2601)
         contract = args.symbol.split(":")[-1]
         db_symbol = "VN30F1M" if contract.startswith("VN30F") else contract
@@ -191,10 +191,19 @@ async def main(args: argparse.Namespace) -> None:
             end_date=end_date.strftime("%Y-%m-%d"),
         )
         if not raw.empty:
-            historical_df = prepare_backtest_dataset(raw, strategy_params, resample_freq)
-            logger.info("Fetched %d historical bars for warmup using symbol %s.", len(historical_df), db_symbol)
+            historical_df, incomplete_bar = prepare_backtest_dataset(
+                raw, strategy_params, resample_freq
+            )
+            logger.info(
+                "Fetched %d historical bars for warmup using symbol %s.",
+                len(historical_df),
+                db_symbol,
+            )
         else:
-            logger.warning("No recent history found for warmup using symbol %s! Strategy starts cold.", db_symbol)
+            logger.warning(
+                "No recent history found for warmup using symbol %s! Strategy starts cold.",
+                db_symbol,
+            )
 
         trader = PaperTrader(
             strategy=strategy,
@@ -218,7 +227,10 @@ async def main(args: argparse.Namespace) -> None:
         if args.sim:
             await trader.start(sim_df=sim_df)
         else:
-            await trader.start(historical_df=historical_df)
+            await trader.start(
+                historical_df=historical_df,
+                incomplete_bar=incomplete_bar if not args.dry_run else None,
+            )
     except KeyboardInterrupt:
         logger.info("Interrupted - stopping…")
         await trader.stop()

@@ -270,7 +270,6 @@ class TestVWAPCooldown:
 
 
 class TestVWAPSessionManagement:
-
     def test_new_day_resets_warmup(self):
         strat = _strategy(session_warmup=5)
         _warm_up(strat, 5)
@@ -307,7 +306,6 @@ class TestVWAPSessionManagement:
 
 
 class TestVWAPFilters:
-
     def test_long_only_suppresses_short(self):
         strat = _strategy(session_warmup=3, long_only=True)
         _warm_up(strat)
@@ -365,7 +363,6 @@ class TestVWAPFilters:
 
 
 class TestVWAPSignalMetadata:
-
     def test_long_signal_metadata(self):
         strat = _strategy(session_warmup=3)
         _warm_up(strat)

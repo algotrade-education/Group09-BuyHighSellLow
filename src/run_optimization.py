@@ -1,8 +1,8 @@
 """
 Script to run Optuna-based Bayesian optimization for ORB strategy parameters.
 
-This runner specifically targets the Opening Range Breakout (ORB) strategy. 
-It optimizes both the strategy parameters and the data resampling timeframe 
+This runner specifically targets the Opening Range Breakout (ORB) strategy.
+It optimizes both the strategy parameters and the data resampling timeframe
 simultaneously by using tick data as the base input.
 
 Run as:
@@ -38,8 +38,8 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Trial-specific data preparation pipeline.
 
-    Invoked by the Optuna objective function for every trial. This allows 
-    the optimizer to explore different bar timeframes (e.g., 5m vs 15m) 
+    Invoked by the Optuna objective function for every trial. This allows
+    the optimizer to explore different bar timeframes (e.g., 5m vs 15m)
     rather than being locked to a single preprocessed file.
 
     Steps:
@@ -80,8 +80,8 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
     """
     Configure and execute the Optuna study.
 
-    Defines the search space, initializes composite scoring parameters, 
-    and triggers the TPE (Bayesian) search. After completion, it persists 
+    Defines the search space, initializes composite scoring parameters,
+    and triggers the TPE (Bayesian) search. After completion, it persists
     the full results to CSV and the best configuration to JSON.
     """
     logger.info("Starting ORB Optuna Optimization with %d trials...", n_trials)
@@ -105,10 +105,14 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         "use_volume_filter": {"type": "categorical", "choices": [True, False]},
         "use_adx_filter": {"type": "categorical", "choices": [True, False]},
         "adx_min": {"type": "float", "low": 15.0, "high": 35.0, "step": 1.0},
-        
         # Risk management
         "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
-        "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
+        "trailing_atr_multiplier": {
+            "type": "float",
+            "low": 1.0,
+            "high": 4.0,
+            "step": 0.25,
+        },
     }
 
     # Extract risk params for backtester
@@ -123,12 +127,12 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         strategy_class=OpeningRangeBreakout,
         param_space=param_space,
         indicator_fn=preprocess_data,
-        min_trades=500,          # ensure at least ~medium activity
-        drawdown_penalty=0.1,    # penalize larger drawdowns
-        turnover_penalty=0.0,    # do not penalize higher trade count
-        trade_count_bonus=0.1,   # reward more trades among profitable configs
-        min_return_pct=0.0,      # require non-negative total return
-        min_profit_factor=1.0,   # require PF > 1.0
+        min_trades=500,  # ensure at least ~medium activity
+        drawdown_penalty=0.1,  # penalize larger drawdowns
+        turnover_penalty=0.0,  # do not penalize higher trade count
+        trade_count_bonus=0.1,  # reward more trades among profitable configs
+        min_return_pct=0.0,  # require non-negative total return
+        min_profit_factor=1.0,  # require PF > 1.0
         n_trials=n_trials,
         backtester_kwargs=backtester_kwargs,
     )
@@ -163,7 +167,9 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         # Update with optimized parameters (including resample_freq)
         # Separate risk params from strategy params
         risk_keys = {"use_trailing_stop", "trailing_atr_multiplier"}
-        strategy_update = {k: v for k, v in optimizer.best_params.items() if k not in risk_keys}
+        strategy_update = {
+            k: v for k, v in optimizer.best_params.items() if k not in risk_keys
+        }
         risk_update = {k: v for k, v in optimizer.best_params.items() if k in risk_keys}
 
         best_config["strategy"].update(strategy_update)
@@ -175,9 +181,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         logger.info("Best params saved to: %s", params_path)
         print(f"\nBest config saved to: {params_path}")
         print("Run backtest with:")
-        print(
-            f"  python -m src.run_backtest --sample is --config {params_path}"
-        )
+        print(f"  python -m src.run_backtest --sample is --config {params_path}")
 
 
 if __name__ == "__main__":

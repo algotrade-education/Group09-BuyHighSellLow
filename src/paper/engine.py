@@ -1,18 +1,18 @@
 """
 PaperTrader Engine - Live Execution and Simulation Orchestrator.
 
-The `PaperTrader` is the central coordinator for real-time trading. It 
-integrates data ingestion, strategy signal generation, and order execution 
+The `PaperTrader` is the central coordinator for real-time trading. It
+integrates data ingestion, strategy signal generation, and order execution
 into a unified asynchronous lifecycle.
 
 Key Responsibilities:
-1.  **Lifecycle Management**: Handles startup (connection, sync) and 
+1.  **Lifecycle Management**: Handles startup (connection, sync) and
     shutdown (cleanup, statistics).
-2.  **Event Orchestration**: Wires the `BarProvider` (data) to the 
+2.  **Event Orchestration**: Wires the `BarProvider` (data) to the
     `Strategy` (logic) and the `OrderManager` (execution).
-3.  **State Synchronization**: Recovers open positions and pending orders 
+3.  **State Synchronization**: Recovers open positions and pending orders
     from the broker on restart to prevent "state-blind" trading.
-4.  **Simulation Replay**: Provides a high-fidelity 'sim' mode that replays 
+4.  **Simulation Replay**: Provides a high-fidelity 'sim' mode that replays
     historical bars through the live indicator and risk pipeline.
 """
 
@@ -46,8 +46,8 @@ class PaperTrader:
     """
     Central Controller for Live Strategy Execution.
 
-    This class implements the 'trading brain'. It listens for completed bars, 
-    evaluates them against the strategy, checks risk limits (SL/TP), and 
+    This class implements the 'trading brain'. It listens for completed bars,
+    evaluates them against the strategy, checks risk limits (SL/TP), and
     dispatches orders to the broker.
 
     Pipeline:
@@ -113,30 +113,38 @@ class PaperTrader:
         self._stats = SessionStats(self._tracker)
         self._running = False
         self._bars_processed = 0
+        self._last_close: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def start(self, historical_df: Optional["pd.DataFrame"] = None, sim_df: Optional["pd.DataFrame"] = None) -> None:
+    async def start(
+        self,
+        historical_df: Optional["pd.DataFrame"] = None,
+        incomplete_bar: Optional[Dict[str, Any]] = None,
+        sim_df: Optional["pd.DataFrame"] = None,
+    ) -> None:
         """
-        Initialize and launch the trading loop.
+        Start the trading activity based on the current mode (Live or Sim).
 
         Args:
-            historical_df: (Live mode) 2-3 days of raw bars used to "warm up" 
-                           indicator values (ATR, etc.) so the engine doesn't 
-                           start with zero-knowledge.
-            sim_df:        (Sim mode) A full dataset to replay. If provided, 
-                           the engine runs in historical replay mode.
+            historical_df: Recent daily/intraday bars for indicator warmup.
+            incomplete_bar: Partially formed bar to seed current live state.
+            sim_df:        Historical dataset for pure sim/backtesting replay.
         """
         self._running = True
 
         if sim_df is not None:
             await self._run_sim(sim_df)
         else:
-            await self._run_live(historical_df)
+            await self._run_live(historical_df, incomplete_bar)
 
-    async def _run_live(self, historical_df: Optional["pd.DataFrame"] = None) -> None:
+    async def _run_live(
+        self,
+        historical_df: Optional["pd.DataFrame"] = None,
+        incomplete_bar: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
         Execute the live trading lifecycle.
 
@@ -155,17 +163,22 @@ class PaperTrader:
 
         # Inject historical data for indicator warmup BEFORE live ticks arrive
         if historical_df is not None and not historical_df.empty:
-            logger.info("Injecting %d historical bars for BarProvider warmup...", len(historical_df))
+            logger.info(
+                "Injecting %d historical bars for BarProvider warmup...",
+                len(historical_df),
+            )
             self._bar_provider.preload_history(historical_df)
 
-            # Warm up strategy internal state (e.g. ORB session range)
+        if incomplete_bar is not None:
+            self._bar_provider.seed_current_live_bar(incomplete_bar)
+
+        # Warm up strategy internal state (e.g. ORB session range)
+        if historical_df is not None and not historical_df.empty:
             logger.info("Warming up strategy internal state...")
             for row in historical_df.to_dict(orient="records"):
                 try:
                     self.strategy.generate_signal(
-                        bar=row, 
-                        current_position=self._tracker.position,
-                        is_warmup=True
+                        bar=row, current_position=self._tracker.position, is_warmup=True
                     )
                 except Exception:
                     pass
@@ -240,7 +253,10 @@ class PaperTrader:
                 for item in items:
                     if item.get("instrument") == self.symbol:
                         qty = float(item.get("quantity", 0))
-                        avg_price = float(item.get("avgPrice") or item.get("totalCost", 0) / (qty or 1))
+                        avg_price = float(
+                            item.get("avgPrice")
+                            or item.get("totalCost", 0) / (qty or 1)
+                        )
                         self._tracker.sync_position(qty, avg_price)
                         logger.info("Synced Position: %s @ %.2f", qty, avg_price)
                         break
@@ -252,6 +268,7 @@ class PaperTrader:
         # 2. Sync Orders
         try:
             from datetime import datetime
+
             today_str = datetime.now().strftime("%Y-%m-%d")
             ord_res = self._client.get_orders(today_str, today_str)
             if ord_res.get("success"):
@@ -268,8 +285,12 @@ class PaperTrader:
 
         # Close any open position at last price
         if not self._tracker.is_flat:
-            logger.info("Closing open position on shutdown…")
-            self._order_mgr.submit_exit(reason="Session End")
+            logger.info(
+                "Closing open position on shutdown (last_close=%.2f)…", self._last_close
+            )
+            self._order_mgr.submit_exit(
+                reason="Session End", price=self._last_close or None
+            )
 
         if self._redis_client is not None:
             try:
@@ -293,12 +314,13 @@ class PaperTrader:
         """Handle one completed bar through risk checks, strategy, and orders."""
         dt: datetime = bar.get("datetime", datetime.now())
         close = float(bar.get("close", 0))
+        self._last_close = close
 
         # Extract indicators for logging
         atr_key = f"atr_{self.config.get('strategy', {}).get('atr_period', 14)}"
         atr = bar.get(atr_key, 0.0)
         volume = bar.get("volume", 0.0)
-        
+
         # Build extra info string from available bar items (e.g. adx, rsi from strategy if present)
         extras = []
         adx_key = f"adx_{self.config.get('strategy', {}).get('adx_period', 14)}"
@@ -307,7 +329,7 @@ class PaperTrader:
         rsi_key = f"rsi_{self.config.get('strategy', {}).get('rsi_period', 14)}"
         if rsi_key in bar:
             extras.append(f"rsi={bar[rsi_key]:.1f}")
-            
+
         extra_str = f" | {', '.join(extras)}" if extras else ""
 
         # Update unrealized P&L and take equity snapshot
@@ -332,7 +354,7 @@ class PaperTrader:
             exit_trigger = self._tracker.check_sl_tp(bar)
             if exit_trigger:
                 self._order_mgr.submit_exit(
-                    reason=exit_trigger.replace("_", " ").title()
+                    reason=exit_trigger.replace("_", " ").title(), price=close
                 )
                 return  # Don't generate new entry on same bar
 
@@ -360,11 +382,13 @@ class PaperTrader:
                 close,
                 signal.reason or "N/A",
             )
-            self._order_mgr.submit_exit(reason="Strategy Close")
+            self._order_mgr.submit_exit(reason="Strategy Close", price=close)
         elif signal.signal == Signal.HOLD:
             logger.info(
                 "Strategy signal: HOLD  | position=%s | reason=%s",
-                self._tracker.position.side.value if not self._tracker.is_flat else "FLAT",
+                self._tracker.position.side.value
+                if not self._tracker.is_flat
+                else "FLAT",
                 signal.reason or "No entry/exit criteria met",
             )
 

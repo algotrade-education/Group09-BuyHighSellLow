@@ -1,8 +1,8 @@
 """
 Standalone Account & Portfolio Inspector.
 
-Connects to the PaperBroker REST API to fetch and display the current 
-account state without requiring a persistent FIX session or Redis 
+Connects to the PaperBroker REST API to fetch and display the current
+account state without requiring a persistent FIX session or Redis
 market data feed. Useful for verifying balances and trade history.
 
 Usage:
@@ -232,7 +232,7 @@ def main(args: argparse.Namespace) -> None:
     """
     Main entry point for account inspection.
 
-    Handles environment variable loading, FIX ID resolution, 
+    Handles environment variable loading, FIX ID resolution,
     and output orchestration.
     """
     load_dotenv()

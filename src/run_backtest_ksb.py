@@ -1,8 +1,8 @@
 """
 KSB (Keltner Squeeze Breakout) Strategy Backtest Runner.
 
-This script executes a historical backtest for the KSB strategy using 
-configured parameters and market data. It handles indicator calculation 
+This script executes a historical backtest for the KSB strategy using
+configured parameters and market data. It handles indicator calculation
 across multiple timeframes and reports performance metrics.
 
 Usage:
@@ -11,13 +11,13 @@ Usage:
 Arguments:
     --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
     --contract: The ticker symbol (default: VN30F1M).
-    --config:   Path to the JSON configuration file containing strategy 
+    --config:   Path to the JSON configuration file containing strategy
                 and risk parameters.
 
 Execution Sequence:
 1. Load strategy configuration (JSON).
 2. Fetch historical market data (CSV/DB).
-3. Preprocess data: Resample (default: 5min) and calculate Keltner 
+3. Preprocess data: Resample (default: 5min) and calculate Keltner
    Squeeze indicators (BB, KC, Momentum, ATR).
 4. Initialize Strategy and Backtester engine.
 5. Execute backtest across the dataset.
@@ -63,7 +63,7 @@ def run_backtest(
     """
     Configure and execute a KSB backtest run.
 
-    Instantiates the strategy and backtester with risk management 
+    Instantiates the strategy and backtester with risk management
     settings (Daily limits, trailing stop loss, percent risk per trade).
 
     Args:

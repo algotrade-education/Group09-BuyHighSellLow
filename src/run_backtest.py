@@ -1,9 +1,9 @@
 """
 ORB (Opening Range Breakout) Strategy Backtest Runner.
 
-This script executes a historical backtest for the ORB strategy using 
-configured parameters and market data. It handles data loading, 
-preprocessing (resampling and indicator calculation), and performance 
+This script executes a historical backtest for the ORB strategy using
+configured parameters and market data. It handles data loading,
+preprocessing (resampling and indicator calculation), and performance
 reporting.
 
 Usage:
@@ -12,7 +12,7 @@ Usage:
 Arguments:
     --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
     --contract: The ticker symbol (default: VN30F1M).
-    --config:   Path to the JSON configuration file containing strategy 
+    --config:   Path to the JSON configuration file containing strategy
                 and risk parameters.
 
 Execution Sequence:
@@ -63,9 +63,9 @@ def run_backtest(
     """
     Configure and execute a single backtest run.
 
-    This function instantiates the strategy, handles risk management 
-    configuration (PositionSizer, Trailing Stops, Daily Loss Limits), 
-    and triggers the Backtester engine. Results are printed to the 
+    This function instantiates the strategy, handles risk management
+    configuration (PositionSizer, Trailing Stops, Daily Loss Limits),
+    and triggers the Backtester engine. Results are printed to the
     console and saved as CSV/PNG artifacts.
 
     Args:
@@ -202,13 +202,13 @@ if __name__ == "__main__":
     )
     logger.info("Loaded configuration from %s", args.config)
     # Load data based on arguments
-    data = load_sample_data(sample=args.sample, contract=args.contract)
+    raw_data = load_sample_data(sample=args.sample, contract=args.contract)
 
     # Resample frequency comes from config (fallback kept for compatibility)
     logger.info(
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
 
-    data = prepare_backtest_dataset(data, strategy_params, resample_freq)
+    data, _ = prepare_backtest_dataset(raw_data, strategy_params, resample_freq)
 
     run_backtest(data, config)

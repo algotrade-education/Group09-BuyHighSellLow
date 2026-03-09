@@ -272,7 +272,9 @@ class TestPositionTracker:
     def test_long_pnl_positive_on_price_rise(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(fill_price=1350.0, qty=1, timestamp=ts, exit_reason="Take Profit")
+        tracker.record_close(
+            fill_price=1350.0, qty=1, timestamp=ts, exit_reason="Take Profit"
+        )
 
         trade = tracker.trades[0]
         assert trade.is_closed
@@ -283,7 +285,9 @@ class TestPositionTracker:
     def test_short_pnl_positive_on_price_fall(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="SHORT", timestamp=ts)
-        tracker.record_close(fill_price=1250.0, qty=1, timestamp=ts, exit_reason="Take Profit")
+        tracker.record_close(
+            fill_price=1250.0, qty=1, timestamp=ts, exit_reason="Take Profit"
+        )
 
         trade = tracker.trades[0]
         assert trade.pnl == pytest.approx(50.0, abs=1e-6)
@@ -291,7 +295,9 @@ class TestPositionTracker:
     def test_pnl_negative_on_loss(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(fill_price=1270.0, qty=1, timestamp=ts, exit_reason="Stop Loss")
+        tracker.record_close(
+            fill_price=1270.0, qty=1, timestamp=ts, exit_reason="Stop Loss"
+        )
 
         trade = tracker.trades[0]
         assert trade.pnl == pytest.approx(-30.0, abs=1e-6)
@@ -305,7 +311,9 @@ class TestPositionTracker:
         assert tracker.equity == pytest.approx(capital + 50.0, abs=1e-6)
 
     def test_record_close_while_flat_is_noop(self, tracker):
-        result = tracker.record_close(fill_price=1300.0, qty=1, timestamp=datetime.now())
+        result = tracker.record_close(
+            fill_price=1300.0, qty=1, timestamp=datetime.now()
+        )
         assert result is None
         assert tracker.trades == []
 
@@ -527,7 +535,10 @@ class TestPositionTrackerCashAccounting:
                 entry, qty=1, side=side, timestamp=ts.replace(minute=i * 10)
             )
             tracker.record_close(
-                exit_, qty=1, timestamp=ts.replace(minute=i * 10 + 5), exit_reason="test"
+                exit_,
+                qty=1,
+                timestamp=ts.replace(minute=i * 10 + 5),
+                exit_reason="test",
             )
 
         tracker.update_unrealized(0.0)  # position is flat, unrealized = 0

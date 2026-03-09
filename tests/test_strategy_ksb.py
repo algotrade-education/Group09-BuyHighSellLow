@@ -81,8 +81,10 @@ def _bar(
 def _squeeze_bar(dt: datetime, mom: float = 5.0, **kw) -> Dict[str, Any]:
     """Bar where BB is INSIDE KC (squeeze ON)."""
     defaults = dict(
-        bb_upper=1310.0, bb_lower=1290.0,
-        kc_upper=1315.0, kc_lower=1285.0,
+        bb_upper=1310.0,
+        bb_lower=1290.0,
+        kc_upper=1315.0,
+        kc_lower=1285.0,
         mom=mom,
     )
     defaults.update(kw)
@@ -92,8 +94,10 @@ def _squeeze_bar(dt: datetime, mom: float = 5.0, **kw) -> Dict[str, Any]:
 def _release_bar(dt: datetime, mom: float = 5.0, **kw) -> Dict[str, Any]:
     """Bar where BB is OUTSIDE KC (squeeze OFF), close > kc_middle by default."""
     defaults = dict(
-        bb_upper=1325.0, bb_lower=1275.0,
-        kc_upper=1315.0, kc_lower=1285.0,
+        bb_upper=1325.0,
+        bb_lower=1275.0,
+        kc_upper=1315.0,
+        kc_lower=1285.0,
         close=1305.0,  # above kc_middle (1300) for bullish default
         mom=mom,
     )
@@ -198,36 +202,28 @@ class TestKSBSqueezeRelease:
         """mom > 0 AND close > kc_middle → LONG."""
         strat = _strategy(min_squeeze_bars=3)
         self._build_squeeze(strat, 3)
-        sig = strat.generate_signal(
-            _morning_release(15, mom=6.0, close=1305.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=6.0, close=1305.0))
         assert sig.signal == Signal.LONG
 
     def test_short_on_release_with_negative_mom_below_kc_middle(self):
         """mom < 0 AND close < kc_middle → SHORT."""
         strat = _strategy(min_squeeze_bars=3)
         self._build_squeeze(strat, 3)
-        sig = strat.generate_signal(
-            _morning_release(15, mom=-6.0, close=1295.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=-6.0, close=1295.0))
         assert sig.signal == Signal.SHORT
 
     def test_hold_when_mom_positive_but_below_kc_middle(self):
         """mom > 0 but close < kc_middle → conflicting → HOLD."""
         strat = _strategy(min_squeeze_bars=3)
         self._build_squeeze(strat, 3)
-        sig = strat.generate_signal(
-            _morning_release(15, mom=5.0, close=1295.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=5.0, close=1295.0))
         assert sig.signal == Signal.HOLD
 
     def test_hold_when_mom_negative_but_above_kc_middle(self):
         """mom < 0 but close > kc_middle → conflicting → HOLD."""
         strat = _strategy(min_squeeze_bars=3)
         self._build_squeeze(strat, 3)
-        sig = strat.generate_signal(
-            _morning_release(15, mom=-5.0, close=1305.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=-5.0, close=1305.0))
         assert sig.signal == Signal.HOLD
 
     def test_squeeze_too_short_returns_hold(self):
@@ -242,9 +238,7 @@ class TestKSBSqueezeRelease:
         self._build_squeeze(strat, 3)
         close = 1305.0
         atr = 10.0
-        sig = strat.generate_signal(
-            _morning_release(15, mom=6.0, close=close, atr=atr)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=6.0, close=close, atr=atr))
         assert sig.signal == Signal.LONG
         assert sig.stop_loss == pytest.approx(close - 1.5 * atr)
         assert sig.take_profit == pytest.approx(close + 2.5 * atr)
@@ -378,9 +372,7 @@ class TestKSBSessionManagement:
             strat.generate_signal(_morning_squeeze(i * 5, mom=2.0))
         assert strat._squeeze_on is True
 
-        strat.generate_signal(
-            _squeeze_bar(datetime(2025, 1, 6, 13, 0, 0), mom=1.0)
-        )
+        strat.generate_signal(_squeeze_bar(datetime(2025, 1, 6, 13, 0, 0), mom=1.0))
         assert strat._squeeze_bar_count == 1
 
     def test_out_of_session_returns_hold(self):
@@ -428,17 +420,13 @@ class TestKSBFilters:
         strat = _strategy(min_squeeze_bars=3, long_only=True)
         for i in range(3):
             strat.generate_signal(_morning_squeeze(i * 5, mom=2.0))
-        sig = strat.generate_signal(
-            _morning_release(15, mom=-6.0, close=1295.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=-6.0, close=1295.0))
         assert sig.signal != Signal.SHORT
 
     def test_zero_atr_returns_hold(self):
         strat = _strategy(min_squeeze_bars=1, signal_window=3)
         strat.generate_signal(_morning_squeeze(0, atr=0.0, mom=1.0))
-        sig = strat.generate_signal(
-            _morning_release(5, atr=0.0, mom=3.0, close=1305.0)
-        )
+        sig = strat.generate_signal(_morning_release(5, atr=0.0, mom=3.0, close=1305.0))
         assert sig.signal == Signal.HOLD
 
 
@@ -454,9 +442,7 @@ class TestKSBSignalMetadata:
         strat = _strategy(min_squeeze_bars=3)
         for i in range(3):
             strat.generate_signal(_morning_squeeze(i * 5, mom=2.0))
-        sig = strat.generate_signal(
-            _morning_release(15, mom=6.0, close=1305.0)
-        )
+        sig = strat.generate_signal(_morning_release(15, mom=6.0, close=1305.0))
         assert sig.signal == Signal.LONG
         assert sig.metadata["session"] == "morning"
         assert "mom" in sig.metadata

@@ -1,8 +1,8 @@
 """
 PositionTracker - Live State and P&L Monitor.
 
-The `PositionTracker` maintains the 'Ground Truth' of the current trading 
-session. It mirrors the accounting logic of the backtester while adding 
+The `PositionTracker` maintains the 'Ground Truth' of the current trading
+session. It mirrors the accounting logic of the backtester while adding
 support for live synchronization and incremental fills.
 
 Accounting Principles:
@@ -54,6 +54,10 @@ class PositionTracker:
         self._trade_counter: int = 0
         self._current_trade: Optional[Trade] = None
 
+        # Partial Exit tracking
+        self._cum_exit_qty: int = 0
+        self._weighted_exit_price: float = 0.0
+
         # Equity curve: list of (datetime, equity) snapshots
         self._equity_snapshots: List[Tuple[datetime, float]] = []
 
@@ -85,7 +89,9 @@ class PositionTracker:
 
         # Allow scale-ins / partial fills
         if not self._position.is_flat and self._position.side != pos_side:
-            logger.warning("record_open: reversing position directly is unsupported here")
+            logger.warning(
+                "record_open: reversing position directly is unsupported here"
+            )
             return
 
         if self._position.is_flat:
@@ -99,7 +105,7 @@ class PositionTracker:
             old_price = self._position.entry_price
             new_qty = old_qty + qty
             new_price = ((old_price * old_qty) + (fill_price * qty)) / new_qty
-            
+
             self._position.quantity = new_qty
             self._position.entry_price = new_price
             logger.info("Position scaled: %d -> %d @ %.2f", old_qty, new_qty, new_price)
@@ -113,18 +119,30 @@ class PositionTracker:
         commission = self._calc_commission(fill_price, qty)
         self.cash -= commission
 
-        self._trade_counter += 1
-        trade = Trade(
-            trade_id=self._trade_counter,
-            side=pos_side,
-            entry_time=timestamp,
-            entry_price=fill_price,
-            quantity=qty,
-            commission=commission,
-            multiplier=self.contract_multiplier,
-        )
-        self._trades.append(trade)
-        self._current_trade = trade
+        if self._current_trade is None:
+            # New trade
+            self._trade_counter += 1
+            trade = Trade(
+                trade_id=self._trade_counter,
+                side=pos_side,
+                entry_time=timestamp,
+                entry_price=fill_price,
+                quantity=qty,
+                commission=commission,
+                multiplier=self.contract_multiplier,
+            )
+            self._trades.append(trade)
+            self._current_trade = trade
+        else:
+            # Scale-in: Update existing trade record to match the tracked position
+            old_qty = self._current_trade.quantity
+            old_price = self._current_trade.entry_price
+            new_qty = old_qty + qty
+            new_price = ((old_price * old_qty) + (fill_price * qty)) / new_qty
+
+            self._current_trade.quantity = new_qty
+            self._current_trade.entry_price = new_price
+            self._current_trade.commission += commission
 
         logger.info(
             "Position opened: %s %d @ %.2f | SL=%.2f | TP=%.2f",
@@ -176,23 +194,34 @@ class PositionTracker:
         # (entry commission was already subtracted in record_open)
         self.cash += gross_pnl - exit_commission
 
-        # Finalise trade record (Trade.close accumulates exit commission into trade.pnl)
-        self._current_trade.close(
-            exit_time=timestamp,
-            exit_price=fill_price,
-            commission=exit_commission,
-            exit_reason=exit_reason,
-            # Partial closes usually require more complex Trade splitting,
-            # but for a simplified live tracker we will just mark the whole trade closed
-            # when the position hits 0 to avoid massive complexity.
-        )
-        
+        # Partial closes: we keep the trade 'open' in _current_trade
+        # but accumulate the weighted average exit price.
+        old_exit_qty = self._cum_exit_qty
+        old_exit_px = self._weighted_exit_price
+        new_exit_qty = old_exit_qty + exit_qty
+        self._weighted_exit_price = (
+            (old_exit_px * old_exit_qty) + (fill_price * exit_qty)
+        ) / new_exit_qty
+        self._cum_exit_qty = new_exit_qty
+
+        self._current_trade.commission += exit_commission
+
         trade = self._current_trade
 
         self._position.quantity -= exit_qty
         if self._position.quantity <= 0:
+            # Full close: finalise the trade record using the blended exit price
+            self._current_trade.close(
+                exit_time=timestamp,
+                exit_price=self._weighted_exit_price,
+                commission=0,  # Already added above
+                exit_reason=exit_reason,
+            )
             self._current_trade = None
             self._position.close()
+            # Reset exit tracking
+            self._cum_exit_qty = 0
+            self._weighted_exit_price = 0.0
 
         logger.info(
             "Position reduced by %d (%s): fill=%.2f | P&L=%.2f | Remaining: %d",
@@ -200,7 +229,7 @@ class PositionTracker:
             exit_reason,
             fill_price,
             gross_pnl - exit_commission,
-            self._position.quantity
+            self._position.quantity,
         )
         return trade
 
@@ -208,8 +237,8 @@ class PositionTracker:
         """
         Synchronize tracker state with a pre-existing broker position.
 
-        Allows the engine to restart mid-session without losing track of 
-        currently open trades. Sets the initial `avg_price` and `quantity` 
+        Allows the engine to restart mid-session without losing track of
+        currently open trades. Sets the initial `avg_price` and `quantity`
         to match the REST API's portfolio view.
 
         Args:
@@ -241,7 +270,9 @@ class PositionTracker:
         self._trades.append(trade)
         self._current_trade = trade
 
-        logger.info("Resynced tracked position: %s %d @ %.2f", pos_side.name, abs_qty, avg_price)
+        logger.info(
+            "Resynced tracked position: %s %d @ %.2f", pos_side.name, abs_qty, avg_price
+        )
 
     # ------------------------------------------------------------------
     # Real-time updates

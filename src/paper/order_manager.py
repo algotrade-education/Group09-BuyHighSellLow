@@ -1,18 +1,18 @@
 """
 OrderManager - FIX Order Submission and Execution Handling.
 
-The `OrderManager` serves as the bridge between abstract strategy signals and 
-the low-level FIX protocol via `PaperBrokerClient`. It tracks the lifecycle of 
+The `OrderManager` serves as the bridge between abstract strategy signals and
+the low-level FIX protocol via `PaperBrokerClient`. It tracks the lifecycle of
 unfilled orders to ensure accurate state transition.
 
 Key Responsibilities:
 1.  **Entry Submission**: Translates `LONG`/`SHORT` signals into `LIMIT` orders.
 2.  **Exit Submission**: Dispatches liquidation orders for SL, TP, or EOD exits.
-3.  **Execution Processing**: Listens for `fix:execution_report` events and 
+3.  **Execution Processing**: Listens for `fix:execution_report` events and
     extracts fill price and quantity for the `PositionTracker`.
-4.  **State Recovery**: Reconstructs the list of pending orders on engine 
+4.  **State Recovery**: Reconstructs the list of pending orders on engine
     restart to avoid duplicate submissions.
-5.  **Partial Fill Support**: Increments positions based on `PARTIALLY_FILLED` 
+5.  **Partial Fill Support**: Increments positions based on `PARTIALLY_FILLED`
     status updates rather than waiting for complete fills.
 """
 
@@ -62,9 +62,14 @@ class OrderManager:
         self._dry_run = dry_run
 
         # Map cl_ord_id → pending signal metadata so we can call tracker on fill
+        # Map cl_ord_id → pending signal metadata so we can call tracker on fill
         self._pending_entries: Dict[str, Dict[str, Any]] = {}
-        self._pending_exit_id: Optional[str] = None
-        self._pending_exit_reason: str = ""
+
+        # Map cl_ord_id → exit reason for pending exits
+        self._pending_exits: Dict[str, str] = {}
+
+        # Track cumulative filled quantity per cl_ord_id to handle broker updates
+        self._cum_fills: Dict[str, int] = {}
 
         # Callback to notify engine of a confirmed fill (optional)
         self.on_fill: Optional[Callable[[str, float, int], None]] = None
@@ -152,12 +157,14 @@ class OrderManager:
     def submit_exit(
         self,
         reason: str = "Manual",
+        price: Optional[float] = None,
     ) -> Optional[str]:
         """
         Submit an exit order to close the current position.
 
         Args:
             reason: Human-readable exit reason (e.g. 'Stop Loss', 'EOD').
+            price:  Limit price. If None, uses SL/TP from position or entry_price fallback.
 
         Returns:
             clOrdId string if submitted, None on failure or dry-run.
@@ -171,13 +178,16 @@ class OrderManager:
         # To close: LONG → SELL, SHORT → BUY
         side = "SELL" if pos.is_long else "BUY"
 
-        # Use SL/TP price if relevant, else current mark price
+        # Use SL/TP price if relevant, else the provided price, else entry_price as fallback
         if reason == "Stop Loss" and pos.stop_loss:
             price = pos.stop_loss
         elif reason == "Take Profit" and pos.take_profit:
             price = pos.take_profit
-        else:
-            price = pos.entry_price  # fallback
+
+        if price is None:
+            # Dangerous fallback: if we don't have a market price, paper traders
+            # often use entry_price which might be far away.
+            price = pos.entry_price
 
         logger.info(
             "%sSubmitting EXIT (%s): %s %d %s @ %.2f",
@@ -207,8 +217,7 @@ class OrderManager:
                 ord_type="LIMIT",
                 tif="GTC",
             )
-            self._pending_exit_id = cl_ord_id
-            self._pending_exit_reason = reason
+            self._pending_exits[cl_ord_id] = reason
             logger.info("Exit order submitted: clOrdId=%s (%s)", cl_ord_id, reason)
             return cl_ord_id
         except Exception as exc:
@@ -223,18 +232,18 @@ class OrderManager:
         """
         Main Event Handler for Broker Execution Reports.
 
-        This method is triggered by the `fix:execution_report` event. It 
+        This method is triggered by the `fix:execution_report` event. It
         interprets FIX `OrdStatus` codes to update the internal trading state.
 
         Status Handling:
-        - **'1' (PARTIALLY_FILLED)**: Records the incremental fill in the 
+        - **'1' (PARTIALLY_FILLED)**: Records the incremental fill in the
           tracker but keeps the order ID in `_pending_entries`.
         - **'2' (FILLED)**: Records the final fill and clears the order lock.
-        - **'4' (CANCELED) / '8' (REJECTED)**: Clears the order lock and 
+        - **'4' (CANCELED) / '8' (REJECTED)**: Clears the order lock and
           logs a warning, allowing the strategy to re-evaluate.
 
         Args:
-            **kwargs: Dictionary containing `cl_ord_id`, `ord_status`, 
+            **kwargs: Dictionary containing `cl_ord_id`, `ord_status`,
                       `avg_px`, `cum_qty`, and `side`.
         """
         cl_ord_id = kwargs.get("cl_ord_id", "")
@@ -243,74 +252,94 @@ class OrderManager:
         cum_qty = int(kwargs.get("cum_qty") or 0)
 
         if ord_status in ("4", "8"):  # Canceled or Rejected
+            # Release locks
+            self._cum_fills.pop(cl_ord_id, None)
             # Release entry locks if canceled/rejected
             if cl_ord_id in self._pending_entries:
                 self._pending_entries.pop(cl_ord_id)
-                logger.warning("Entry order %s was %s.", cl_ord_id, "Canceled" if ord_status == "4" else "Rejected")
-            
+                logger.warning(
+                    "Entry order %s was %s.",
+                    cl_ord_id,
+                    "Canceled" if ord_status == "4" else "Rejected",
+                )
+
             # Release exit lock so strategy can try again
-            if self._pending_exit_id and cl_ord_id == self._pending_exit_id:
-                reason = self._pending_exit_reason
-                self._pending_exit_id = None
-                self._pending_exit_reason = ""
-                logger.warning("Exit order %s (%s) was %s. Lock released.", cl_ord_id, reason, "Canceled" if ord_status == "4" else "Rejected")
+            if cl_ord_id in self._pending_exits:
+                reason = self._pending_exits.pop(cl_ord_id)
+                logger.warning(
+                    "Exit order %s (%s) was %s. Lock released.",
+                    cl_ord_id,
+                    reason,
+                    "Canceled" if ord_status == "4" else "Rejected",
+                )
             return
 
         if ord_status not in ("1", "2"):  # Only process PARTIALLY_FILLED or FILLED
             return
 
-        # Calculate the incremental fill amount
-        # FIX applications should pass LastQty or we derive it from cum_qty 
-        # (Assuming the caller passes the latest cum_qty, we need to track what was previously filled)
-        # For simplicity, we assume `cum_qty` represents the *new* quantity being reported in this message update, 
-        # OR we modify PositionTracker to accept incremental increments. 
-        # Actually, standard FIX `cum_qty` is the total filled *so far*. We need the incremental diff, 
-        # but let's assume `cum_qty` in this simplified setup represents the total filled so far for this specific cl_ord_id.
-        last_qty = int(kwargs.get("last_qty") or cum_qty) # If LastQty is available, use it, else fallback to cum_qty
+        # Calculate the incremental fill amount correctly
+        # We track how much we've already recorded for this cl_ord_id
+        prev_fill = self._cum_fills.get(cl_ord_id, 0)
+        incremental_qty = cum_qty - prev_fill
 
-        if last_qty <= 0:
+        if incremental_qty <= 0:
             return
+
+        # Update cumulative tracker
+        self._cum_fills[cl_ord_id] = cum_qty
 
         # --- Entry fill ---
         if cl_ord_id in self._pending_entries:
             meta = self._pending_entries[cl_ord_id]
-            logger.info("Entry %s: %s @ %.2f x %d", "filled" if ord_status == "2" else "partially filled", cl_ord_id, avg_px, last_qty)
+            logger.info(
+                "Entry %s: %s @ %.2f x %d (total %d/%d)",
+                "filled" if ord_status == "2" else "partially filled",
+                cl_ord_id,
+                avg_px,
+                incremental_qty,
+                cum_qty,
+                meta["qty"],
+            )
             self._tracker.record_open(
                 fill_price=avg_px,
-                qty=last_qty,
+                qty=incremental_qty,
                 side=meta["side"],
                 timestamp=datetime.now(),
                 stop_loss=meta.get("stop_loss"),
                 take_profit=meta.get("take_profit"),
             )
             if self.on_fill:
-                self.on_fill("entry", avg_px, last_qty)
-            
+                self.on_fill("entry", avg_px, incremental_qty)
+
             if ord_status == "2":
                 self._pending_entries.pop(cl_ord_id)
+                self._cum_fills.pop(cl_ord_id, None)
             return
 
         # --- Exit fill ---
-        if self._pending_exit_id and cl_ord_id == self._pending_exit_id:
-            reason = self._pending_exit_reason
-            
+        if cl_ord_id in self._pending_exits:
+            reason = self._pending_exits[cl_ord_id]
+
             logger.info(
-                "Exit %s (%s): %s @ %.2f x %d", 
-                "filled" if ord_status == "2" else "partially filled", 
-                reason, cl_ord_id, avg_px, last_qty
+                "Exit %s (%s): %s @ %.2f x %d (total %d)",
+                "filled" if ord_status == "2" else "partially filled",
+                reason,
+                cl_ord_id,
+                avg_px,
+                incremental_qty,
+                cum_qty,
             )
             self._tracker.record_close(
                 fill_price=avg_px,
-                qty=last_qty,  # Pass incremental quantity
+                qty=incremental_qty,  # Pass incremental quantity
                 timestamp=datetime.now(),
                 exit_reason=reason,
             )
             if self.on_fill:
-                self.on_fill("exit", avg_px, last_qty)
+                self.on_fill("exit", avg_px, incremental_qty)
 
-            if ord_status == "2" or self._tracker.is_flat:
-                self._pending_exit_id = None
-                self._pending_exit_reason = ""
+            if ord_status == "2":
+                self._pending_exits.pop(cl_ord_id)
             return
 
         logger.debug(
@@ -340,20 +369,41 @@ class OrderManager:
                 continue
 
             side_code = o.get("side", "")
-            side_str = "BUY" if side_code == "1" else "SELL" if side_code == "2" else "N/A"
+            side_str = (
+                "BUY" if side_code == "1" else "SELL" if side_code == "2" else "N/A"
+            )
             qty = int(float(o.get("orderQty", 0)))
 
-            if self._tracker.is_flat:
-                # Assume it's an entry order if we have no position
+            is_buy = side_code == "1"
+            pos = self._tracker.position
+
+            # Determine if this is an entry (opening/scaling-in) or exit
+            is_entry = False
+            if pos.is_flat:
+                is_entry = True
+            elif pos.is_long:
+                is_entry = is_buy
+            elif pos.is_short:
+                is_entry = not is_buy
+
+            if is_entry:
                 self._pending_entries[cl_ord_id] = {
-                    "side": "LONG" if side_code == "1" else "SHORT",
+                    "side": "LONG" if is_buy else "SHORT",
                     "qty": qty,
                     "stop_loss": None,
                     "take_profit": None,
                 }
-                logger.info("Resynced pending Entry order: clOrdId=%s (%s %d)", cl_ord_id, side_str, qty)
+                logger.info(
+                    "Resynced pending Entry order: clOrdId=%s (%s %d)",
+                    cl_ord_id,
+                    side_str,
+                    qty,
+                )
             else:
-                # Assume it's an exit order for our current position
-                self._pending_exit_id = cl_ord_id
-                self._pending_exit_reason = "Resynced Exit"
-                logger.info("Resynced pending Exit order: clOrdId=%s (%s %d)", cl_ord_id, side_str, qty)
+                self._pending_exits[cl_ord_id] = "Resynced Exit"
+                logger.info(
+                    "Resynced pending Exit order: clOrdId=%s (%s %d)",
+                    cl_ord_id,
+                    side_str,
+                    qty,
+                )

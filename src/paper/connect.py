@@ -1,15 +1,15 @@
 """
 FIX Connectivity and Session Management.
 
-This module provides utilities for establishing a persistent FIX connection to 
-the paper trading server. It handles the critical `SenderCompID` resolution 
-step, which requires a REST pre-flight check to fetch the correct UUID 
+This module provides utilities for establishing a persistent FIX connection to
+the paper trading server. It handles the critical `SenderCompID` resolution
+step, which requires a REST pre-flight check to fetch the correct UUID
 associated with the trading account.
 
 Features:
 - **Event Callbacks**: Handles `fix:logon`, `fix:logout`, and `fix:reject`.
 - **REST Pre-flight**: Resolves `fixAccountID` via the broker's REST API.
-- **Logon Guard**: Uses `wait_until_logged_on` to ensure session stability 
+- **Logon Guard**: Uses `wait_until_logged_on` to ensure session stability
   before allowing trade operations.
 """
 
@@ -63,8 +63,8 @@ def resolve_fix_sender_comp_id(
     """
     Fetch the unique FIX Account UUID (SenderCompID) from the REST API.
 
-    The PaperBroker server identifies sessions using a dynamic UUID rather 
-    than a static username. Attempting to log on with the human-readable 
+    The PaperBroker server identifies sessions using a dynamic UUID rather
+    than a static username. Attempting to log on with the human-readable
     username as the `SenderCompID` will result in an immediate FIX rejection.
 
     Returns:

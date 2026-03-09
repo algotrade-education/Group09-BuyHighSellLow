@@ -1,8 +1,8 @@
 """
 Optuna optimization runner for the Keltner Squeeze Breakout (KSB) strategy.
 
-This script uses Bayesian optimization (TPE) to find the best-performing 
-parameters for the KSB strategy (BB/KC periods, momentum, thresholds). 
+This script uses Bayesian optimization (TPE) to find the best-performing
+parameters for the KSB strategy (BB/KC periods, momentum, thresholds).
 It works directly with tick data to allow timeframe optimization.
 
 Run as:
@@ -43,7 +43,7 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
     Trial-specific Preprocessing for KSB.
 
-    Calculates the 'squeeze' indicators (BB vs KC) and momentum 
+    Calculates the 'squeeze' indicators (BB vs KC) and momentum
     filters dynamically for each Optuna trial.
 
     Execution:
@@ -76,13 +76,19 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     # Core indicators
     df = preprocessor.add_atr(df, period=atr_period, copy=True)
     df = preprocessor.add_bollinger_bands(
-        df, period=bb_period, std_dev=bb_std, copy=False,
+        df,
+        period=bb_period,
+        std_dev=bb_std,
+        copy=False,
     )
     df = preprocessor.add_volume_ma(df, period=vol_ma_period, copy=False)
 
     # Keltner Channels (depends on EMA + ATR)
     df = preprocessor.add_keltner_channels(
-        df, ema_period=kc_period, atr_period=atr_period, multiplier=kc_mult,
+        df,
+        ema_period=kc_period,
+        atr_period=atr_period,
+        multiplier=kc_mult,
         copy=False,
     )
 
@@ -143,7 +149,10 @@ def run_optuna(
         # Risk management
         "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
         "trailing_atr_multiplier": {
-            "type": "float", "low": 0.5, "high": 3.5, "step": 0.1,
+            "type": "float",
+            "low": 0.5,
+            "high": 3.5,
+            "step": 0.1,
         },
     }
 
@@ -158,8 +167,8 @@ def run_optuna(
         indicator_fn=preprocess_data,
         min_trades=min_trades,
         drawdown_penalty=0.1,
-        turnover_penalty=0.0,      # do not penalize more trades
-        trade_count_bonus=0.1,     # reward more trades among configs
+        turnover_penalty=0.0,  # do not penalize more trades
+        trade_count_bonus=0.1,  # reward more trades among configs
         n_trials=n_trials,
         backtester_kwargs=backtester_kwargs,
     )
@@ -191,9 +200,7 @@ def run_optuna(
         strategy_update = {
             k: v for k, v in optimizer.best_params.items() if k not in risk_keys
         }
-        risk_update = {
-            k: v for k, v in optimizer.best_params.items() if k in risk_keys
-        }
+        risk_update = {k: v for k, v in optimizer.best_params.items() if k in risk_keys}
 
         best_config["strategy"].update(strategy_update)
         best_config["risk"].update(risk_update)
@@ -204,9 +211,7 @@ def run_optuna(
         logger.info("Best params saved to: %s", params_path)
         print(f"\nBest config saved to: {params_path}")
         print("Run backtest with:")
-        print(
-            f"  python -m src.run_backtest_ksb --sample is --config {params_path}"
-        )
+        print(f"  python -m src.run_backtest_ksb --sample is --config {params_path}")
 
 
 if __name__ == "__main__":

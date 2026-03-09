@@ -1,7 +1,7 @@
 """
 VWAP Band Reversion Strategy Backtest Runner.
 
-This script executes a historical backtest for the VWAP Reversion 
+This script executes a historical backtest for the VWAP Reversion
 strategy using configured parameters and market data.
 
 Usage:
@@ -10,13 +10,13 @@ Usage:
 Arguments:
     --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
     --contract: The ticker symbol (default: VN30F1M).
-    --config:   Path to the JSON configuration file containing strategy 
+    --config:   Path to the JSON configuration file containing strategy
                 and risk parameters.
 
 Execution Sequence:
 1. Load strategy configuration (JSON).
 2. Fetch historical market data (CSV/DB).
-3. Preprocess data: Resample (default: 5min) and calculate VWAP 
+3. Preprocess data: Resample (default: 5min) and calculate VWAP
    indicators (Bands, Standard Deviation).
 4. Initialize Strategy and Backtester engine.
 5. Execute backtest across the dataset.
@@ -155,20 +155,26 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run VWAP strategy backtest.")
     parser.add_argument(
-        "--sample", choices=["is", "os"], default="is",
+        "--sample",
+        choices=["is", "os"],
+        default="is",
         help="Sample type: is (in-sample) or os (out-of-sample).",
     )
     parser.add_argument(
-        "--contract", default="VN30F1M", help="Contract symbol (default: VN30F1M).",
+        "--contract",
+        default="VN30F1M",
+        help="Contract symbol (default: VN30F1M).",
     )
     parser.add_argument(
-        "--config", default="config/strategy_params/vwap_default.json",
+        "--config",
+        default="config/strategy_params/vwap_default.json",
         help="Path to strategy configuration file.",
     )
     args = parser.parse_args()
 
     config, strategy_params, resample_freq = load_vwap_config_context(
-        args.config, default_resample_freq="5min",
+        args.config,
+        default_resample_freq="5min",
     )
     logger.info("Loaded configuration from %s", args.config)
 

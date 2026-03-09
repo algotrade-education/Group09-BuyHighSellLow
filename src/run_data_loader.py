@@ -1,8 +1,8 @@
 """
 Market Data Pipeline Runner.
 
-Orchestrates the lifecycle of market data, from raw database extraction 
-to local Parquet disk caching. Supports 'In-Sample' (IS) and 
+Orchestrates the lifecycle of market data, from raw database extraction
+to local Parquet disk caching. Supports 'In-Sample' (IS) and
 'Out-of-Sample' (OS) partitioning used across the project.
 
 Usage:
@@ -10,9 +10,9 @@ Usage:
     python -m src.run_data_loader --mode load --sample is
 
 Modes:
-- fetch: Connects to the main database, pulls raw ticks, and saves monthly 
+- fetch: Connects to the main database, pulls raw ticks, and saves monthly
          CSV chunks to `data/`.
-- load:  Reads CSV chunks, performs initial cleaning, and serializes to 
+- load:  Reads CSV chunks, performs initial cleaning, and serializes to
          highly-optimized Parquet files for fast backtesting.
 
 Arguments:
@@ -44,8 +44,8 @@ def fetch_data(contract: str = "VN30F1M", chunk_by: str = "month"):
     """
     Execute raw data extraction from SQL Database.
 
-    Pulls the full range defined in global config (`IS_SAMPLE_START` to 
-    `OUT_SAMPLE_END`) and shards it into archival CSVs. Note that 
+    Pulls the full range defined in global config (`IS_SAMPLE_START` to
+    `OUT_SAMPLE_END`) and shards it into archival CSVs. Note that
     database credentials must be present in `.env`.
 
     Args:
@@ -84,7 +84,7 @@ def load_data(sample: str = "is", contract: str = "VN30F1M") -> pd.DataFrame:
     """
     Load data from local storage into memory.
 
-    This function attempts to use the `.parquet` cache if it exists. 
+    This function attempts to use the `.parquet` cache if it exists.
     If not, it rebuilds the cache from the `.csv` chunks found in `data/`.
 
     Args:
