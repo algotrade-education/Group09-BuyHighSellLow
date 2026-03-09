@@ -328,14 +328,22 @@ class Preprocessor:
             df = df.copy()
 
         delta = df[column].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        df["gain"] = delta.where(delta > 0, 0)
+        df["loss"] = -delta.where(delta < 0, 0)
+
+        # Calculate RSI using Wilder's Smoothing (RMA)
+        # alpha = 1 / period matches TradingView default
+        gain = df["gain"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        loss = df["loss"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
         rs = gain / loss
         df[f"rsi_{period}"] = 100 - (100 / (1 + rs))
 
         # Fill NaN with 50 (neutral) for initial periods to avoid validation errors
         df[f"rsi_{period}"] = df[f"rsi_{period}"].fillna(50)
+
+        # Cleanup temporary columns
+        df.drop(columns=["gain", "loss"], inplace=True)
 
         return df
 
@@ -377,22 +385,23 @@ class Preprocessor:
         ] = df["down_move"]
 
         # Calculate Smoothed components (Wilder's Smoothing)
-        # Using EMA as approximation for efficiency, or rolling mean
-        df["tr_smooth"] = df["tr"].rolling(window=period).mean()
-        df["plus_dm_smooth"] = df["plus_dm"].rolling(window=period).mean()
-        df["minus_dm_smooth"] = df["minus_dm"].rolling(window=period).mean()
+        # Using Wilder's Smoothing (RMA) to match TradingView ADX calculation
+        # alpha = 1 / period
+        df["tr_smooth"] = df["tr"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        df["plus_dm_smooth"] = df["plus_dm"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        df["minus_dm_smooth"] = df["minus_dm"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
         # Calculate DI
-        df["plus_di"] = 100 * (df["plus_dm_smooth"] / df["tr_smooth"])
-        df["minus_di"] = 100 * (df["minus_dm_smooth"] / df["tr_smooth"])
+        df["plus_di"] = 100 * (df["plus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf")))
+        df["minus_di"] = 100 * (df["minus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf")))
 
         # Calculate DX
         df["dx"] = (
             100 * abs(df["plus_di"] - df["minus_di"]) / (df["plus_di"] + df["minus_di"])
         )
 
-        # Calculate ADX
-        df[f"adx_{period}"] = df["dx"].rolling(window=period).mean()
+        # Calculate ADX (Also uses RMA on the DX)
+        df[f"adx_{period}"] = df["dx"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
         # Fill NaN
         df[f"adx_{period}"] = df[f"adx_{period}"].fillna(0)
@@ -436,12 +445,21 @@ class Preprocessor:
             df = df.copy()
 
         prev_close = df["close"].shift(1)
-        high_low = df["high"] - df["low"]
-        high_prev_close = (df["high"] - prev_close).abs()
-        low_prev_close = (df["low"] - prev_close).abs()
+        # Calculate TR
+        # Fill first 'prev_close' with 'high' so the first TR is just (high-low)
+        tr1 = df["high"] - df["low"]
+        tr2 = (df["high"] - prev_close.fillna(df["high"])).abs()
+        tr3 = (df["low"] - prev_close.fillna(df["high"])).abs()
 
-        tr = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1)
-        df[f"atr_{period}"] = tr.rolling(window=period).mean()
+        df["tr"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        # Average True Range (uses Wilder's Smoothing/RMA in standard calculations)
+        df[f"atr_{period}"] = df["tr"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        
+        # Backward fill the initial NaN values so early indicators aren't completely dropped
+        df[f"atr_{period}"] = df[f"atr_{period}"].bfill()
+
+        df.drop(columns=["tr"], inplace=True)
 
         return df
 
