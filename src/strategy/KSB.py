@@ -56,8 +56,15 @@ class KeltnerSqueezeBreakout(Strategy):
     """
     Keltner Squeeze Breakout strategy for VN30F1M.
 
-    Detects volatility compression (BB inside KC) then trades the
-    directional breakout once the squeeze releases.
+    This strategy detects periods of low volatility (Bollinger Bands inside 
+    Keltner Channels) and enters on the subsequent breakout if momentum 
+    confirms the direction.
+
+    Indicators used:
+    - Bollinger Bands: Detect contraction.
+    - Keltner Channels: Reference for contraction.
+    - Momentum: Confirms breakout direction.
+    - ATR: Used for SL/TP and KC width.
     """
 
     REQUIRED_FIELDS = ["close", "high", "low", "open", "volume"]
@@ -210,6 +217,15 @@ class KeltnerSqueezeBreakout(Strategy):
     def _build_long_signal(
         self, close: float, atr: float, mom: float, session: str,
     ) -> TradeSignal:
+        """
+        Build a LONG squeeze release signal.
+
+        Args:
+            close: Current bar close price.
+            atr: Current ATR for SL/TP.
+            mom: Momentum value at release.
+            session: Current session name.
+        """
         stop_loss = close - (self.atr_sl_mult * atr)
         take_profit = close + (self.atr_tp_mult * atr)
 
@@ -228,6 +244,15 @@ class KeltnerSqueezeBreakout(Strategy):
     def _build_short_signal(
         self, close: float, atr: float, mom: float, session: str,
     ) -> TradeSignal:
+        """
+        Build a SHORT squeeze release signal.
+
+        Args:
+            close: Current bar close price.
+            atr: Current ATR for SL/TP.
+            mom: Momentum value at release.
+            session: Current session name.
+        """
         stop_loss = close + (self.atr_sl_mult * atr)
         take_profit = close - (self.atr_tp_mult * atr)
 
@@ -256,9 +281,18 @@ class KeltnerSqueezeBreakout(Strategy):
         """
         Generate a trading signal based on Keltner Squeeze Breakout logic.
 
+        Decision flow:
+        - Detect if BB is inside KC (Squeeze ON).
+        - Track squeeze duration.
+        - Monitor for squeeze release (BB exits KC).
+        - Filter by momentum direction and optional volume.
+
         Args:
-            bar: Dict with OHLCV + indicator values for the current bar.
+            bar: Dict containing at least: ['close', 'high', 'low', 'open', 'volume']
+                 + 'bb_upper', 'bb_lower', 'kc_upper', 'kc_lower', 'kc_middle',
+                 'mom_{period}', 'atr_{period}', 'volume_ma_{period}'.
             current_position: Current position object from TradeManager.
+            is_warmup: Prevents cooldown state updates during indicator warmup.
         """
         # 1. Validation
         if not self.validate_bar(bar, self.REQUIRED_FIELDS):

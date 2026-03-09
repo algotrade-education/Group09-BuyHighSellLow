@@ -1,14 +1,28 @@
 """
-Script to run backtest for KSB (Keltner Squeeze Breakout) strategy.
-Run as:
+KSB (Keltner Squeeze Breakout) Strategy Backtest Runner.
+
+This script executes a historical backtest for the KSB strategy using 
+configured parameters and market data. It handles indicator calculation 
+across multiple timeframes and reports performance metrics.
+
+Usage:
     python -m src.run_backtest_ksb --sample is --config config/strategy_params/ksb_default.json
 
-This script will:
-1. Load the specified data (in-sample or out-of-sample).
-2. Preprocess the data (resample, add BB/KC/momentum/ATR indicators).
-3. Initialize the KSB strategy with parameters from the config file.
-4. Run the backtest and collect results.
-5. Save detailed results (equity curve, trades) to the results directory.
+Arguments:
+    --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
+    --contract: The ticker symbol (default: VN30F1M).
+    --config:   Path to the JSON configuration file containing strategy 
+                and risk parameters.
+
+Execution Sequence:
+1. Load strategy configuration (JSON).
+2. Fetch historical market data (CSV/DB).
+3. Preprocess data: Resample (default: 5min) and calculate Keltner 
+   Squeeze indicators (BB, KC, Momentum, ATR).
+4. Initialize Strategy and Backtester engine.
+5. Execute backtest across the dataset.
+6. Generate performance metrics, equity curves, and trade logs.
+7. Save report artifacts to `results/ksb_<timestamp>/`.
 """
 
 from datetime import datetime
@@ -46,7 +60,20 @@ def run_backtest(
     contract_multiplier: float = CONTRACT_MULTIPLIER,
     margin_rate: float = MARGIN_RATE,
 ) -> None:
-    """Run one KSB backtest and persist report artifacts."""
+    """
+    Configure and execute a KSB backtest run.
+
+    Instantiates the strategy and backtester with risk management 
+    settings (Daily limits, trailing stop loss, percent risk per trade).
+
+    Args:
+        data: Preprocessed DataFrame with KSB-specific indicators.
+        params: Config dictionary containing [strategy] and [risk] keys.
+        initial_capital: Opening balance.
+        commission_rate: Transaction costs.
+        contract_multiplier: Multiplier for P&L calculation.
+        margin_rate: Required margin per position.
+    """
 
     strategy_params = params.get("strategy", {})
     strategy = build_ksb_strategy(strategy_params)

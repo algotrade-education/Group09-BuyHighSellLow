@@ -100,12 +100,16 @@ class WalkForwardOptimizer:
     """
     Walk-Forward Optimizer with anchored or rolling windows.
 
+    Walk-forward analysis validates strategy parameters by simulating how 
+    a strategy would have been optimized and traded in real-time. It identifies 
+    overfitting by comparing In-Sample (train) performance to Out-Of-Sample 
+    (test) performance on unseen data.
+
     Process:
-    1. Split data into train/test windows
-    2. Optimize parameters on train window
-    3. Test best parameters on test window
-    4. Repeat for all windows
-    5. Aggregate results
+    1. Split data into N train/test windows (Anchored or Rolling).
+    2. Optimize parameters on the Train window (In-Sample).
+    3. Test the 'best' parameters on the Test window (Out-Of-Sample).
+    4. Repeat for all windows and aggregate into a Robustness Ratio.
     """
 
     def __init__(
@@ -152,10 +156,17 @@ class WalkForwardOptimizer:
         Tuple[pd.DataFrame, pd.DataFrame, datetime, datetime, datetime, datetime]
     ]:
         """
-        Create train/test window splits.
+        Partition data into training and testing windows.
+
+        Modes:
+        - Anchored (default): The training start date is fixed at the beginning 
+          of the dataset. As windows progress, the training period 'anchors' 
+          further back, providing more data for each subsequent optimization.
+        - Rolling: Both training and testing periods slide forward by a fixed 
+          window size. Training data remains a constant size.
 
         Returns:
-            List of (train_data, test_data, train_start, train_end, test_start, test_end)
+            List of Tuples: (train_df, test_df, train_start, train_end, test_start, test_end)
         """
         data = data.sort_values(datetime_column).reset_index(drop=True)
         n_rows = len(data)
@@ -223,15 +234,20 @@ class WalkForwardOptimizer:
         show_progress: bool = True,
     ) -> WalkForwardResult:
         """
-        Run walk-forward optimization.
+        Execute the walk-forward optimization cycle.
+
+        This method carefully manages indicator calculation to prevent 'look-ahead' 
+        bias while ensuring trailing indicators (like ATR or Moving Averages) 
+        have enough context at the start of the out-of-sample test period.
 
         Args:
-            data: Preprocessed backtest data (OHLC only, indicators will be calculated per window)
-            initial_capital: Starting capital
-            show_progress: Show progress bar
+            data: Market data (OHLCV).
+            initial_capital: Starting balance for each window.
+            contract_multiplier: Value per point.
+            show_progress: If True, displays a tqdm progress bar.
 
         Returns:
-            WalkForwardResult with all window results
+            WalkForwardResult containing per-window details and aggregate robustness.
         """
         # Remove indicators from data to avoid using stale values
         base_columns = ["datetime", "open", "high", "low", "close", "volume"]

@@ -1,3 +1,11 @@
+"""
+This module contains SQL queries for fetching market data from the PostgreSQL database.
+"""
+
+# Parameters:
+# 1. futurecode (str): The common contract code (e.g., 'VN30F1M')
+# 2. start_date (str/date): The start of the date range (inclusive)
+# 3. end_date (str/date): The end of the date range (inclusive)
 MATCHED_QUERY = """
     SELECT m.datetime, m.tickersymbol, m.price, v.quantity
     FROM quote.matched m
@@ -16,6 +24,10 @@ MATCHED_QUERY = """
     ORDER BY m.datetime;
 """
 
+# Parameters:
+# 1. futurecode (str): The common contract code (e.g., 'VN30F1M')
+# 2. start_date (str/date): The start of the date range (inclusive)
+# 3. end_date (str/date): The end of the date range (inclusive)
 BID_ASK_QUERY = """
     SELECT b.datetime, b.tickersymbol, b.price, a.price, a.price - b.price
     FROM quote.bidprice b
@@ -35,6 +47,10 @@ BID_ASK_QUERY = """
     ORDER BY b.datetime;
 """
 
+# Parameters:
+# 1. futurecode (str): The common contract code (e.g., 'VN30F1M')
+# 2. start_date (str/date): The start of the date range (inclusive)
+# 3. end_date (str/date): The end of the date range (inclusive)
 CLOSE_QUERY = """
     SELECT c.datetime, c.tickersymbol, c.price
     FROM quote.close c

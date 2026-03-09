@@ -1,9 +1,19 @@
 """
-SessionStats - session statistics reporter for live paper trading.
+Session Statistics and Performance Reporting.
 
-Wraps MetricsCalculator to compute performance metrics from a
-PositionTracker's trade log and equity snapshots, then pretty-prints
-a console summary and optionally saves CSV files.
+The `SessionStats` module is responsible for analyzing the results of a live 
+paper trading session. It aggregates data from the `PositionTracker` and 
+`Trade` history to produce a comprehensive performance audit.
+
+Reporting Features:
+- **Real-time Metrics**: Calculates Sharpe Ratio, Sortino Ratio, and Max 
+  Drawdown using the `MetricsCalculator`.
+- **Trade Analysis**: Computes win rates, average win/loss, and best/worst 
+  trade outcomes.
+- **Capital Tracking**: Displays initial capital, final equity, net P&L, 
+  and total commissions spent.
+- **Artifact Generation**: Saves detailed trade logs and equity curves 
+  to CSV for post-session analysis.
 """
 
 import logging
@@ -24,12 +34,14 @@ logger = logging.getLogger(__name__)
 
 class SessionStats:
     """
-    Computes and displays performance metrics for a paper trading session.
+    Performance Analyzer for the PaperTrader Engine.
 
-    Usage:
-        stats = SessionStats(tracker)
-        stats.print_summary()
-        stats.save("results/paper_20260303_143000")
+    This class serves as the 'end-of-session' reporter. It translates the 
+    raw trade sequence into human-readable performance indicators.
+
+    Attributes:
+        _tracker: The PositionTracker instance containing session data.
+        _metrics_calc: Internal calculator for risk-adjusted returns.
     """
 
     def __init__(self, tracker: "PositionTracker"):

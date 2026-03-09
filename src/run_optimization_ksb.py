@@ -1,22 +1,23 @@
 """
-Script to run Optuna-based Bayesian optimization for KSB strategy parameters.
+Optuna optimization runner for the Keltner Squeeze Breakout (KSB) strategy.
+
+This script uses Bayesian optimization (TPE) to find the best-performing 
+parameters for the KSB strategy (BB/KC periods, momentum, thresholds). 
+It works directly with tick data to allow timeframe optimization.
+
 Run as:
     python -m src.run_optimization_ksb --sample is --trials 300
 
-The search space covers Bollinger Band, Keltner Channel, momentum, and risk
-parameters. ``min_trades`` controls the minimum activity level for a valid
-trial so that we favor medium-frequency squeeze strategies.
+Search Space:
+- Resampling timeframe (1min, 5min).
+- Bollinger Band & Keltner Channel periods and standard deviations.
+- Momentum lookbacks.
+- Strategy filters (Volume, Squeeze duration).
 
-Composite objective (KSB-specific configuration):
-    - Require:
-        * total_trades > min_trades
-        * total_return_pct > 0
-        * profit_factor > 1.0
-    - Score:
-        score = sharpe
-                - 0.1 * |max_drawdown_pct|
-                + 0.1 * (total_trades / 1000)
-      (Falls back to ``total_return_pct / 100`` when Sharpe <= 0.)
+Optimization Score (Maximized):
+- Base: Sharpe Ratio.
+- Penalties: Max Drawdown.
+- Bonuses: Trade Count (to ensure statistical significance).
 """
 
 import json
@@ -40,11 +41,17 @@ logger = setup_logging(__name__, log_file="logs/optuna_ksb.log")
 
 def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    Full preprocessing pipeline per Optuna trial.
+    Trial-specific Preprocessing for KSB.
 
-    Resamples tick data, filters trading hours, computes Bollinger Bands and
-    Keltner Channels at the trial's parameter combination, plus the momentum
-    oscillator at the trial's lookback.
+    Calculates the 'squeeze' indicators (BB vs KC) and momentum 
+    filters dynamically for each Optuna trial.
+
+    Execution:
+    1. Resample tick data to trial-specific bar frequency.
+    2. Filter for active market hours.
+    3. Calculate ATR, Bollinger Bands, Volume MA.
+    4. Calculate Keltner Channels (using EMA/ATR).
+    5. Calculate Momentum Oscillator.
     """
     resample_freq = params.get("resample_freq", "5min")
 
@@ -93,7 +100,15 @@ def run_optuna(
     n_trials: int = 300,
     min_trades: int = 120,
 ) -> None:
-    """Run KSB Optuna search and save ranked results / best config."""
+    """
+    Configure and execute the KSB Optuna study.
+
+    Args:
+        data: Raw tick data (DataFrame).
+        config: Base configuration for non-optimized settings.
+        n_trials: Number of Bayesian iterations.
+        min_trades: Hard activity gate for valid trials.
+    """
     logger.info(
         "Starting KSB Optuna Optimization with %d trials (min_trades=%d)...",
         n_trials,

@@ -1,11 +1,19 @@
 """
-OrderManager - translates TradeSignal → FIX orders via PaperBrokerClient.
+OrderManager - FIX Order Submission and Execution Handling.
 
-Handles:
-  - Entry order submission (LONG / SHORT)
-  - Exit order submission (Stop Loss, Take Profit, EOD, manual)
-  - Dry-run mode (log only, no real FIX calls)
-  - Listening to fix:execution_report events to confirm fills
+The `OrderManager` serves as the bridge between abstract strategy signals and 
+the low-level FIX protocol via `PaperBrokerClient`. It tracks the lifecycle of 
+unfilled orders to ensure accurate state transition.
+
+Key Responsibilities:
+1.  **Entry Submission**: Translates `LONG`/`SHORT` signals into `LIMIT` orders.
+2.  **Exit Submission**: Dispatches liquidation orders for SL, TP, or EOD exits.
+3.  **Execution Processing**: Listens for `fix:execution_report` events and 
+    extracts fill price and quantity for the `PositionTracker`.
+4.  **State Recovery**: Reconstructs the list of pending orders on engine 
+    restart to avoid duplicate submissions.
+5.  **Partial Fill Support**: Increments positions based on `PARTIALLY_FILLED` 
+    status updates rather than waiting for complete fills.
 """
 
 import logging
@@ -213,14 +221,21 @@ class OrderManager:
 
     def on_execution_report(self, **kwargs: Any) -> None:
         """
-        Event handler for 'fix:execution_report' events from PaperBrokerClient.
+        Main Event Handler for Broker Execution Reports.
 
-        Expected kwargs (from QuickFIX application):
-            cl_ord_id:   Client order ID.
-            avg_px:      Average fill price.
-            cum_qty:     Cumulative filled quantity.
-            ord_status:  FIX OrdStatus (e.g. '2' = FILLED).
-            side:        FIX side ('1'=BUY, '2'=SELL).
+        This method is triggered by the `fix:execution_report` event. It 
+        interprets FIX `OrdStatus` codes to update the internal trading state.
+
+        Status Handling:
+        - **'1' (PARTIALLY_FILLED)**: Records the incremental fill in the 
+          tracker but keeps the order ID in `_pending_entries`.
+        - **'2' (FILLED)**: Records the final fill and clears the order lock.
+        - **'4' (CANCELED) / '8' (REJECTED)**: Clears the order lock and 
+          logs a warning, allowing the strategy to re-evaluate.
+
+        Args:
+            **kwargs: Dictionary containing `cl_ord_id`, `ord_status`, 
+                      `avg_px`, `cum_qty`, and `side`.
         """
         cl_ord_id = kwargs.get("cl_ord_id", "")
         ord_status = str(kwargs.get("ord_status", ""))

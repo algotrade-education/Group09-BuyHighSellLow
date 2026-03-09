@@ -16,10 +16,11 @@ class BacktestResult:
     Container for one backtest run result.
 
     Attributes:
-        trades (List[Trade]): list of executed trades
-        equity_curve (pd.DataFrame): equity curve over time
-        signals (List[Dict[str, any]]): list of generated trading signals
-        parameters (Dict[str, any]): parameters used for the backtest
+        trades (List[Trade]): List of executed trades.
+        equity_curve (pd.DataFrame): Equity curve over time.
+        metrics (Dict[str, float]): Performance metrics.
+        signals (List[Dict[str, Any]]): List of generated trading signals.
+        parameters (Dict[str, Any]): Parameters used for the backtest.
     """
 
     trades: List[Trade]

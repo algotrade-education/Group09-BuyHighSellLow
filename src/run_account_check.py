@@ -1,13 +1,24 @@
 """
-Standalone account inspector - prints balance, portfolio, orders,
-and transactions from the PaperBroker REST API.
+Standalone Account & Portfolio Inspector.
 
-No FIX session or market data connection required.
+Connects to the PaperBroker REST API to fetch and display the current 
+account state without requiring a persistent FIX session or Redis 
+market data feed. Useful for verifying balances and trade history.
 
 Usage:
-    python -m src.run_account_check            # last 7 days
-    python -m src.run_account_check --days 30  # last 30 days
-    python -m src.run_account_check --no-disconnect
+    python -m src.run_account_check            # Fetch last 7 days
+    python -m src.run_account_check --days 30  # Fetch last 30 days
+
+Dependencies:
+- .env: Requires `PAPER_REST_BASE_URL`, `PAPER_USERNAME`, and `PAPER_PASSWORD`.
+
+Sequence:
+1. Resolve the FIX SenderCompID (UUID) via REST logon.
+2. Initialize PaperBrokerClient (REST-only mode).
+3. Query and print Cash Balances.
+4. Query and print Open Positions (Portfolio).
+5. Query and print Order History for the specified date range.
+6. Query and print Transaction History (Closed P&L).
 """
 
 import argparse
@@ -218,6 +229,12 @@ def print_transactions(client, start_date: str, end_date: str) -> None:
 
 
 def main(args: argparse.Namespace) -> None:
+    """
+    Main entry point for account inspection.
+
+    Handles environment variable loading, FIX ID resolution, 
+    and output orchestration.
+    """
     load_dotenv()
 
     username = os.getenv("PAPER_USERNAME", "BL01")

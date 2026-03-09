@@ -55,11 +55,14 @@ class ParsedBar:
 
 class OpeningRangeBreakout(Strategy):
     """
-    Opening Range Breakout strategy for VN30F1M.
+    Tracks the high and low prices of the first `orb_minutes` of each trading session.
+    Breakouts occur when price crosses above the range high or below the range low 
+    (plus a buffer) while filters (ADX, Volume) are satisfied.
 
-    Tracks the high/low of the first N minutes of each trading session,
-    then trades breakouts beyond the range. Designed for intraday futures
-    with 2 sessions per day.
+    Key Stages:
+    1. Formation: Updates high/low but holds all signals.
+    2. Range Formed: Range size is validated against ATR.
+    3. Breakout: Monitors for directional price moves beyond the range.
     """
 
     REQUIRED_FIELDS = ["close", "high", "low", "open"]
@@ -144,7 +147,15 @@ class OpeningRangeBreakout(Strategy):
         logger.info("Strategy params: %s", self._params)
 
     def _get_session(self, dt: datetime) -> Optional[str]:
-        """Determine which trading session the timestamp belongs to."""
+        """
+        Determine which VN30 trading session the timestamp belongs to.
+
+        Args:
+            dt: Current bar timestamp.
+
+        Returns:
+            "morning", "afternoon", or None if outside specific trading hours.
+        """
         t = dt.time()
         if MORNING_START <= t < MORNING_END:
             return "morning"
@@ -260,9 +271,17 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
-        is_warmup: bool = False,
     ) -> TradeSignal:
-        """Build validated long breakout signal."""
+        """
+        Build a LONG breakout signal with associated risk parameters.
+
+        Args:
+            close: Current bar close price.
+            atr: Current ATR value for SL/TP calculation.
+            range_size: The absolute size of the opening range.
+            session: The session name ("morning" or "afternoon").
+            is_warmup: If True, prevent incrementing the session trade counter.
+        """
         if self.use_range_sl:
             stop_loss = self._range_low
         else:
@@ -303,9 +322,17 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
-        is_warmup: bool = False,
     ) -> TradeSignal:
-        """Build validated short breakout signal."""
+        """
+        Build a SHORT breakout signal with associated risk parameters.
+
+        Args:
+            close: Current bar close price.
+            atr: Current ATR value for SL/TP calculation.
+            range_size: The absolute size of the opening range.
+            session: The session name ("morning" or "afternoon").
+            is_warmup: If True, prevent incrementing the session trade counter.
+        """
         if self.use_range_sl:
             stop_loss = self._range_high
         else:
@@ -349,13 +376,20 @@ class OpeningRangeBreakout(Strategy):
         """
         Generate a trading signal based on Opening Range Breakout logic.
 
+        Decision flow:
+        - Check session boundaries and formation window.
+        - Validate range size against current volatility (ATR).
+        - Apply Volume and ADX filters if enabled.
+        - Trigger breakout signal if close exceeds range boundaries.
+
         Args:
-            bar: Dict containing OHLC + indicator values for the current bar.
-                 Expected keys: datetime, open, high, low, close, atr_{period}
-            current_position: Current position object from TradeManager
+            bar: Dict containing at least: ['datetime', 'open', 'high', 'low', 'close'] 
+                 + 'atr_{period}' and optionally 'volume', 'volume_ma_20', 'adx_{period}'.
+            current_position: Current position object from the engine.
+            is_warmup: Prevents state modifications (counters) during indicator warmup.
 
         Returns:
-            TradeSignal with entry/exit details
+            TradeSignal with entry/exit/hold instructions.
         """
         # Validate required fields
         if not self.validate_bar(bar, self.REQUIRED_FIELDS):

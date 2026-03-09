@@ -1,16 +1,21 @@
 """
-Script to run optimization (grid search) on strategy parameters.
+Exhaustive Grid Search Optimization Runner.
+
+This script executes a brute-force search across all combinations of 
+parameters defined in the `param_grid`. It is recommended for small 
+search spaces or final fine-tuning of a strategy's core logic.
+
 Run as:
     python -m src.run_grid --sample is
-to optimize on in-sample data, or
-    python -m src.run_grid --sample os
-to optimize on out-of-sample data.
 
-This script will:
-1. Load the specified data (in-sample or out-of-sample).
-2. Preprocess the data (resample, add indicators).
-3. Run grid search optimization over specified parameter ranges.
-4. Print top results to console and save detailed results to the results directory.
+Execution Sequence:
+1. Load ORB default configuration.
+2. Load historical dataset (In-Sample or Out-of-Sample).
+3. Preprocess data (resample to 5m/1m as per config).
+4. Define Cartesian product of all parameters in `param_grid`.
+5. Execute parallel backtests for every combination.
+6. Rank results by 'Profit Factor' or specified objective.
+7. Print top results and save best parameters to JSON.
 """
 
 import json
@@ -34,8 +39,10 @@ logger = setup_logging(__name__, log_file="logs/optimization.log")
 
 def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    Recalculate indicators using parameters from each grid combination.
-    This function will be called by the optimization process for each parameter set.
+    Data-processing hook for grid search.
+
+    This function is called by the `GridSearch` engine for every individual 
+    parameter combination to ensure indicators are fresh.
     """
     preprocessor = Preprocessor(
         adx_period=params.get("adx_period", 14),
@@ -47,7 +54,13 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_optimization(data: pd.DataFrame, config: dict) -> None:
-    """Run ORB grid search and persist ranked parameter results."""
+    """
+    Initialize and execute the exhaustive Grid Search.
+
+    Args:
+        data: Base market data (DataFrame).
+        config: Strategy configuration context.
+    """
     logger.info("Starting Grid Search Optimization...")
 
     # Parameter grid for ORB strategy.

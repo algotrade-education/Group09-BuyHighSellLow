@@ -73,15 +73,21 @@ class AlwaysOpenSession(SessionManager):
     """
 
     def is_trading_hours(self, dt: datetime) -> bool:
-        """Always return `True` (every timestamp is tradable)."""
+        """
+        Always return True. Every timestamp is considered tradable.
+        """
         return True
 
     def should_close_eod(self, dt: datetime) -> bool:
-        """Always return `False` (no EOD close in always-open mode)."""
+        """
+        Always return False. No positions are ever forced closed at EOD.
+        """
         return False
 
     def should_skip_signal_generation(self, dt: datetime) -> bool:
-        """Always return `False` (never skip signal generation)."""
+        """
+        Always return False. Never skip signal generation.
+        """
         return False
 
 
@@ -110,7 +116,9 @@ class StandardSession(SessionManager):
         self.close_at_eod = close_at_eod
 
     def is_trading_hours(self, dt: datetime) -> bool:
-        """Check if the given datetime is within the defined trading hours."""
+        """
+        Check if the current time falls within the configured start and end times.
+        """
         current_time = dt.time()
         return self.trading_start <= current_time < self.trading_end
 
@@ -158,7 +166,9 @@ class VN30Session(SessionManager):
         self.close_at_eod = close_at_eod
 
     def is_trading_hours(self, dt: datetime) -> bool:
-        """Return whether the timestamp is within VN30 tradable windows (incl. ATC)."""
+        """
+        Check if the timestamp falls within Morning, Afternoon, or ATC session windows.
+        """
         dt_time = dt.time()
 
         return (
@@ -168,7 +178,9 @@ class VN30Session(SessionManager):
         )
 
     def is_atc_session(self, dt: datetime) -> bool:
-        """Return whether timestamp falls inside the ATC session."""
+        """
+        Check if the timestamp falls specifically within the ATC (At-The-Close) window.
+        """
         dt_time = dt.time()
         return self.atc_start <= dt_time < self.atc_end
 

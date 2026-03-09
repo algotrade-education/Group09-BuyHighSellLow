@@ -76,7 +76,10 @@ class Order:
 
     @classmethod
     def reset_id_counter(cls) -> None:
-        """Reset the class-level order ID counter."""
+        """
+        Reset the global auto-incrementing order ID counter to 1.
+        Used at the start of new backtests to ensure ID predictability.
+        """
         cls._id_counter = itertools.count(1)
 
     @property
@@ -101,7 +104,10 @@ class Order:
 
     @property
     def total_cost(self) -> Optional[float]:
-        """Return total transaction cost (commission + absolute slippage)."""
+        """
+        Calculate the total transaction cost incurred by this order.
+        Includes both explicit commission and estimated slippage impact.
+        """
         if self.filled_price is None:
             return 0.0
 
@@ -150,7 +156,11 @@ class Order:
         self.reason = reason
 
     def expire(self) -> None:
-        """Mark order as expired (e.g., TTL exceeded before fill)."""
+        """
+        Mark the order as expired.
+        Typically used when an order's Time-To-Live (TTL) is exceeded
+        before it can be filled.
+        """
         self.status = OrderStatus.EXPIRED
 
     def __repr__(self) -> str:

@@ -34,7 +34,7 @@ class PositionSizer(ABC):
             entry_price: Intended entry price
             stop_loss: Stop loss price (if applicable)
             contract_multiplier: Contract multiplier
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (e.g., 'atr' for volatility sizing)
 
         Returns:
             Number of contracts to trade (minimum 1)
@@ -269,7 +269,11 @@ class VolatilityAdjustedSizer(PositionSizer):
         Calculate position size adjusted for volatility.
 
         Args:
-            atr: Average True Range (required via kwargs)
+            equity: Current account equity
+            entry_price: Intended entry price
+            stop_loss: Position stop loss (not used by this sizer)
+            contract_multiplier: Contract multiplier
+            atr: Average True Range (required for volatility adjustment)
         """
         if entry_price <= 0:
             logger.warning("Invalid entry price, using base size")

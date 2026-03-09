@@ -49,7 +49,7 @@ class Backtester:
             margin_rate: Margin requirement as a percentage (e.g., 0.18 for 18%)
             position_size: Fixed number of contracts per trade (default: 1)
             position_sizer: Dynamic position sizer (overrides position_size if provided)
-            order_ttl: Time-to-live for orders in bars (0 means no expiration)
+            order_ttl: Time-to-live for pending orders (in number of bars; 0=no expiration)
             equity_tracker: Custom equity tracker (optional)
             session_manager: Custom session manager (optional)
             use_trailing_stop: If True, enable trailing stop loss
@@ -288,7 +288,18 @@ class Backtester:
         )
 
     def _calculate_metrics(self, equity_df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate performance metrics."""
+        """
+        Calculate performance metrics from the equity curve and trade history.
+
+        Uses the internal MetricsCalculator to compute statistics such as CAGR,
+        Sharpe Ratio, Max Drawdown, and various trade-level statistics.
+
+        Args:
+            equity_df: DataFrame containing the recorded equity curve.
+
+        Returns:
+            Dictionary mapping metric names (e.g., 'sharpe_ratio') to their values.
+        """
         if equity_df.empty:
             return {}
 

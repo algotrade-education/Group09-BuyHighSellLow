@@ -1,8 +1,14 @@
 """
-PositionTracker - lightweight live position and P&L tracker for paper trading.
+PositionTracker - Live State and P&L Monitor.
 
-Mirrors the interface of the backtest TradeManager but is slimmed down
-for live use: no order management, just position state + Trade history.
+The `PositionTracker` maintains the 'Ground Truth' of the current trading 
+session. It mirrors the accounting logic of the backtester while adding 
+support for live synchronization and incremental fills.
+
+Accounting Principles:
+- **Cash**: Deducts commissions on entry and exit; adds/subtracts gross P&L.
+- **Equity**: Calculated as `Cash + Unrealized P&L`.
+- **Fills**: Supports weighted-average entry prices for scaled-in positions.
 """
 
 import logging
@@ -200,8 +206,15 @@ class PositionTracker:
 
     def sync_position(self, qty: float, avg_price: float) -> None:
         """
-        Initialize the tracker with an existing open position from the broker.
-        Called on startup to resynchronize state after a restart.
+        Synchronize tracker state with a pre-existing broker position.
+
+        Allows the engine to restart mid-session without losing track of 
+        currently open trades. Sets the initial `avg_price` and `quantity` 
+        to match the REST API's portfolio view.
+
+        Args:
+            qty: Signed quantity (positive for Long, negative for Short).
+            avg_price: The average entry price reported by the broker.
         """
         if qty == 0:
             return

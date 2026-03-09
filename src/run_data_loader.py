@@ -1,13 +1,25 @@
 """
-Script to fetch and load market data for specified contracts.
-Defaults to VN30F1M contract.
+Market Data Pipeline Runner.
 
-Run as:
-    py -m src.run_data_loader --mode fetch
-to fetch from the database and save monthly CSV chunks to data/.
+Orchestrates the lifecycle of market data, from raw database extraction 
+to local Parquet disk caching. Supports 'In-Sample' (IS) and 
+'Out-of-Sample' (OS) partitioning used across the project.
 
-    py -m src.run_data_loader --mode load --sample is
-to load IS data (reads parquet cache or rebuilds from chunks).
+Usage:
+    python -m src.run_data_loader --mode fetch --contract VN30F1M
+    python -m src.run_data_loader --mode load --sample is
+
+Modes:
+- fetch: Connects to the main database, pulls raw ticks, and saves monthly 
+         CSV chunks to `data/`.
+- load:  Reads CSV chunks, performs initial cleaning, and serializes to 
+         highly-optimized Parquet files for fast backtesting.
+
+Arguments:
+    --mode:     'fetch' or 'load'.
+    --contract: Symbol (default: VN30F1M).
+    --sample:   'is' or 'os' (only for 'load' mode).
+    --chunk-by: Granularity of saved files ('month' or 'year').
 """
 
 import argparse
@@ -30,15 +42,15 @@ logger = setup_logging(__name__, log_file="logs/data_loader.log")
 
 def fetch_data(contract: str = "VN30F1M", chunk_by: str = "month"):
     """
-    Fetch market data from the database and save as CSV chunks in data/.
+    Execute raw data extraction from SQL Database.
 
-    Fetches the full IS+OS date range in one request and splits it into
-    monthly (or yearly) CSV files: data/<contract>_YYYYMM.csv.
-    IS and OS parquets are generated automatically on the first load.
+    Pulls the full range defined in global config (`IS_SAMPLE_START` to 
+    `OUT_SAMPLE_END`) and shards it into archival CSVs. Note that 
+    database credentials must be present in `.env`.
 
     Args:
-        contract (str): Contract symbol to fetch data for
-        chunk_by (str): 'month' or 'year' - controls chunk file granularity
+        contract: The market ticker.
+        chunk_by: Partition size for saved files.
     """
     loader = DataLoader()
 
@@ -70,14 +82,17 @@ def fetch_data(contract: str = "VN30F1M", chunk_by: str = "month"):
 
 def load_data(sample: str = "is", contract: str = "VN30F1M") -> pd.DataFrame:
     """
-    Load data (uses cache if available, creates if missing).
+    Load data from local storage into memory.
+
+    This function attempts to use the `.parquet` cache if it exists. 
+    If not, it rebuilds the cache from the `.csv` chunks found in `data/`.
 
     Args:
-        sample (str): "is" for in-sample, "os" for out-of-sample
-        contract (str): Contract symbol to load data for
+        sample: Dataset partition ('is' or 'os').
+        contract: Ticker symbol.
 
     Returns:
-        pd.DataFrame: Loaded data
+        Cleaned and timestamp-indexed DataFrame.
     """
     loader = DataLoader()
     try:

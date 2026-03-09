@@ -1,14 +1,19 @@
 """
-Script to run walk-forward optimization.
+Script to run walk-forward optimization for the ORB strategy.
+
+Walk-forward optimization is a robust validation technique that splits 
+historical data into moving windows. Parameters are optimized on a 'Train' 
+period and then tested on an immediately following 'Test' (Out-Of-Sample) 
+period. This process detects if a strategy's edge is persistent or just a 
+result of curve-fitting.
+
 Run as:
     python -m src.run_walk_forward --sample is
-to run on in-sample data.
 
-Walk-forward optimization guards against overfitting by:
-1. Splitting data into overlapping train/test windows.
-2. Optimizing parameters on each train window.
-3. Testing best parameters on the unseen test window.
-4. Checking if in-sample performance holds out-of-sample (robustness ratio).
+Safeguards:
+1. Anchored splitting to ensure training data grows over time.
+2. Direct comparison of In-Sample vs Out-of-Sample Sharpe ratios.
+3. Calculation of a Robustness Ratio (Test / Train performance).
 """
 
 import pandas as pd
@@ -25,8 +30,11 @@ logger = setup_logging(__name__, log_file="logs/walk_forward.log")
 
 def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    Recalculate indicators using parameters from each grid combination.
-    This function will be called by the optimization process for each parameter set.
+    Indicator calculation hook for the walk-forward cycle.
+
+    Invoked by the GridSearch optimizer inside the walk-forward loop. 
+    Resets indicators (ATR, ADX) using the specific periods chosen 
+    for the current trial.
     """
     preprocessor = Preprocessor(
         adx_period=params.get("adx_period", 14),
@@ -38,7 +46,13 @@ def recalculate_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_walk_forward(data: pd.DataFrame, config: dict) -> None:
-    """Run walk-forward analysis and report out-of-sample robustness."""
+    """
+    Initialize and run the Walk-Forward Optimizer.
+
+    Defines the parameter grid to search, partitions the data into 
+    N windows, and performs the train-test cycles. Outputs a detailed 
+    summary of performance degradation and final robustness.
+    """
     logger.info("Starting Walk-Forward Optimization...")
 
     # ORB parameter grid for walk-forward optimization

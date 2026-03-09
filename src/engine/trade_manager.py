@@ -41,7 +41,8 @@ class TradeManager:
             slippage_points: Slippage in price points (e.g., 0.5 for half a point)
             contract_multiplier: Multiplier for contract size (e.g., 1 for index futures)
             margin_rate: Margin requirement as a percentage (e.g., 0.18 for 18%)
-            position_size: Number of contracts to trade per signal
+            position_size: Default number of contracts to trade per signal
+            position_sizer: Optional dynamic position sizing logic
             use_trailing_stop: If True, move SL to lock in profits as price moves
             trailing_atr_multiplier: Trail distance in ATR units
             max_daily_loss_pct: Max daily loss as fraction of equity (0 = disabled)
@@ -633,7 +634,15 @@ class TradeManager:
                         self.position.stop_loss = new_sl
 
     def update_daily_pnl(self, timestamp: datetime) -> None:
-        """Track daily P&L. Reset on new trading day."""
+        """
+        Update the current date and reset daily P&L if the date has changed.
+
+        This ensures that daily risk limits (like max_daily_loss_pct) are
+        enforced correctly per calendar day.
+
+        Args:
+            timestamp: The timestamp of the current data point.
+        """
         trading_date = timestamp.date() if hasattr(timestamp, "date") else None
         if trading_date and trading_date != self._current_trading_date:
             self._current_trading_date = trading_date
@@ -641,7 +650,16 @@ class TradeManager:
             self._daily_loss_hit = False
 
     def record_trade_pnl(self, pnl: float) -> None:
-        """Record P&L from a closed trade for daily tracking."""
+        """
+        Add the P&L from a closed trade to the daily total.
+
+        If the total daily loss exceeds the configured max_daily_loss_pct,
+        the `_daily_loss_hit` flag is set to True, which prevents new entries
+        for the remainder of the session.
+
+        Args:
+            pnl: Realized P&L from the trade just closed.
+        """
         self._daily_pnl += pnl
         if self.max_daily_loss_pct > 0 and self._daily_pnl < -(
             self.max_daily_loss_pct * self.equity
@@ -660,10 +678,13 @@ class TradeManager:
 
     def update_equity(self, current_price: float) -> None:
         """
-        Update unrealized P&L and total equity.
+        Update the unrealized P&L of the open position and the total equity.
+
+        Calculates unrealized P&L by marking the current position to the
+        provided market price. Equity is then updated as Cash + Unrealized P&L.
 
         Args:
-            current_price: Current market price to mark position to market
+            current_price: Current market price to mark position to market.
         """
         if not self.position.is_flat:
             self.position.update_unrealized_pnl(current_price)

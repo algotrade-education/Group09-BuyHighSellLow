@@ -1,20 +1,19 @@
 """
-PaperTrader - main async engine for live ORB paper trading.
+PaperTrader Engine - Live Execution and Simulation Orchestrator.
 
-Two modes:
-  live  - subscribes to Redis market data (RedisMarketDataClient)
-           and submits real FIX orders via PaperBrokerClient.
-  sim   - replays a historical OHLC DataFrame through the BarProvider
-           (useful when Redis is unavailable or for strategy testing).
+The `PaperTrader` is the central coordinator for real-time trading. It 
+integrates data ingestion, strategy signal generation, and order execution 
+into a unified asynchronous lifecycle.
 
-Usage (live):
-    trader = PaperTrader(client, redis_client, strategy, symbol, config)
-    asyncio.run(trader.start())
-
-Usage (sim):
-    trader = PaperTrader(client=None, redis_client=None, strategy=strategy,
-                         symbol="HNXDS:VN30F2601", config=cfg, dry_run=True)
-    asyncio.run(trader.start(sim_df=historical_df))
+Key Responsibilities:
+1.  **Lifecycle Management**: Handles startup (connection, sync) and 
+    shutdown (cleanup, statistics).
+2.  **Event Orchestration**: Wires the `BarProvider` (data) to the 
+    `Strategy` (logic) and the `OrderManager` (execution).
+3.  **State Synchronization**: Recovers open positions and pending orders 
+    from the broker on restart to prevent "state-blind" trading.
+4.  **Simulation Replay**: Provides a high-fidelity 'sim' mode that replays 
+    historical bars through the live indicator and risk pipeline.
 """
 
 import asyncio
@@ -45,9 +44,14 @@ logger = logging.getLogger(__name__)
 
 class PaperTrader:
     """
-    Orchestrate live or simulated paper trading.
+    Central Controller for Live Strategy Execution.
 
-    Wires together: BarProvider → Strategy → OrderManager → PositionTracker → SessionStats.
+    This class implements the 'trading brain'. It listens for completed bars, 
+    evaluates them against the strategy, checks risk limits (SL/TP), and 
+    dispatches orders to the broker.
+
+    Pipeline:
+    BarProvider (Data) -> PaperTrader (Check SL/TP -> Strategy Signal) -> OrderManager (Execution)
     """
 
     def __init__(
@@ -116,11 +120,14 @@ class PaperTrader:
 
     async def start(self, historical_df: Optional["pd.DataFrame"] = None, sim_df: Optional["pd.DataFrame"] = None) -> None:
         """
-        Start the paper trading engine.
+        Initialize and launch the trading loop.
 
         Args:
-            historical_df: (Live mode) Recent historical bars for indicator warmup.
-            sim_df: (Sim mode) Replay this DataFrame instead of live market data.
+            historical_df: (Live mode) 2-3 days of raw bars used to "warm up" 
+                           indicator values (ATR, etc.) so the engine doesn't 
+                           start with zero-knowledge.
+            sim_df:        (Sim mode) A full dataset to replay. If provided, 
+                           the engine runs in historical replay mode.
         """
         self._running = True
 
@@ -130,7 +137,15 @@ class PaperTrader:
             await self._run_live(historical_df)
 
     async def _run_live(self, historical_df: Optional["pd.DataFrame"] = None) -> None:
-        """Run live mode: connect FIX, subscribe Redis, and process incoming quotes."""
+        """
+        Execute the live trading lifecycle.
+
+        Phase 1: Indicator & Strategy Warmup (injecting `historical_df`).
+        Phase 2: Broker Sync (recovery of positions/orders via REST).
+        Phase 3: Connection (FIX login).
+        Phase 4: Market Data Feed (Redis subscription).
+        Phase 5: Main Loop (system-time monitoring for bar rollovers).
+        """
         if self._client is None or self._redis_client is None:
             logger.error(
                 "Live mode requires both client and redis_client. "

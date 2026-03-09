@@ -30,8 +30,9 @@ class TradeSignal:
         entry_price: The price at which to enter the trade (for LONG/SHORT signals)
         take_profit: The price at which to take profit (optional)
         stop_loss: The price at which to stop loss (optional)
-        reason: A string describing the reason for the signal (optional)
-        metadata: Additional information about the signal (optional)
+        reason: A string describing the reason for the signal
+        metadata: Dictionary containing state information (e.g., indicators, session name, 
+                  range levels) for debugging and audit trails.
     """
 
     signal: Signal
@@ -111,10 +112,13 @@ class Strategy(ABC):
         Generate a trading signal based on the provided market data.
 
         Args:
-            bar: A dictionary containing market data (e.g., price, volume)
-            current_position: Optional information about the current position
-            is_warmup: If True, indicates this is historical data being used to build state.
-                       Strategies should NOT increment trade counters or trigger entries.
+            bar: Current market data bar (Dict). Should contain OHLCV and required indicators.
+            current_position: The `Position` object from the trading engine, if any.
+            is_warmup: Flag used during historical data injection (cold start).
+                       - If True: Strategy should update internal indicators/state (e.g., 
+                                  opening range boundaries, VWAP anchors) but MUST NOT 
+                                  trigger new entries or increment trade counters.
+                       - If False: Normal live/backtest operation.
         """
         pass
 

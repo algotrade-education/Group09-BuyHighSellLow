@@ -32,9 +32,10 @@ class Trade:
         exit_price: Price at which the position was closed
         quantity: Quantity traded
         pnl: Profit or loss from the trade
-        pnl_pct: Profit or loss as a percentage of the entry price
-        commission: Total commission paid for the trade
-        exit_reason: Reason for exiting the trade (e.g., "Take Profit", "Stop Loss", "Signal")
+        pnl_pct: Profit or loss as a percentage of the entry notional
+        commission: Total round-trip commission paid for the trade
+        exit_reason: Reason for exiting (e.g., "Take Profit", "Stop Loss", "Signal")
+        multiplier: Contract multiplier used for sizing PnL
     """
 
     trade_id: int
@@ -70,7 +71,12 @@ class Trade:
 
     @property
     def duration(self) -> Optional[float]:
-        """Get trade duration in seconds."""
+        """
+        Get the duration the trade was open.
+
+        Returns:
+            Duration in seconds, or None if the trade is not yet closed.
+        """
         if self.exit_time and self.entry_time:
             return (self.exit_time - self.entry_time).total_seconds()
         return None
@@ -138,7 +144,7 @@ class Position:
 
     @property
     def is_flat(self) -> bool:
-        """Check if position is flat (no position)."""
+        """Check if there is currently no open position."""
         return self.side == PositionSide.FLAT or self.quantity == 0
 
     @property
@@ -173,7 +179,8 @@ class Position:
 
     def close(self) -> None:
         """
-        Close the current position and reset all attributes.
+        Close the current position and reset all state attributes to defaults.
+        This effectively marks the position as FLAT.
         """
 
         self.side = PositionSide.FLAT
@@ -244,7 +251,10 @@ class Position:
             return current_price <= self.take_profit
 
     def reset(self) -> None:
-        """Reset position state."""
+        """
+        Reset the position state to FLAT.
+        Used when clearing state between different backtest runs.
+        """
         self.side = PositionSide.FLAT
         self.entry_price = 0.0
         self.quantity = 0

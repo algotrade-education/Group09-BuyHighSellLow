@@ -1,7 +1,27 @@
 """
-Script to run backtest for VWAP Band Reversion strategy.
-Run as:
+VWAP Band Reversion Strategy Backtest Runner.
+
+This script executes a historical backtest for the VWAP Reversion 
+strategy using configured parameters and market data.
+
+Usage:
     python -m src.run_backtest_vwap --sample is --config config/strategy_params/vwap_default.json
+
+Arguments:
+    --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
+    --contract: The ticker symbol (default: VN30F1M).
+    --config:   Path to the JSON configuration file containing strategy 
+                and risk parameters.
+
+Execution Sequence:
+1. Load strategy configuration (JSON).
+2. Fetch historical market data (CSV/DB).
+3. Preprocess data: Resample (default: 5min) and calculate VWAP 
+   indicators (Bands, Standard Deviation).
+4. Initialize Strategy and Backtester engine.
+5. Execute backtest across the dataset.
+6. Generate performance metrics, equity curves, and trade logs.
+7. Save report artifacts to `results/vwap_<timestamp>/`.
 """
 
 from datetime import datetime
@@ -39,7 +59,17 @@ def run_backtest(
     contract_multiplier: float = CONTRACT_MULTIPLIER,
     margin_rate: float = MARGIN_RATE,
 ) -> None:
-    """Run one VWAP backtest and persist report artifacts."""
+    """
+    Configure and execute a VWAP backtest run.
+
+    Args:
+        data: Preprocessed DataFrame with VWAP bands.
+        params: Config dictionary.
+        initial_capital: Balance.
+        commission_rate: Cost.
+        contract_multiplier: P&L Multiplier.
+        margin_rate: Margin.
+    """
 
     strategy_params = params.get("strategy", {})
     strategy = build_vwap_strategy(strategy_params)

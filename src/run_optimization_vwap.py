@@ -1,21 +1,24 @@
 """
-Script to run Optuna-based Bayesian optimization for VWAP Band Reversion.
+Optuna optimization runner for the VWAP Band Reversion strategy.
+
+This script executes Bayesian optimization for VWAP entries. Since VWAP 
+itself has no tunable lookback (it is a volume-weighted average since 
+session start), the search space focuses on standard deviation band widths, 
+session warmup periods, and risk management filters.
+
 Run as:
     python -m src.run_optimization_vwap --sample is --trials 300
 
-VWAP doesn't have indicator-period knobs (VWAP is always price*vol/vol),
-so the search space focuses on entry band width, risk parameters, and filters.
+Search Space:
+- Entry band standard deviation (e.g., 1.5σ to 3.0σ).
+- Session warmup duration (bars to wait before valid entries).
+- ATR-based stop loss and take profit multipliers.
+- VWAP slope and volume filters.
 
-Composite objective (VWAP-specific configuration):
-    - Require:
-        * total_trades > min_trades
-        * total_return_pct > 0
-        * profit_factor > 1.0
-    - Score:
-        score = sharpe
-                - 0.1 * |max_drawdown_pct|
-                + 0.05 * (total_trades / 1000)
-      (Falls back to ``total_return_pct / 100`` when Sharpe <= 0.)
+Optimization Score (Maximized):
+- Base: Sharpe Ratio.
+- Penalties: Max Drawdown.
+- Bonuses: Trade count (weighted less than ORB/KSB due to reversion nature).
 """
 
 import json
@@ -39,11 +42,13 @@ logger = setup_logging(__name__, log_file="logs/optuna_vwap.log")
 
 def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    Full preprocessing pipeline per Optuna trial.
+    Trial-specific Preprocessing for VWAP.
 
-    VWAP itself has no tunable indicator parameters (it's always cumulative
-    price*vol / vol), so resampling frequency is the main variable. ATR and
-    volume MA periods may also vary per trial.
+    Execution:
+    1. Resample tick data to trial-specific bar frequency.
+    2. Filter for active market hours.
+    3. Calculate ATR & Volume MA.
+    4. Calculate Session VWAP and standard deviation bands.
     """
     resample_freq = params.get("resample_freq", "5min")
     atr_period = params.get("atr_period", 14)
@@ -72,7 +77,15 @@ def run_optuna(
     n_trials: int = 300,
     min_trades: int = 100,
 ) -> None:
-    """Run VWAP Optuna search and save ranked results / best config."""
+    """
+    Configure and execute the VWAP Optuna study.
+
+    Args:
+        data: Raw tick data (DataFrame).
+        config: Base configuration.
+        n_trials: Iterations.
+        min_trades: Validity threshold.
+    """
     logger.info(
         "Starting VWAP Optuna Optimization with %d trials (min_trades=%d)...",
         n_trials,

@@ -45,8 +45,10 @@ class Preprocessor:
             sma_period: Period for SMA calculation
             bb_std: Standard deviation multiplier for Bollinger Bands
             slope_lookback: Number of periods for slope calculation
-            validate_data: Whether to validate data quality
-            strict_validation: If True, warnings become errors
+            rsi_period: Lookback period for RSI
+            adx_period: Lookback period for ADX
+            atr_period: Lookback period for ATR
+            volume_ma_period: Lookback period for Volume MA
         """
         self.sma_period = sma_period
         self.bb_std = bb_std

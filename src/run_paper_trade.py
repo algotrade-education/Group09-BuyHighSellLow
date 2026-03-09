@@ -1,23 +1,32 @@
 """
-Paper trading CLI runner - wires any strategy to the live PaperTrader engine.
+Unified Paper Trading Entry Point.
+
+This script wires any implemented strategy (ORB, KSB, VWAP) to the 
+`PaperTrader` engine. It supports three distinct modes of operation:
+
+1. LIVE:     Connects to Redis (market data) and FIX (order execution).
+2. DRY-RUN:  Connects to Redis/FIX but logs orders instead of sending them.
+3. SIM:      Replays historical bars from disk (no external dependencies).
 
 Usage:
-    # ORB (default):
-    python -m src.run_paper_trade --strategy orb \\
-        --config config/strategy_params/orb_default.json --symbol HNXDS:VN30F2601
+    # LIVE ORB Trading
+    python -m src.run_paper_trade --strategy orb --symbol HNXDS:VN30F2601
 
-    # KSB:
-    python -m src.run_paper_trade --strategy ksb \\
-        --config config/strategy_params/ksb_default.json --symbol HNXDS:VN30F2601
+    # SIM VWAP Replay
+    python -m src.run_paper_trade --strategy vwap --sim --sample is
 
-    # VWAP:
-    python -m src.run_paper_trade --strategy vwap \\
-        --config config/strategy_params/vwap_default.json --symbol HNXDS:VN30F2601
+Arguments:
+    --strategy:  Strategy key (orb, ksb, vwap).
+    --config:    Path to specific JSON config (overrides defaults).
+    --symbol:    The market symbol to trade (HNXDS format).
+    --dry-run:   Disable order submission.
+    --sim:       Use historical data replay instead of live market feed.
 
-    # Sim mode (replay historical in-sample data, no Redis needed):
-    python -m src.run_paper_trade --strategy vwap \\
-        --config config/strategy_params/vwap_default.json \\
-        --symbol HNXDS:VN30F2601 --sim --sample is
+Data Flow:
+1. Load strategy and risk configurations.
+2. Build connection clients (Redis, FIX/REST).
+3. (Optional) Warmup: Fetch recent history from DB for indicator stability.
+4. Start PaperTrader event loop.
 """
 
 import argparse
@@ -125,6 +134,12 @@ _DEFAULT_CONFIGS = {
 
 
 async def main(args: argparse.Namespace) -> None:
+    """
+    Orchestrate the PaperTrader setup and execution loop.
+
+    Handles configuration loading, historical data warmup, 
+    and asynchronous engine lifecycle.
+    """
     load_dotenv()
 
     strat_key = args.strategy

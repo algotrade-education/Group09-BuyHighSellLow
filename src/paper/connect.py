@@ -1,10 +1,16 @@
 """
-Simple FIX login example using event callbacks.
+FIX Connectivity and Session Management.
 
-Demonstrates:
-- Event-driven login lifecycle
-- SenderCompID resolution from REST metadata
-- Basic account checks after FIX logon
+This module provides utilities for establishing a persistent FIX connection to 
+the paper trading server. It handles the critical `SenderCompID` resolution 
+step, which requires a REST pre-flight check to fetch the correct UUID 
+associated with the trading account.
+
+Features:
+- **Event Callbacks**: Handles `fix:logon`, `fix:logout`, and `fix:reject`.
+- **REST Pre-flight**: Resolves `fixAccountID` via the broker's REST API.
+- **Logon Guard**: Uses `wait_until_logged_on` to ensure session stability 
+  before allowing trade operations.
 """
 
 import os
@@ -54,7 +60,16 @@ def on_logon_error(session_id=None, reason=None, **kw):
 def resolve_fix_sender_comp_id(
     rest_base_url: str, username: str, password: str
 ) -> str | None:
-    """Resolve SenderCompID via REST `fixAccountID` metadata."""
+    """
+    Fetch the unique FIX Account UUID (SenderCompID) from the REST API.
+
+    The PaperBroker server identifies sessions using a dynamic UUID rather 
+    than a static username. Attempting to log on with the human-readable 
+    username as the `SenderCompID` will result in an immediate FIX rejection.
+
+    Returns:
+        The `fixAccountID` string if successful, else `None`.
+    """
     url = f"{rest_base_url.rstrip('/')}/api/fix-account-info/get-fix-id"
     try:
         response = requests.post(

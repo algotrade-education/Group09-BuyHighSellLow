@@ -1,14 +1,28 @@
 """
-Script to run backtest for ORB (Opening Range Breakout) strategy.
-Run as:
+ORB (Opening Range Breakout) Strategy Backtest Runner.
+
+This script executes a historical backtest for the ORB strategy using 
+configured parameters and market data. It handles data loading, 
+preprocessing (resampling and indicator calculation), and performance 
+reporting.
+
+Usage:
     python -m src.run_backtest --sample is --config config/strategy_params/orb_default.json
 
-This script will:
-1. Load the specified data (in-sample or out-of-sample).
-2. Preprocess the data (resample, add ATR indicator).
-3. Initialize the ORB strategy with parameters from the config file.
-4. Run the backtest and collect results.
-5. Save detailed results (equity curve, trades) to the results directory.
+Arguments:
+    --sample:   'is' (In-Sample) or 'os' (Out-of-Sample) data.
+    --contract: The ticker symbol (default: VN30F1M).
+    --config:   Path to the JSON configuration file containing strategy 
+                and risk parameters.
+
+Execution Sequence:
+1. Load strategy configuration (JSON).
+2. Fetch historical market data (CSV/DB).
+3. Preprocess data: Resample tick data to bars and calculate indicators (ATR, etc.).
+4. Initialize Strategy and Backtester engine.
+5. Execute backtest across the dataset.
+6. Generate performance metrics, equity curves, and trade logs.
+7. Save report artifacts to `results/orb_<timestamp>/`.
 """
 
 from datetime import datetime
@@ -46,7 +60,22 @@ def run_backtest(
     contract_multiplier: float = CONTRACT_MULTIPLIER,
     margin_rate: float = MARGIN_RATE,
 ) -> None:
-    """Run one ORB backtest and persist report artifacts."""
+    """
+    Configure and execute a single backtest run.
+
+    This function instantiates the strategy, handles risk management 
+    configuration (PositionSizer, Trailing Stops, Daily Loss Limits), 
+    and triggers the Backtester engine. Results are printed to the 
+    console and saved as CSV/PNG artifacts.
+
+    Args:
+        data: Preprocessed DataFrame containing OHLCV and indicators.
+        params: Full configuration dictionary (strategy + risk).
+        initial_capital: Starting account balance.
+        commission_rate: Transaction cost per contract per side.
+        contract_multiplier: Value of one point.
+        margin_rate: Required margin per contract (for futures).
+    """
 
     # Extract strategy parameters from config
     strategy_params = params.get("strategy", {})

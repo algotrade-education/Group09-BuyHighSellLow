@@ -32,16 +32,22 @@ class EquityTracker(ABC):
 
         Args:
             timestamp: The time of the record
-            equity: The total equity at this time
-            unrealized_pnl: The unrealized profit and loss
             position: The current position (e.g., 'long', 'short', 'flat')
+            cash: Current cash balance
+            equity: The total equity (Cash + Unrealized P&L)
+            unrealized_pnl: The unrealized profit and loss
             close_price: The closing price of the asset
         """
         pass
 
     @abstractmethod
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert tracked data to DataFrame."""
+        """
+        Convert the tracked equity records into a pandas DataFrame.
+
+        Returns:
+            DataFrame with columns like ['datetime', 'equity', 'cash', etc.]
+        """
         pass
 
     @abstractmethod
@@ -74,9 +80,10 @@ class SimpleEquityTracker(EquityTracker):
 
         Args:
             timestamp: The time of the record
-            equity: The total equity at this time
-            unrealized_pnl: The unrealized profit and loss
             position: The current position (e.g., 'long', 'short', 'flat')
+            cash: Current cash balance
+            equity: The total equity (Cash + Unrealized P&L)
+            unrealized_pnl: The unrealized profit and loss
             close_price: The closing price of the asset
         """
         self._records.append(
@@ -91,7 +98,12 @@ class SimpleEquityTracker(EquityTracker):
         )
 
     def to_dataframe(self) -> pd.DataFrame:
-        """Convert to DataFrame."""
+        """
+        Convert internal records list to a pandas DataFrame.
+
+        Returns:
+            DataFrame containing the equity curve history.
+        """
         return pd.DataFrame(self._records)
     def reset(self) -> None:
         """

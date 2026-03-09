@@ -1,20 +1,18 @@
 """
 Script to run Optuna-based Bayesian optimization for ORB strategy parameters.
+
+This runner specifically targets the Opening Range Breakout (ORB) strategy. 
+It optimizes both the strategy parameters and the data resampling timeframe 
+simultaneously by using tick data as the base input.
+
 Run as:
     python -m src.run_optimization --sample is --trials 300
 
-Composite objective (ORB-specific configuration):
-    - Require:
-        * total_trades > min_trades (hard-coded in this runner)
-        * total_return_pct > 0
-        * profit_factor > 1.0
-    - Score:
-        score = sharpe
-                - 0.1 * |max_drawdown_pct|
-                + 0.1 * (total_trades / 1000)
-      (Falls back to ``total_return_pct / 100`` when Sharpe <= 0.)
-
-Also optimizes the resampling timeframe (5min, 15min, 1h) alongside strategy parameters.
+Optimization Objectives:
+    - Minimum Activity: total_trades > 500
+    - Profitability: total_return_pct > 0 and profit_factor > 1.0
+    - Composite Score (Maximized):
+        score = sharpe - 0.1 * |max_drawdown_pct| + 0.1 * (total_trades / 1000)
 """
 
 import json
@@ -38,17 +36,23 @@ logger = setup_logging(__name__, log_file="logs/optuna_orb.log")
 
 def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     """
-    Full preprocessing pipeline per Optuna trial:
-    1. Resample tick data to OHLC bars at the trial's timeframe
-    2. Filter trading hours
-    3. Add all indicators with the trial's parameters
+    Trial-specific data preparation pipeline.
+
+    Invoked by the Optuna objective function for every trial. This allows 
+    the optimizer to explore different bar timeframes (e.g., 5m vs 15m) 
+    rather than being locked to a single preprocessed file.
+
+    Steps:
+    1. Resample raw tick data to the trial's timeframe.
+    2. Filter for VN30 trading session hours.
+    3. Calculate all strategy indicators with the trial's specific periods.
 
     Args:
-        df: Cleaned tick data with datetime, price, volume columns.
-        params: Trial parameters including resample_freq and indicator params.
+        df: Raw or cleaned tick data.
+        params: Trial parameters sampled by Optuna (resample_freq, etc.).
 
     Returns:
-        OHLC DataFrame with all indicators calculated.
+        A ready-to-test DataFrame with OHLCV bars and indicators.
     """
     resample_freq = params.get("resample_freq", "1min")
 
@@ -73,7 +77,13 @@ def preprocess_data(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 
 def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
-    """Run ORB Optuna search and save ranked results/best config."""
+    """
+    Configure and execute the Optuna study.
+
+    Defines the search space, initializes composite scoring parameters, 
+    and triggers the TPE (Bayesian) search. After completion, it persists 
+    the full results to CSV and the best configuration to JSON.
+    """
     logger.info("Starting ORB Optuna Optimization with %d trials...", n_trials)
 
     # Search space for ORB parameters and optional risk controls.

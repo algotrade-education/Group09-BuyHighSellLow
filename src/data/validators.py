@@ -28,7 +28,6 @@ class DataValidator:
         Initialize validator.
 
         Args:
-            strict: If True, warnings become errors
             max_gap_minutes: Maximum allowed time gap between bars (minutes)
         """
         self.max_gap_minutes = max_gap_minutes
@@ -92,6 +91,13 @@ class DataValidator:
     ) -> bool:
         """
         Validate datetime column and check for gaps.
+
+        Args:
+            df: DataFrame to validate.
+            datetime_col: Name of the datetime column.
+
+        Returns:
+            True if valid (no parse errors or missing values), False otherwise.
         """
         errors = []
         warnings = []
@@ -148,12 +154,11 @@ class DataValidator:
         Run all validations and combine results.
 
         Args:
-            df: DataFrame to validate
-            datetime_col: Name of datetime column
-            indicator_cols: List of indicator column names to validate
+            df: DataFrame to validate.
+            datetime_col: Name of datetime column.
 
         Returns:
-            bool: True if all validations pass, False otherwise
+            bool: True if all validations pass, False otherwise.
         """
 
         # Validate datetime

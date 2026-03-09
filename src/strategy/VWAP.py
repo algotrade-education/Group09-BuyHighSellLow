@@ -50,8 +50,14 @@ class VWAPBandReversion(Strategy):
     """
     VWAP Band Reversion strategy for VN30F1M.
 
-    Fades price extremes back to the session VWAP using volume-weighted
-    standard deviation bands for entry timing.
+    Fades price extremes back to the session-resetting VWAP (Institutional mean).
+    Entry is triggered when price deviates significantly (Standard Deviation bands) 
+    from the VWAP, targeting the VWAP itself as the exit point.
+
+    Key stages:
+    1. Session Warmup: Prevents entry for the first N bars while VWAP stabilizes.
+    2. Trend Detection: Optional slope filter to avoid fading strong trends.
+    3. Mean Reversion: Enters when price is overextended.
     """
 
     REQUIRED_FIELDS = ["close", "high", "low", "open", "volume"]
@@ -136,6 +142,15 @@ class VWAPBandReversion(Strategy):
     # ------------------------------------------------------------------
 
     def _get_session(self, dt: datetime) -> Optional[str]:
+        """
+        Determine which trading session the timestamp belongs to.
+
+        Args:
+            dt: Current bar timestamp.
+
+        Returns:
+            "morning", "afternoon", or None.
+        """
         t = dt.time()
         if MORNING_START <= t < MORNING_END:
             return "morning"
@@ -189,6 +204,15 @@ class VWAPBandReversion(Strategy):
     def _build_long_signal(
         self, close: float, vwap: float, atr: float, session: str,
     ) -> TradeSignal:
+        """
+        Build a LONG mean reversion signal targeting VWAP.
+
+        Args:
+            close: Current bar close price.
+            vwap: Current VWAP level (Exit target).
+            atr: Current ATR for risk/distance filters.
+            session: Current session name.
+        """
         stop_loss = close - (self.atr_sl_mult * atr)
         take_profit = vwap
 
@@ -208,9 +232,19 @@ class VWAPBandReversion(Strategy):
             metadata={"session": session, "vwap": vwap, "atr": atr},
         )
 
+
     def _build_short_signal(
         self, close: float, vwap: float, atr: float, session: str,
     ) -> TradeSignal:
+        """
+        Build a SHORT mean reversion signal targeting VWAP.
+
+        Args:
+            close: Current bar close price.
+            vwap: Current VWAP level (Exit target).
+            atr: Current ATR for risk/distance filters.
+            session: Current session name.
+        """
         stop_loss = close + (self.atr_sl_mult * atr)
         take_profit = vwap
 
@@ -253,9 +287,17 @@ class VWAPBandReversion(Strategy):
         """
         Generate a trading signal based on VWAP Band Reversion logic.
 
+        Decision flow:
+        - Check session boundaries and warmup status.
+        - Calculate VWAP slope for trend filtering.
+        - Monitor for price breakouts beyond the Std-Dev bands.
+        - Validate distance to mean (VWAP) for favorable reward/risk.
+
         Args:
-            bar: Dict with OHLCV + indicator values for the current bar.
+            bar: Dict containing at least: ['close', 'high', 'low', 'open', 'volume']
+                 + 'vwap', 'vwap_std', 'atr_{period}', 'volume_ma_{period}'.
             current_position: Current position object from TradeManager.
+            is_warmup: Prevents state updates (session bar count) during warmup.
         """
         # 1. Validation
         if not self.validate_bar(bar, self.REQUIRED_FIELDS):

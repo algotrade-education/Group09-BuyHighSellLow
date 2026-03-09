@@ -62,8 +62,13 @@ class OptunaSearch:
     """
     Optuna-based optimizer for strategy parameters.
 
-    Uses Bayesian optimization (TPE sampler) with a composite objective
-    that balances Sharpe ratio, drawdown, and trade activity.
+    Uses Bayesian optimization (Tree-structured Parzen Estimator) to 
+    intelligently explore the parameter space. Instead of a simple metric, 
+    it optimizes a 'Composite Score' that incorporates:
+    - Risk-adjusted return (Sharpe Ratio).
+    - Drawdown penalties (to avoid high-risk curves).
+    - Trade activity constraints (to avoid overfitting on few trades).
+    - Profitability thresholds (Profit Factor, Total Return).
     """
 
     def __init__(
@@ -184,23 +189,23 @@ class OptunaSearch:
 
     def _calculate_score(self, metrics: Dict[str, float], total_trades: int) -> float:
         """
-        Calculate composite optimization score.
+        Calculate a composite score to guide the Bayesian search.
 
-        Base:
-            score = Sharpe - |drawdown_penalty * MaxDrawdown|
-        Optional:
-            - turnover_penalty * trades/1000 (penalize excessive turnover)
-            - trade_count_bonus * trades/1000 (reward trade activity)
+        The score is designed to find 'robust' parameters by penalizing 
+        undesirable traits (high drawdown, low trade count) and rewarding 
+        consistency.
 
-        Guardrails:
-            - trades <= min_trades -> -10.0
-            - total_return_pct < min_return_pct -> -20.0
-            - profit_factor < min_profit_factor -> -20.0
-            - sharpe <= 0 -> use total_return / 100 as fallback (scaled)
+        Logic:
+        1. Hard Gates: If trades < `min_trades`, return -10 (invalid).
+        2. Performance Gates: If return or PF < minimums, return -20 (invalid).
+        3. Base Score: Use Sharpe Ratio. If Sharpe <= 0, use Total Return / 100.
+        4. Penalties: Subtract `drawdown_penalty * MaxDrawdown`.
+        5. Adjustments: Add `trade_count_bonus` or subtract `turnover_penalty`
+           based on `total_trades / 1000`.
 
         Args:
-            metrics: Performance metrics dictionary.
-            total_trades: Number of completed trades.
+            metrics: Performance metrics from BacktestResult.
+            total_trades: Number of completed trades in the trial.
 
         Returns:
             Composite score (higher is better).
@@ -243,16 +248,22 @@ class OptunaSearch:
         contract_multiplier: float,
     ) -> float:
         """
-        Optuna objective function - runs one backtest and returns the composite score.
+        Optuna objective function for a single trial.
+
+        This method:
+        1. Samples a new parameter set from the search space.
+        2. Recalculates indicators (and timeframe if applicable).
+        3. Executes a backtest.
+        4. Calculates and returns the composite score.
 
         Args:
-            trial: Optuna trial.
-            data: Clean data (OHLCV or raw tick data if raw_data=True).
-            initial_capital: Starting capital.
-            contract_multiplier: Contract multiplier.
+            trial: Optuna trial instance.
+            data: Market data (tick or OHLCV).
+            initial_capital: Trial starting capital.
+            contract_multiplier: Point value.
 
         Returns:
-            Composite score.
+            The composite score for this specific parameter combination.
         """
         try:
             # Sample parameters

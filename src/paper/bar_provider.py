@@ -1,12 +1,17 @@
 """
-BarProvider - rolling OHLC bar builder for live paper trading.
+Real-time Bar Aggregator and Replay Engine.
 
-Two modes:
-  * live   - subscribes to RedisMarketDataClient and builds bars from QuoteSnapshot ticks.
-  * sim    - replays a pre-loaded OHLC DataFrame (historical data) bar-by-bar.
+The `BarProvider` is responsible for transforming raw price ticks (from a live 
+Redis feed) or historical OHLC rows (from a simulation) into a consistent 
+stream of enriched bars for strategy execution.
 
-In both modes, completed bars are enriched with ATR via Preprocessor before being
-handed to the PaperTrader engine callback.
+Core Functions:
+1.  **Live Aggregation**: Subscribes to `RedisMarketDataClient` and buckets 
+    QuoteSnapshots into OHLC bars based on a system-time clock.
+2.  **Simulation Replay**: Processes historical DataFrames bar-by-bar, 
+    recomputing indicators at each step to mirror live data behavior.
+3.  **Indicator Warmup**: Uses the `Preprocessor` and a historical buffer to 
+    ensure indicators (like ATR) are stable before emitting the first bar.
 """
 
 import asyncio
@@ -54,16 +59,20 @@ def _in_session(t: time) -> bool:
 
 class BarProvider:
     """
-    Converts incoming price ticks (QuoteSnapshot) or historical bars into
-    enriched OHLC bar dicts suitable for Strategy.generate_signal().
+    Stateful aggregator that converts ticks into strategy-ready bars.
 
-    Usage (live Redis mode):
-        provider = BarProvider(bar_freq="5min", atr_period=14, on_bar=my_callback)
-        # register: await redis_client.subscribe(symbol, provider.on_quote)
+    Supports two operation modes:
+    - **Live Mode**: Uses `on_quote` as an async callback for Redis updates. 
+      It uses system-time to bucket ticks, ensuring bars are emitted 
+      precisely at boundary crossings (e.g., exactly at 10:00:00).
+    - **Sim Mode**: Uses `replay` to push historical rows through the same 
+      indicator pipeline, allowing for high-fidelity backtesting of 
+      real-time logic.
 
-    Usage (sim mode):
-        provider = BarProvider(bar_freq="5min", atr_period=14, on_bar=my_callback)
-        await provider.replay(historical_df)
+    Attributes:
+        bar_freq: E.g., '1min' or '5min'.
+        atr_period: Lookback for technical indicator stability.
+        on_bar: The main engine callback (receives enriched dicts).
     """
 
     def __init__(
@@ -123,12 +132,17 @@ class BarProvider:
 
     async def on_quote(self, instrument: str, quote: Any) -> None:
         """
-        Async callback for Redis market data updates.
-        Compatible with: await redis_client.subscribe(symbol, provider.on_quote)
+        Async entry point for live market data (Redis Subscription).
+
+        Execution Flow:
+        1. Filters out invalid/zero prices.
+        2. Detects session boundaries (skips ticks during breaks).
+        3. Forwards valid ticks to the `_tick` accumulator.
+        4. Periodically logs diagnostic quality metrics (if enabled).
 
         Args:
             instrument: Symbol string (e.g. 'HNXDS:VN30F2601').
-            quote:      QuoteSnapshot from RedisMarketDataClient (merged mode).
+            quote: QuoteSnapshot instance from Redis.
         """
         bid = getattr(quote, "bid_price_1", None)
         ask = getattr(quote, "ask_price_1", None)
@@ -280,8 +294,15 @@ class BarProvider:
 
     def preload_history(self, df: pd.DataFrame) -> None:
         """
-        Inject historical bars directly into the provider's history.
-        This solves the "cold start" (indicator warmup) problem without triggering `on_bar`.
+        Cold-Start Fix: Prime the internal history buffer.
+
+        This method injects historical bars directly into the provider's 
+        history list *without* triggering the `on_bar` callback. This 
+        prevents "cold starts" where the strategy would otherwise have to 
+        wait for `atr_period` bars of live data before generating a signal.
+
+        Args:
+            df: Historical OHLC DataFrame (must contain 'datetime' column).
         """
         if df.empty:
             logger.info("BarProvider.preload_history(): empty DataFrame, no history loaded.")

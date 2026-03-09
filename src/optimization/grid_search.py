@@ -42,8 +42,14 @@ class GridSearch:
     """
     Grid search optimizer for strategy parameters.
 
-    Tests all combinations of parameters in the search grid
-    and ranks by objective function (default: Sharpe ratio).
+    Exhaustively tests all combinations (Cartesian product) of parameters 
+    defined in the search grid. Results are ranked by a specified objective 
+    metric (Sharpe ratio, Profit Factor, etc.).
+
+    Supports:
+    - Parallel execution via ProcessPoolExecutor.
+    - Dynamic indicator recalculation per parameter set (e.g. varying ATR periods).
+    - Ranked result export to CSV/DataFrame.
     """
 
     def __init__(
@@ -106,7 +112,21 @@ class GridSearch:
         ] = None,
     ) -> Optional[OptimizationResult]:
         """
-        Run a single backtest (helper for parallel execution).
+        Run a single backtest and return normalized results.
+
+        This is a static helper to facilitate parallel execution where 
+        the strategy must be instantiated within the worker process.
+
+        Args:
+            strategy_class: The Strategy subclass to test.
+            params: Dict of keyword arguments for the strategy.
+            data: OHLCV DataFrame (without indicators).
+            initial_capital: Starting account balance.
+            contract_multiplier: Value of one point.
+            indicator_fn: Optional hook to calculate indicators based on params.
+
+        Returns:
+            OptimizationResult if successful, None otherwise.
         """
         try:
             # Create strategy with parameters
@@ -147,16 +167,21 @@ class GridSearch:
         n_jobs: int = -1,
     ) -> List[OptimizationResult]:
         """
-        Run grid search optimization (optionally parallel).
+        Execute the grid search across all parameter combinations.
+
+        The method handles process pooling for parallel efficiency. On Windows, 
+        `n_jobs=1` is recommended for stability unless the calling script 
+        is properly wrapped in `if __name__ == "__main__":`.
 
         Args:
-            data: Preprocessed backtest data (without indicators or with base indicators)
-            initial_capital: Starting capital for each backtest
-            show_progress: Show progress bar
-            n_jobs: Number of parallel jobs (-1 for all cores)
+            data: Preprocessed backtest data (OHLCV). Indicators should be 
+                  removed if using `indicator_fn`.
+            initial_capital: Starting capital for each trial.
+            show_progress: If True, displays a tqdm progress bar.
+            n_jobs: Number of parallel processes. Use -1 for all available cores.
 
         Returns:
-            List of OptimizationResult sorted by objective
+            List of trials sorted from best to worst based on `self.objective`.
         """
         self.results = []
 
