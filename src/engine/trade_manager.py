@@ -512,7 +512,7 @@ class TradeManager:
             logger.info("Position closed (%s): %s", exit_reason, self._current_trade)
         else:
             logger.warning(
-                "Position closed but no trade record found — P&L not tracked. "
+                "Position closed but no trade record found - P&L not tracked. "
                 "exit_price=%.2f, reason=%s",
                 exit_price,
                 exit_reason,
