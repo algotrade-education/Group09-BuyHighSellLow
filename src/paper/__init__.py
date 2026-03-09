@@ -1,5 +1,5 @@
 """
-Paper trading module — live & simulated ORB trading via PaperBrokerClient.
+Paper trading module - live & simulated ORB trading via PaperBrokerClient.
 
 Quick start:
     from src.paper.engine import PaperTrader

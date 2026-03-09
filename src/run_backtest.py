@@ -87,7 +87,7 @@ def run_backtest(
 
     # Print summary to console
     print("\n" + "=" * 60)
-    print("BACKTEST RESULTS — ORB Strategy")
+    print("BACKTEST RESULTS - ORB Strategy")
     print("=" * 60)
     print(f"\nStrategy: {strategy.name}")
     print(f"Parameters: {strategy.params}")

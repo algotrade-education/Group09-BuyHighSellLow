@@ -1,5 +1,5 @@
 """
-SessionStats — session statistics reporter for live paper trading.
+SessionStats - session statistics reporter for live paper trading.
 
 Wraps MetricsCalculator to compute performance metrics from a
 PositionTracker's trade log and equity snapshots, then pretty-prints

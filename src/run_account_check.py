@@ -1,5 +1,5 @@
 """
-Standalone account inspector — prints balance, portfolio, orders,
+Standalone account inspector - prints balance, portfolio, orders,
 and transactions from the PaperBroker REST API.
 
 No FIX session or market data connection required.
@@ -234,7 +234,7 @@ def main(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Must resolve the correct FIX SenderCompID from REST API BEFORE building the client.
-    # The server matches logon by fixAccountID (a UUID) — using the .env SENDER_COMP_ID
+    # The server matches logon by fixAccountID (a UUID) - using the .env SENDER_COMP_ID
     # directly causes an immediate logout because the IDs don't match.
     resolved_sender = resolve_fix_sender_comp_id(rest_url, username, password)
     sender = resolved_sender or sender
@@ -262,7 +262,7 @@ def main(args: argparse.Namespace) -> None:
         console=False,
     )
     client.connect()
-    print("  (waiting up to 60s — server may need time to drop previous session…)")
+    print("  (waiting up to 60s - server may need time to drop previous session…)")
     if not client.wait_until_logged_on(timeout=60):
         err = client.last_logon_error()
         print(f"❌ FIX logon failed: {err or 'no reason returned'}")

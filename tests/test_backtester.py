@@ -58,7 +58,7 @@ class AlternatingStrategy(Strategy):
 
 
 class NeverTradeStrategy(Strategy):
-    """Always holds — never generates entry or exit."""
+    """Always holds - never generates entry or exit."""
 
     def __init__(self):
         super().__init__(name="NeverTrade")
@@ -440,7 +440,7 @@ class TestBacktesterEquityInvariant:
         r_no = bt_no_comm.run(data)
         r_with = bt_with_comm.run(data)
 
-        # Same trades, same prices — commission should drag equity lower
+        # Same trades, same prices - commission should drag equity lower
         assert r_with.total_pnl < r_no.total_pnl, (
             "Commission should reduce total P&L vs zero-commission run"
         )

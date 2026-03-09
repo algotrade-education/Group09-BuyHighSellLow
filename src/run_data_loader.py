@@ -38,7 +38,7 @@ def fetch_data(contract: str = "VN30F1M", chunk_by: str = "month"):
 
     Args:
         contract (str): Contract symbol to fetch data for
-        chunk_by (str): 'month' or 'year' — controls chunk file granularity
+        chunk_by (str): 'month' or 'year' - controls chunk file granularity
     """
     loader = DataLoader()
 
