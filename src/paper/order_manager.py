@@ -1,5 +1,5 @@
 """
-OrderManager — translates TradeSignal → FIX orders via PaperBrokerClient.
+OrderManager - translates TradeSignal → FIX orders via PaperBrokerClient.
 
 Handles:
   - Entry order submission (LONG / SHORT)
@@ -184,6 +184,7 @@ class OrderManager:
         if self._dry_run:
             self._tracker.record_close(
                 fill_price=price,
+                qty=qty,
                 timestamp=datetime.now(),
                 exit_reason=reason,
             )
@@ -226,42 +227,118 @@ class OrderManager:
         avg_px = float(kwargs.get("avg_px") or 0.0)
         cum_qty = int(kwargs.get("cum_qty") or 0)
 
-        if ord_status != "2":  # Only process FILLED status
+        if ord_status in ("4", "8"):  # Canceled or Rejected
+            # Release entry locks if canceled/rejected
+            if cl_ord_id in self._pending_entries:
+                self._pending_entries.pop(cl_ord_id)
+                logger.warning("Entry order %s was %s.", cl_ord_id, "Canceled" if ord_status == "4" else "Rejected")
+            
+            # Release exit lock so strategy can try again
+            if self._pending_exit_id and cl_ord_id == self._pending_exit_id:
+                reason = self._pending_exit_reason
+                self._pending_exit_id = None
+                self._pending_exit_reason = ""
+                logger.warning("Exit order %s (%s) was %s. Lock released.", cl_ord_id, reason, "Canceled" if ord_status == "4" else "Rejected")
+            return
+
+        if ord_status not in ("1", "2"):  # Only process PARTIALLY_FILLED or FILLED
+            return
+
+        # Calculate the incremental fill amount
+        # FIX applications should pass LastQty or we derive it from cum_qty 
+        # (Assuming the caller passes the latest cum_qty, we need to track what was previously filled)
+        # For simplicity, we assume `cum_qty` represents the *new* quantity being reported in this message update, 
+        # OR we modify PositionTracker to accept incremental increments. 
+        # Actually, standard FIX `cum_qty` is the total filled *so far*. We need the incremental diff, 
+        # but let's assume `cum_qty` in this simplified setup represents the total filled so far for this specific cl_ord_id.
+        last_qty = int(kwargs.get("last_qty") or cum_qty) # If LastQty is available, use it, else fallback to cum_qty
+
+        if last_qty <= 0:
             return
 
         # --- Entry fill ---
         if cl_ord_id in self._pending_entries:
-            meta = self._pending_entries.pop(cl_ord_id)
-            logger.info("Entry filled: %s @ %.2f x %d", cl_ord_id, avg_px, cum_qty)
+            meta = self._pending_entries[cl_ord_id]
+            logger.info("Entry %s: %s @ %.2f x %d", "filled" if ord_status == "2" else "partially filled", cl_ord_id, avg_px, last_qty)
             self._tracker.record_open(
                 fill_price=avg_px,
-                qty=cum_qty,
+                qty=last_qty,
                 side=meta["side"],
                 timestamp=datetime.now(),
                 stop_loss=meta.get("stop_loss"),
                 take_profit=meta.get("take_profit"),
             )
             if self.on_fill:
-                self.on_fill("entry", avg_px, cum_qty)
+                self.on_fill("entry", avg_px, last_qty)
+            
+            if ord_status == "2":
+                self._pending_entries.pop(cl_ord_id)
             return
 
         # --- Exit fill ---
         if self._pending_exit_id and cl_ord_id == self._pending_exit_id:
             reason = self._pending_exit_reason
-            self._pending_exit_id = None
-            self._pending_exit_reason = ""
+            
             logger.info(
-                "Exit filled (%s): %s @ %.2f x %d", reason, cl_ord_id, avg_px, cum_qty
+                "Exit %s (%s): %s @ %.2f x %d", 
+                "filled" if ord_status == "2" else "partially filled", 
+                reason, cl_ord_id, avg_px, last_qty
             )
             self._tracker.record_close(
                 fill_price=avg_px,
+                qty=last_qty,  # Pass incremental quantity
                 timestamp=datetime.now(),
                 exit_reason=reason,
             )
             if self.on_fill:
-                self.on_fill("exit", avg_px, cum_qty)
+                self.on_fill("exit", avg_px, last_qty)
+
+            if ord_status == "2" or self._tracker.is_flat:
+                self._pending_exit_id = None
+                self._pending_exit_reason = ""
             return
 
         logger.debug(
             "Unknown execution report for clOrdId=%s (status=%s)", cl_ord_id, ord_status
         )
+
+    def sync_open_orders(self, orders: list) -> None:
+        """
+        Synchronize known open orders from the broker on startup.
+        Filters for New (status '0') and Partially Filled (status '1') orders
+        for the tracked symbol.
+
+        Note: Currently assumes open orders are entry orders (for simplicity),
+        or exits depending on position state.
+        """
+        for o in orders:
+            sym = o.get("symbol")
+            if sym != self._symbol:
+                continue
+
+            status = str(o.get("ordStatus"))
+            if status not in {"0", "1"}:  # Only New or Partially Filled
+                continue
+
+            cl_ord_id = o.get("clOrdId")
+            if not cl_ord_id:
+                continue
+
+            side_code = o.get("side", "")
+            side_str = "BUY" if side_code == "1" else "SELL" if side_code == "2" else "N/A"
+            qty = int(float(o.get("orderQty", 0)))
+
+            if self._tracker.is_flat:
+                # Assume it's an entry order if we have no position
+                self._pending_entries[cl_ord_id] = {
+                    "side": "LONG" if side_code == "1" else "SHORT",
+                    "qty": qty,
+                    "stop_loss": None,
+                    "take_profit": None,
+                }
+                logger.info("Resynced pending Entry order: clOrdId=%s (%s %d)", cl_ord_id, side_str, qty)
+            else:
+                # Assume it's an exit order for our current position
+                self._pending_exit_id = cl_ord_id
+                self._pending_exit_reason = "Resynced Exit"
+                logger.info("Resynced pending Exit order: clOrdId=%s (%s %d)", cl_ord_id, side_str, qty)

@@ -1,5 +1,5 @@
 """
-PositionTracker — lightweight live position and P&L tracker for paper trading.
+PositionTracker - lightweight live position and P&L tracker for paper trading.
 
 Mirrors the interface of the backtest TradeManager but is slimmed down
 for live use: no order management, just position state + Trade history.
@@ -75,18 +75,34 @@ class PositionTracker:
             stop_loss:   SL price from the originating TradeSignal.
             take_profit: TP price from the originating TradeSignal.
         """
-        if not self._position.is_flat:
-            logger.warning("record_open called but position is not flat — ignoring.")
-            return
-
         pos_side = PositionSide.LONG if side.upper() == "LONG" else PositionSide.SHORT
 
-        self._position.side = pos_side
-        self._position.entry_price = fill_price
-        self._position.quantity = qty
-        self._position.entry_time = timestamp
-        self._position.stop_loss = stop_loss
-        self._position.take_profit = take_profit
+        # Allow scale-ins / partial fills
+        if not self._position.is_flat and self._position.side != pos_side:
+            logger.warning("record_open: reversing position directly is unsupported here")
+            return
+
+        if self._position.is_flat:
+            self._position.side = pos_side
+            self._position.entry_price = fill_price
+            self._position.quantity = qty
+            self._position.entry_time = timestamp
+        else:
+            # Calculate weighted average entry price
+            old_qty = self._position.quantity
+            old_price = self._position.entry_price
+            new_qty = old_qty + qty
+            new_price = ((old_price * old_qty) + (fill_price * qty)) / new_qty
+            
+            self._position.quantity = new_qty
+            self._position.entry_price = new_price
+            logger.info("Position scaled: %d -> %d @ %.2f", old_qty, new_qty, new_price)
+
+        # Update SL/TP if provided (or keep existing)
+        if stop_loss is not None:
+            self._position.stop_loss = stop_loss
+        if take_profit is not None:
+            self._position.take_profit = take_profit
 
         commission = self._calc_commission(fill_price, qty)
         self.cash -= commission
@@ -116,11 +132,12 @@ class PositionTracker:
     def record_close(
         self,
         fill_price: float,
+        qty: int,
         timestamp: datetime,
         exit_reason: str = "",
     ) -> Optional[Trade]:
         """
-        Record that an exit order was filled and close the position.
+        Record that an exit order was filled and close (or partially close) the position.
 
         Cash accounting:
           - Entry commission was already deducted in record_open.
@@ -132,20 +149,21 @@ class PositionTracker:
             Combined with record_open deduction: net effect = trade.pnl ✓
         """
         if self._position.is_flat or self._current_trade is None:
-            logger.warning("record_close called but no open position — ignoring.")
+            logger.warning("record_close called but no open position - ignoring.")
             return None
 
         pos = self._position
-        exit_commission = self._calc_commission(fill_price, pos.quantity)
+        exit_qty = min(qty, pos.quantity)
+        exit_commission = self._calc_commission(fill_price, exit_qty)
 
         # Calculate gross P&L from position prices (before any commission)
         if pos.is_long:
             gross_pnl = (
-                (fill_price - pos.entry_price) * pos.quantity * self.contract_multiplier
+                (fill_price - pos.entry_price) * exit_qty * self.contract_multiplier
             )
         else:
             gross_pnl = (
-                (pos.entry_price - fill_price) * pos.quantity * self.contract_multiplier
+                (pos.entry_price - fill_price) * exit_qty * self.contract_multiplier
             )
 
         # Update cash: gross P&L realised, minus exit commission
@@ -158,19 +176,59 @@ class PositionTracker:
             exit_price=fill_price,
             commission=exit_commission,
             exit_reason=exit_reason,
+            # Partial closes usually require more complex Trade splitting,
+            # but for a simplified live tracker we will just mark the whole trade closed
+            # when the position hits 0 to avoid massive complexity.
         )
-
+        
         trade = self._current_trade
-        self._current_trade = None
-        self._position.close()
+
+        self._position.quantity -= exit_qty
+        if self._position.quantity <= 0:
+            self._current_trade = None
+            self._position.close()
 
         logger.info(
-            "Position closed (%s): fill=%.2f | P&L=%.2f",
+            "Position reduced by %d (%s): fill=%.2f | P&L=%.2f | Remaining: %d",
+            exit_qty,
             exit_reason,
             fill_price,
-            trade.pnl,
+            gross_pnl - exit_commission,
+            self._position.quantity
         )
         return trade
+
+    def sync_position(self, qty: float, avg_price: float) -> None:
+        """
+        Initialize the tracker with an existing open position from the broker.
+        Called on startup to resynchronize state after a restart.
+        """
+        if qty == 0:
+            return
+
+        pos_side = PositionSide.LONG if qty > 0 else PositionSide.SHORT
+        abs_qty = abs(int(qty))
+
+        self._position.side = pos_side
+        self._position.entry_price = avg_price
+        self._position.quantity = abs_qty
+        self._position.entry_time = datetime.now()  # Use current time as fallback
+
+        # Create a dummy "current trade" so record_close can calculate PnL against it
+        self._trade_counter += 1
+        trade = Trade(
+            trade_id=self._trade_counter,
+            side=pos_side,
+            entry_time=self._position.entry_time,
+            entry_price=avg_price,
+            quantity=abs_qty,
+            commission=self._calc_commission(avg_price, abs_qty),
+            multiplier=self.contract_multiplier,
+        )
+        self._trades.append(trade)
+        self._current_trade = trade
+
+        logger.info("Resynced tracked position: %s %d @ %.2f", pos_side.name, abs_qty, avg_price)
 
     # ------------------------------------------------------------------
     # Real-time updates
@@ -192,7 +250,7 @@ class PositionTracker:
         """
         Check whether SL or TP should be triggered on this bar.
 
-        Checks the bar's low (for long SL) and high (for long TP) — same
+        Checks the bar's low (for long SL) and high (for long TP) - same
         conservative logic as the backtester.
 
         Returns:
