@@ -84,7 +84,7 @@ def prepare_backtest_dataset(
     strategy_params: Dict[str, Any],
     resample_freq: str,
 ) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
-    """Prepare bar+indicator dataset for backtest or sim execution.
+    """Prepare bar and indicator dataset for backtest or sim execution.
 
     Important: indicator columns must align with the strategy parameters
     (e.g. `mom_{mom_period}`, BB/KC computed at the configured periods),
