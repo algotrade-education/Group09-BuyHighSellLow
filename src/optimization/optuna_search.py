@@ -2,14 +2,20 @@
 Optuna-based Bayesian optimization for strategy parameters.
 
 Unlike grid search (exhaustive), Optuna uses Tree-structured Parzen Estimator (TPE)
-to intelligently explore the parameter space — it learns which regions are promising
+to intelligently explore the parameter space - it learns which regions are promising
 and focuses the search there.
 
-Composite objective function:
-    score = sharpe - |0.1 * max_drawdown| - |0.1 * turnover_penalty|
+Composite objective function (configurable):
+    Base:
+        score = sharpe - |drawdown_penalty * max_drawdown|
+    Optional gates/bonuses:
+        - Require a minimum number of trades (min_trades)
+        - Require minimum total return / profit factor
+        - Reward or penalize trade count via trade_count_bonus / turnover_penalty
 
 Guardrails:
     - If total_trades <= min_trades: score = -10.0 (invalid)
+    - If total_return/profit_factor below configured minimums: score = -10.0 (invalid)
     - If sharpe <= 0: fall back to total_return as secondary metric
     - If any error: score = -100.0
 """
@@ -70,6 +76,9 @@ class OptunaSearch:
         min_trades: int = 50,
         drawdown_penalty: float = 0.1,
         turnover_penalty: float = 0.0,
+        trade_count_bonus: float = 0.0,
+        min_return_pct: float = -999.0,
+        min_profit_factor: float = -999.0,
         n_trials: int = 200,
         seed: int = 42,
         backtester_kwargs: Optional[Dict[str, Any]] = None,
@@ -94,6 +103,9 @@ class OptunaSearch:
             min_trades: Minimum trades required for a valid result.
             drawdown_penalty: Weight for max drawdown in composite score.
             turnover_penalty: Weight for turnover (trade count / 1000) penalty.
+            trade_count_bonus: Reward weight for trade count (trades / 1000).
+            min_return_pct: Minimum total_return_pct required to be considered valid.
+            min_profit_factor: Minimum profit_factor required to be considered valid.
             n_trials: Number of optimization trials.
             seed: Random seed for reproducibility.
             backtester_kwargs: Optional dictionary of keyword arguments to pass
@@ -111,6 +123,9 @@ class OptunaSearch:
         self.min_trades = min_trades
         self.drawdown_penalty = drawdown_penalty
         self.turnover_penalty = turnover_penalty
+        self.trade_count_bonus = trade_count_bonus
+        self.min_return_pct = min_return_pct
+        self.min_profit_factor = min_profit_factor
         self.n_trials = n_trials
         self.seed = seed
 
@@ -171,11 +186,17 @@ class OptunaSearch:
         """
         Calculate composite optimization score.
 
-        Score = Sharpe - |drawdown_penalty * MaxDrawdown| - |turnover_penalty * trades/1000|
+        Base:
+            score = Sharpe - |drawdown_penalty * MaxDrawdown|
+        Optional:
+            - turnover_penalty * trades/1000 (penalize excessive turnover)
+            - trade_count_bonus * trades/1000 (reward trade activity)
 
         Guardrails:
-            - trades <= min_trades → -1.0
-            - sharpe <= 0 → use total_return / 100 as fallback (scaled)
+            - trades <= min_trades -> -10.0
+            - total_return_pct < min_return_pct -> -20.0
+            - profit_factor < min_profit_factor -> -20.0
+            - sharpe <= 0 -> use total_return / 100 as fallback (scaled)
 
         Args:
             metrics: Performance metrics dictionary.
@@ -191,6 +212,13 @@ class OptunaSearch:
         sharpe = metrics.get("sharpe_ratio", 0.0)
         max_dd = abs(metrics.get("max_drawdown_pct", 0.0))
         total_return = metrics.get("total_return_pct", 0.0)
+        profit_factor = metrics.get("profit_factor", 0.0)
+
+        # Guard: insufficient profitability (configurable)
+        if total_return <= self.min_return_pct:
+            return -20.0
+        if profit_factor <= self.min_profit_factor:
+            return -20.0
 
         # If Sharpe is non-positive, fall back to total return (scaled down)
         if sharpe <= 0:
@@ -198,11 +226,12 @@ class OptunaSearch:
         else:
             base_score = sharpe
 
-        # Composite: penalize drawdown and excessive turnover
+        # Composite: penalize drawdown and optionally adjust for trade count
         dd_penalty = self.drawdown_penalty * max_dd
         turnover = self.turnover_penalty * (total_trades / 1000.0)
+        trade_bonus = self.trade_count_bonus * (total_trades / 1000.0)
 
-        score = base_score - dd_penalty - turnover
+        score = base_score - dd_penalty - turnover + trade_bonus
 
         return score
 
@@ -214,7 +243,7 @@ class OptunaSearch:
         contract_multiplier: float,
     ) -> float:
         """
-        Optuna objective function — runs one backtest and returns the composite score.
+        Optuna objective function - runs one backtest and returns the composite score.
 
         Args:
             trial: Optuna trial.
@@ -319,10 +348,10 @@ class OptunaSearch:
         self.results = []
 
         if raw_data:
-            # Pass data as-is — indicator_fn will handle resampling + indicators
+            # Pass data as-is - indicator_fn will handle resampling + indicators
             clean_data = data.copy()
         else:
-            # Strip indicators — keep only base OHLCV columns
+            # Strip indicators - keep only base OHLCV columns
             base_columns = ["datetime", "open", "high", "low", "close", "volume"]
             available_cols = [col for col in base_columns if col in data.columns]
             clean_data = data[available_cols].copy()
