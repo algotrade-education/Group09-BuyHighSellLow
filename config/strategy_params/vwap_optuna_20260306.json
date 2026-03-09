@@ -1,0 +1,28 @@
+{
+  "name": "VWAP Optuna Optimized 20260306",
+  "description": "Auto-optimized VWAP parameters from Optuna TPE",
+  "version": "1.0.0",
+  "strategy": {
+    "resample_freq": "5min",
+    "entry_band": 1.75,
+    "atr_period": 11,
+    "atr_sl_mult": 0.9,
+    "min_tp_atr": 1.0,
+    "cooldown_bars": 4,
+    "session_warmup": 8,
+    "long_only": false,
+    "use_slope_filter": true,
+    "slope_period": 4,
+    "use_volume_filter": true,
+    "vol_mult": 1.5,
+    "vol_ma_period": 20
+  },
+  "risk": {
+    "min_position_size": 1,
+    "max_position_size": 1,
+    "risk_per_trade_pct": 1.0,
+    "max_daily_loss": 0.02,
+    "use_trailing_stop": true,
+    "trailing_atr_multiplier": 1.0
+  }
+}
