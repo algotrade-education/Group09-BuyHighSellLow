@@ -3,12 +3,18 @@ Script to run Optuna-based Bayesian optimization for ORB strategy parameters.
 Run as:
     python -m src.run_optimization --sample is --trials 300
 
-Composite objective:
-    score = sharpe - |0.1 * max_drawdown| - |0.1 * trades/1000|
-    If trades <= trade_threshold: score = -1.0 (invalid)
-    If sharpe <= 0: use total_return / 100 as fallback
+Composite objective (ORB-specific configuration):
+    - Require:
+        * total_trades > min_trades (hard-coded in this runner)
+        * total_return_pct > 0
+        * profit_factor > 1.0
+    - Score:
+        score = sharpe
+                - 0.1 * |max_drawdown_pct|
+                + 0.1 * (total_trades / 1000)
+      (Falls back to ``total_return_pct / 100`` when Sharpe <= 0.)
 
-Also optimizes the resampling timeframe (1min, 5min) alongside strategy parameters.
+Also optimizes the resampling timeframe (5min, 15min, 1h) alongside strategy parameters.
 """
 
 import json
@@ -84,6 +90,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         "use_range_sl": {"type": "categorical", "choices": [True, False]},
         "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
         "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.2},
+        "max_trades_per_session": {"type": "int", "low": 1, "high": 3, "step": 1},
         "long_only": {"type": "categorical", "choices": [True, False]},
         "use_volume_filter": {"type": "categorical", "choices": [True, False]},
         "use_adx_filter": {"type": "categorical", "choices": [True, False]},
@@ -101,13 +108,17 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
     }
 
     # Initialize Optuna optimizer
+    # Note: min_trades is enforced inside OptunaSearch via the composite score.
     optimizer = OptunaSearch(
         strategy_class=OpeningRangeBreakout,
         param_space=param_space,
         indicator_fn=preprocess_data,
-        min_trades=100,
-        drawdown_penalty=0.1,
-        turnover_penalty=0.1,
+        min_trades=500,          # ensure at least ~medium activity
+        drawdown_penalty=0.1,    # penalize larger drawdowns
+        turnover_penalty=0.0,    # do not penalize higher trade count
+        trade_count_bonus=0.1,   # reward more trades among profitable configs
+        min_return_pct=0.0,      # require non-negative total return
+        min_profit_factor=1.0,   # require PF > 1.0
         n_trials=n_trials,
         backtester_kwargs=backtester_kwargs,
     )

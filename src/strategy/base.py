@@ -101,11 +101,11 @@ class Strategy(ABC):
         """Set strategy parameters."""
         self._params = value
 
-    @abstractmethod
     def generate_signal(
         self,
         bar: Dict[str, Any],
         current_position: Optional[Any] = None,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """
         Generate a trading signal based on the provided market data.
@@ -113,6 +113,8 @@ class Strategy(ABC):
         Args:
             bar: A dictionary containing market data (e.g., price, volume)
             current_position: Optional information about the current position
+            is_warmup: If True, indicates this is historical data being used to build state.
+                       Strategies should NOT increment trade counters or trigger entries.
         """
         pass
 

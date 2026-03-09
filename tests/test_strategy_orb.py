@@ -118,7 +118,7 @@ class TestORBFormationPhase:
     def test_formation_bar_returns_hold(self):
         """A bar inside the opening window must return HOLD."""
         strat = _strategy()
-        bar = _morning(0)  # 09:00 — inside 15-min window
+        bar = _morning(0)  # 09:00 - inside 15-min window
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.HOLD
 
@@ -137,7 +137,7 @@ class TestORBFormationPhase:
         assert strat._range_low == 1280.0
 
     def test_formation_does_not_fire_signal(self):
-        """No LONG or SHORT during formation — only HOLD."""
+        """No LONG or SHORT during formation - only HOLD."""
         strat = _strategy()
         for minute in range(0, 15, 5):
             sig = strat.generate_signal(_morning(minute))
@@ -373,7 +373,7 @@ class TestORBRangeFilters:
 
     def test_valid_range_size_allows_signal(self):
         """range within [min_range_atr, max_range_atr] allows breakout signal."""
-        # ATR=10, range=20 → range_in_atr=2.0 — within [0.5, 3.0]
+        # ATR=10, range=20 → range_in_atr=2.0 - within [0.5, 3.0]
         strat = _strategy(breakout_buffer=0.0, min_range_atr=0.5, max_range_atr=3.0)
         sig = self._setup_and_breakout(strat, high=1320.0, low=1300.0, atr=10.0)
         assert sig.signal == Signal.LONG
@@ -443,7 +443,7 @@ class TestORBSessionManagement:
         d1 = datetime(2025, 1, 6, 9, 0)
         strat.generate_signal(_bar(d1, high=1310.0, low=1290.0))
 
-        # Day 2 — state should reset on first bar
+        # Day 2 - state should reset on first bar
         d2 = datetime(2025, 1, 7, 9, 0)
         strat.generate_signal(_bar(d2, high=1310.0, low=1290.0))
         assert strat._current_date == d2.date()
@@ -562,7 +562,7 @@ class TestORBOptionalFilters:
         )
         self._setup_range(strat)
 
-        # Terrible volume and ADX — but filters are off
+        # Terrible volume and ADX - but filters are off
         bar = _morning(
             15,
             close=1315.0,

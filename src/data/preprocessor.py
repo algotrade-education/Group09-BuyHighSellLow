@@ -238,6 +238,50 @@ class Preprocessor:
 
         return df
 
+    def add_ema(
+        self,
+        df: pd.DataFrame,
+        period: int = 20,
+        column: str = "close",
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add Exponential Moving Average to DataFrame.
+
+        Args:
+            df: Input DataFrame
+            period: EMA period
+            column: Column to calculate EMA on
+            copy: If True, create a copy; if False, modify in-place
+        """
+        if copy:
+            df = df.copy()
+
+        df[f"ema_{period}"] = df[column].ewm(span=period, min_periods=period).mean()
+        return df
+
+    def add_roc(
+        self,
+        df: pd.DataFrame,
+        period: int = 5,
+        column: str = "close",
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add Rate of Change (percentage) to DataFrame.
+
+        Args:
+            df: Input DataFrame
+            period: ROC period
+            column: Column to calculate ROC on
+            copy: If True, create a copy; if False, modify in-place
+        """
+        if copy:
+            df = df.copy()
+
+        df[f"roc_{period}"] = df[column].pct_change(periods=period) * 100.0
+        return df
+
     def add_volume_ma(
         self,
         df: pd.DataFrame,
@@ -447,6 +491,120 @@ class Preprocessor:
 
         return df
 
+    def add_keltner_channels(
+        self,
+        df: pd.DataFrame,
+        ema_period: int = 20,
+        atr_period: int = 14,
+        multiplier: float = 1.5,
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add Keltner Channels (EMA +/- multiplier * ATR).
+
+        Args:
+            df: Input DataFrame with close/high/low columns
+            ema_period: EMA period for the middle line
+            atr_period: ATR period used for channel width
+            multiplier: ATR multiplier for upper/lower bands
+            copy: If True, create a copy; if False, modify in-place
+        """
+        if copy:
+            df = df.copy()
+
+        ema_col = f"ema_{ema_period}"
+        atr_col = f"atr_{atr_period}"
+
+        if ema_col not in df.columns:
+            df = self.add_ema(df, period=ema_period, copy=False)
+        if atr_col not in df.columns:
+            df = self.add_atr(df, period=atr_period, copy=False)
+
+        df["kc_middle"] = df[ema_col]
+        df["kc_upper"] = df[ema_col] + multiplier * df[atr_col]
+        df["kc_lower"] = df[ema_col] - multiplier * df[atr_col]
+
+        return df
+
+    def add_momentum(
+        self,
+        df: pd.DataFrame,
+        period: int = 12,
+        column: str = "close",
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add simple momentum oscillator (close - close[N]).
+
+        Unlike ROC (percentage), this returns the raw price difference which
+        is useful for directional detection in squeeze breakout strategies.
+
+        Args:
+            df: Input DataFrame
+            period: Lookback period
+            column: Column to calculate momentum on
+            copy: If True, create a copy; if False, modify in-place
+        """
+        if copy:
+            df = df.copy()
+
+        df[f"mom_{period}"] = df[column] - df[column].shift(period)
+        return df
+
+    def add_session_vwap(
+        self,
+        df: pd.DataFrame,
+        datetime_column: str = "datetime",
+        copy: bool = True,
+    ) -> pd.DataFrame:
+        """
+        Add session-resetting VWAP and volume-weighted standard deviation.
+
+        VWAP resets at the start of each VN30 session (morning 09:00,
+        afternoon 13:00) and each new trading day.
+
+        Columns added: ``vwap``, ``vwap_std``.
+
+        Args:
+            df: DataFrame with high, low, close, volume, and datetime columns.
+            datetime_column: Name of the datetime column.
+            copy: If True, create a copy; if False, modify in-place.
+        """
+        from datetime import time as _time
+
+        if df.empty:
+            return df
+        if copy:
+            df = df.copy()
+
+        dt = pd.to_datetime(df[datetime_column])
+        time_part = dt.dt.time
+        date_str = dt.dt.strftime("%Y%m%d")
+
+        morning_mask = time_part.apply(lambda t: _time(9, 0) <= t < _time(11, 30))
+        afternoon_mask = time_part.apply(lambda t: _time(13, 0) <= t < _time(14, 45))
+
+        session_label = pd.Series("none", index=df.index)
+        session_label[morning_mask] = "m"
+        session_label[afternoon_mask] = "a"
+
+        session_id = date_str + "_" + session_label
+
+        tp = (df["high"] + df["low"] + df["close"]) / 3.0
+        pv = tp * df["volume"]
+
+        cum_pv = pv.groupby(session_id).cumsum()
+        cum_vol = df["volume"].groupby(session_id).cumsum()
+
+        df["vwap"] = cum_pv / cum_vol.replace(0, float("nan"))
+
+        sq_dev = (tp - df["vwap"]) ** 2
+        cum_sq_dev = (sq_dev * df["volume"]).groupby(session_id).cumsum()
+        vwap_var = cum_sq_dev / cum_vol.replace(0, float("nan"))
+        df["vwap_std"] = vwap_var ** 0.5
+
+        return df
+
     def add_all_indicators(self, df: pd.DataFrame, copy: bool = True) -> pd.DataFrame:
         """
         Add all required indicators for the strategy.
@@ -467,6 +625,26 @@ class Preprocessor:
         df = self.add_rsi(df, period=self.rsi_period, copy=False)
         df = self.add_adx(df, period=self.adx_period, copy=False)
         df = self.add_atr(df, period=self.atr_period, copy=False)
+
+        # EMA at common periods (used by KSB)
+        for ema_p in [20, 50]:
+            df = self.add_ema(df, period=ema_p, copy=False)
+
+        # Keltner Channels (used by KSB squeeze detection)
+        df = self.add_keltner_channels(
+            df,
+            ema_period=self.sma_period,
+            atr_period=self.atr_period,
+            multiplier=1.5,
+            copy=False,
+        )
+
+        # Momentum oscillator at common periods (used by KSB)
+        for mom_p in [6, 12, 20]:
+            df = self.add_momentum(df, period=mom_p, copy=False)
+
+        # Session VWAP + std (used by VWAP strategy)
+        df = self.add_session_vwap(df, copy=False)
 
         return df
 
@@ -555,7 +733,7 @@ class Preprocessor:
         """Preprocessing pipeline for optimization/walk-forward runs.
 
         Applies cleaning, volume derivation, resampling, and trading-hours
-        filtering — but intentionally stops before adding indicators, because
+        filtering - but intentionally stops before adding indicators, because
         the optimizer recalculates indicators for every parameter combination
         via its own ``indicator_fn`` callback.
 

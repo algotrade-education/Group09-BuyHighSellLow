@@ -10,7 +10,7 @@ Concept:
 Entry logic:
     - LONG:  close > range_high + (breakout_buffer * ATR)
     - SHORT: close < range_low  - (breakout_buffer * ATR) (skipped if long_only)
-    - Max 1 trade per session
+    - Max N trades per session (configurable)
 
 Exit logic:
     - Stop Loss: opposite side of the opening range, or ATR-based fallback
@@ -78,6 +78,7 @@ class OpeningRangeBreakout(Strategy):
         use_volume_filter: bool = False,
         use_adx_filter: bool = False,
         adx_min: float = 20.0,
+        max_trades_per_session: int = 1,
         **kwargs,
     ):
         """
@@ -96,6 +97,7 @@ class OpeningRangeBreakout(Strategy):
             use_volume_filter: If True, require volume > volume_ma for entry
             use_adx_filter: If True, require ADX > adx_min for entry
             adx_min: Minimum ADX value when use_adx_filter is enabled
+            max_trades_per_session: Maximum number of entries allowed per session
         """
         super().__init__(name="OpeningRangeBreakout")
 
@@ -111,6 +113,7 @@ class OpeningRangeBreakout(Strategy):
         self.use_volume_filter = use_volume_filter
         self.use_adx_filter = use_adx_filter
         self.adx_min = adx_min
+        self.max_trades_per_session = max(1, int(max_trades_per_session))
 
         # Session state
         self._current_date: Optional[date] = None
@@ -118,7 +121,7 @@ class OpeningRangeBreakout(Strategy):
         self._range_high: float = 0.0
         self._range_low: float = float("inf")
         self._range_formed: bool = False
-        self._traded_this_session: bool = False
+        self._trades_this_session: int = 0
         self._range_start_time: Optional[datetime] = None
 
         # Store params for serialization / optimization
@@ -135,6 +138,7 @@ class OpeningRangeBreakout(Strategy):
             "use_volume_filter": use_volume_filter,
             "use_adx_filter": use_adx_filter,
             "adx_min": adx_min,
+            "max_trades_per_session": self.max_trades_per_session,
         }
 
         logger.info("Strategy params: %s", self._params)
@@ -169,7 +173,7 @@ class OpeningRangeBreakout(Strategy):
         self._range_high = 0.0
         self._range_low = float("inf")
         self._range_formed = False
-        self._traded_this_session = False
+        self._trades_this_session = 0
         self._range_start_time = None
 
     def _parse_bar(self, bar: Dict[str, Any]) -> Optional[ParsedBar]:
@@ -220,13 +224,13 @@ class OpeningRangeBreakout(Strategy):
         if range_in_atr < self.min_range_atr:
             return TradeSignal(
                 signal=Signal.HOLD,
-                reason=f"Range too narrow ({range_in_atr:.1f} ATR < {self.min_range_atr})",
+                reason=f"Range too narrow: Size is {range_in_atr:.1f}x ATR (Min {self.min_range_atr}x)",
             )
 
         if range_in_atr > self.max_range_atr:
             return TradeSignal(
                 signal=Signal.HOLD,
-                reason=f"Range too wide ({range_in_atr:.1f} ATR > {self.max_range_atr})",
+                reason=f"Range too wide: Size is {range_in_atr:.1f}x ATR (Max {self.max_range_atr}x)",
             )
 
         return None
@@ -256,6 +260,7 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """Build validated long breakout signal."""
         if self.use_range_sl:
@@ -270,7 +275,9 @@ class OpeningRangeBreakout(Strategy):
         if stop_loss >= close:
             return TradeSignal(signal=Signal.HOLD, reason="SL >= entry (skip)")
 
-        self._traded_this_session = True
+        if not is_warmup:
+            self._trades_this_session += 1
+        
         range_in_atr = range_size / atr
 
         return TradeSignal(
@@ -296,6 +303,7 @@ class OpeningRangeBreakout(Strategy):
         atr: float,
         range_size: float,
         session: str,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """Build validated short breakout signal."""
         if self.use_range_sl:
@@ -310,7 +318,9 @@ class OpeningRangeBreakout(Strategy):
         if stop_loss <= close:
             return TradeSignal(signal=Signal.HOLD, reason="SL <= entry (skip)")
 
-        self._traded_this_session = True
+        if not is_warmup:
+            self._trades_this_session += 1
+            
         range_in_atr = range_size / atr
 
         return TradeSignal(
@@ -334,6 +344,7 @@ class OpeningRangeBreakout(Strategy):
         self,
         bar: Dict[str, Any],
         current_position: Optional[Any] = None,
+        is_warmup: bool = False,
     ) -> TradeSignal:
         """
         Generate a trading signal based on Opening Range Breakout logic.
@@ -373,9 +384,15 @@ class OpeningRangeBreakout(Strategy):
         if current_position is not None and not current_position.is_flat:
             return TradeSignal(signal=Signal.HOLD)
 
-        # Already traded this session
-        if self._traded_this_session:
-            return TradeSignal(signal=Signal.HOLD, reason="Already traded this session")
+        # Reached session trade limit
+        if self._trades_this_session >= self.max_trades_per_session:
+            return TradeSignal(
+                signal=Signal.HOLD,
+                reason=(
+                    "Session trade limit reached "
+                    f"({self._trades_this_session}/{self.max_trades_per_session})"
+                ),
+            )
 
         # --- FORMATION PHASE ---
         if self._is_in_formation_window(dt, session):
@@ -421,14 +438,14 @@ class OpeningRangeBreakout(Strategy):
 
         # --- LONG BREAKOUT ---
         if close > breakout_high:
-            return self._build_long_signal(close, atr, range_size, session)
+            return self._build_long_signal(close, atr, range_size, session, is_warmup)
 
         # --- SHORT BREAKOUT ---
         if self.long_only:
             return TradeSignal(signal=Signal.HOLD)
 
         if close < breakout_low:
-            return self._build_short_signal(close, atr, range_size, session)
+            return self._build_short_signal(close, atr, range_size, session, is_warmup)
 
         # No breakout yet
         return TradeSignal(signal=Signal.HOLD)

@@ -11,7 +11,9 @@ import pandas as pd
 
 from src.data.preprocessor import Preprocessor
 from src.run_data_loader import load_data
+from src.strategy.KSB import KeltnerSqueezeBreakout
 from src.strategy.ORB import OpeningRangeBreakout
+from src.strategy.VWAP import VWAPBandReversion
 from src.utils.config_loader import load_config
 
 
@@ -34,6 +36,44 @@ def build_orb_strategy(strategy_params: Dict[str, Any]) -> OpeningRangeBreakout:
     return OpeningRangeBreakout(**strategy_kwargs)
 
 
+def load_ksb_config_context(
+    config_path: str,
+    default_resample_freq: str = "5min",
+) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+    """Load KSB config and return config, strategy params, and resample frequency."""
+    config = load_config(config_path)
+    strategy_params = config.get("strategy", {})
+    resample_freq = strategy_params.get("resample_freq", default_resample_freq)
+    return config, strategy_params, resample_freq
+
+
+def build_ksb_strategy(strategy_params: Dict[str, Any]) -> KeltnerSqueezeBreakout:
+    """Build KSB strategy while stripping non-constructor config keys."""
+    strategy_kwargs = {
+        key: value for key, value in strategy_params.items() if key != "resample_freq"
+    }
+    return KeltnerSqueezeBreakout(**strategy_kwargs)
+
+
+def load_vwap_config_context(
+    config_path: str,
+    default_resample_freq: str = "5min",
+) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+    """Load VWAP config and return config, strategy params, and resample frequency."""
+    config = load_config(config_path)
+    strategy_params = config.get("strategy", {})
+    resample_freq = strategy_params.get("resample_freq", default_resample_freq)
+    return config, strategy_params, resample_freq
+
+
+def build_vwap_strategy(strategy_params: Dict[str, Any]) -> VWAPBandReversion:
+    """Build VWAP strategy while stripping non-constructor config keys."""
+    strategy_kwargs = {
+        key: value for key, value in strategy_params.items() if key != "resample_freq"
+    }
+    return VWAPBandReversion(**strategy_kwargs)
+
+
 def load_sample_data(sample: str, contract: str) -> pd.DataFrame:
     """Load raw IS/OS sample data for a contract symbol."""
     return load_data(sample=sample, contract=contract)
@@ -44,9 +84,53 @@ def prepare_backtest_dataset(
     strategy_params: Dict[str, Any],
     resample_freq: str,
 ) -> pd.DataFrame:
-    """Prepare bar+indicator dataset for backtest or sim execution."""
-    preprocessor = Preprocessor(atr_period=strategy_params.get("atr_period", 14))
-    return preprocessor.prepare_for_backtest(raw_data, resample_freq=resample_freq)
+    """Prepare bar+indicator dataset for backtest or sim execution.
+
+    Important: indicator columns must align with the strategy parameters
+    (e.g. `mom_{mom_period}`, BB/KC computed at the configured periods),
+    otherwise the strategy may never trigger entries.
+    """
+    bb_period = int(strategy_params.get("bb_period", 20))
+    bb_std = float(strategy_params.get("bb_std", 2.0))
+    kc_period = int(strategy_params.get("kc_period", 20))
+    kc_mult = float(strategy_params.get("kc_mult", 1.5))
+    atr_period = int(strategy_params.get("atr_period", 14))
+    mom_period = int(strategy_params.get("mom_period", 12))
+    vol_ma_period = int(strategy_params.get("vol_ma_period", 20))
+
+    preprocessor = Preprocessor(
+        sma_period=bb_period,
+        bb_std=bb_std,
+        atr_period=atr_period,
+        volume_ma_period=vol_ma_period,
+    )
+
+    df = preprocessor.clean_data(raw_data)
+    df = preprocessor._derive_volume(df, copy=False)
+    df = preprocessor.resample_to_ohlc(df, freq=resample_freq)
+    df = preprocessor.filter_trading_hours(df, include_atc=True)
+
+    # Core indicators (align to strategy params)
+    df = preprocessor.add_atr(df, period=atr_period, copy=True)
+    df = preprocessor.add_bollinger_bands(
+        df, period=bb_period, std_dev=bb_std, copy=False
+    )
+    df = preprocessor.add_volume_ma(df, period=vol_ma_period, copy=False)
+    df = preprocessor.add_keltner_channels(
+        df,
+        ema_period=kc_period,
+        atr_period=atr_period,
+        multiplier=kc_mult,
+        copy=False,
+    )
+    df = preprocessor.add_momentum(df, period=mom_period, copy=False)
+
+    # Session VWAP + std bands (used by VWAP strategy)
+    df = preprocessor.add_session_vwap(df, copy=False)
+
+    df.dropna(inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    return df
 
 
 def prepare_optimization_dataset(
