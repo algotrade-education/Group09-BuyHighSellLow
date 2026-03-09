@@ -62,8 +62,8 @@ class OptunaSearch:
     """
     Optuna-based optimizer for strategy parameters.
 
-    Uses Bayesian optimization (Tree-structured Parzen Estimator) to 
-    intelligently explore the parameter space. Instead of a simple metric, 
+    Uses Bayesian optimization (Tree-structured Parzen Estimator) to
+    intelligently explore the parameter space. Instead of a simple metric,
     it optimizes a 'Composite Score' that incorporates:
     - Risk-adjusted return (Sharpe Ratio).
     - Drawdown penalties (to avoid high-risk curves).
@@ -191,8 +191,8 @@ class OptunaSearch:
         """
         Calculate a composite score to guide the Bayesian search.
 
-        The score is designed to find 'robust' parameters by penalizing 
-        undesirable traits (high drawdown, low trade count) and rewarding 
+        The score is designed to find 'robust' parameters by penalizing
+        undesirable traits (high drawdown, low trade count) and rewarding
         consistency.
 
         Logic:

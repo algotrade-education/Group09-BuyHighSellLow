@@ -100,9 +100,9 @@ class WalkForwardOptimizer:
     """
     Walk-Forward Optimizer with anchored or rolling windows.
 
-    Walk-forward analysis validates strategy parameters by simulating how 
-    a strategy would have been optimized and traded in real-time. It identifies 
-    overfitting by comparing In-Sample (train) performance to Out-Of-Sample 
+    Walk-forward analysis validates strategy parameters by simulating how
+    a strategy would have been optimized and traded in real-time. It identifies
+    overfitting by comparing In-Sample (train) performance to Out-Of-Sample
     (test) performance on unseen data.
 
     Process:
@@ -159,10 +159,10 @@ class WalkForwardOptimizer:
         Partition data into training and testing windows.
 
         Modes:
-        - Anchored (default): The training start date is fixed at the beginning 
-          of the dataset. As windows progress, the training period 'anchors' 
+        - Anchored (default): The training start date is fixed at the beginning
+          of the dataset. As windows progress, the training period 'anchors'
           further back, providing more data for each subsequent optimization.
-        - Rolling: Both training and testing periods slide forward by a fixed 
+        - Rolling: Both training and testing periods slide forward by a fixed
           window size. Training data remains a constant size.
 
         Returns:
@@ -236,8 +236,8 @@ class WalkForwardOptimizer:
         """
         Execute the walk-forward optimization cycle.
 
-        This method carefully manages indicator calculation to prevent 'look-ahead' 
-        bias while ensuring trailing indicators (like ATR or Moving Averages) 
+        This method carefully manages indicator calculation to prevent 'look-ahead'
+        bias while ensuring trailing indicators (like ATR or Moving Averages)
         have enough context at the start of the out-of-sample test period.
 
         Args:

@@ -120,9 +120,8 @@ class DataLoader:
         if chunk_by == "month":
             cur = start.to_period("M").to_timestamp()
             while cur <= end:
-                p_end = (
-                    (cur + pd.offsets.MonthEnd(0)).normalize()
-                    + pd.Timedelta(hours=23, minutes=59, seconds=59)
+                p_end = (cur + pd.offsets.MonthEnd(0)).normalize() + pd.Timedelta(
+                    hours=23, minutes=59, seconds=59
                 )
                 yield cur.strftime("%Y_%m"), cur, min(p_end, end)
                 cur = (cur + pd.offsets.MonthBegin(1)).normalize()
@@ -147,9 +146,7 @@ class DataLoader:
 
         Returns the DataFrame on success, ``None`` on empty result or error.
         """
-        logger.info(
-            "[%d/%d] Fetching %s to %s ...", idx, total, s_str, e_str
-        )
+        logger.info("[%d/%d] Fetching %s to %s ...", idx, total, s_str, e_str)
         try:
             df = fetch_and_merge_data(contract_name, s_str, e_str)
         except Exception as exc:
@@ -210,9 +207,7 @@ class DataLoader:
             logger.info(
                 "Loading %d chunk file(s) from %s", len(chunk_files), self.data_dir
             )
-            df = pd.concat(
-                [pd.read_csv(p) for p in chunk_files], ignore_index=True
-            )
+            df = pd.concat([pd.read_csv(p) for p in chunk_files], ignore_index=True)
         else:
             raise FileNotFoundError(f"No data found for {contract_name}")
 
@@ -340,10 +335,14 @@ class DataLoader:
 
         if chunk_by:
             if chunk_by not in ("month", "year"):
-                raise ValueError(f"chunk_by must be 'month' or 'year', got {chunk_by!r}")
+                raise ValueError(
+                    f"chunk_by must be 'month' or 'year', got {chunk_by!r}"
+                )
             return self._fetch_chunked(contract_name, start_date, end_date, chunk_by)
 
-        return self._fetch_single(contract_name, start_date, end_date, save_path, use_cache)
+        return self._fetch_single(
+            contract_name, start_date, end_date, save_path, use_cache
+        )
 
     # ------------------------------------------------------------------
     # Internal fetch implementations
@@ -364,7 +363,9 @@ class DataLoader:
         for idx, (suffix, p_start, p_end) in enumerate(periods, 1):
             csv_path = self.data_dir / f"{contract_name}_{suffix}.csv"
             if csv_path.exists():
-                logger.info("[%d/%d] Skipping %s (already exists)", idx, total, csv_path.name)
+                logger.info(
+                    "[%d/%d] Skipping %s (already exists)", idx, total, csv_path.name
+                )
                 all_parts.append(pd.read_csv(csv_path))
                 continue
 
@@ -400,9 +401,7 @@ class DataLoader:
             except Exception as e:
                 logger.warning("Cache load failed: %s. Fetching from database...", e)
 
-        logger.info(
-            "Fetching %s (%s to %s)...", contract_name, start_date, end_date
-        )
+        logger.info("Fetching %s (%s to %s)...", contract_name, start_date, end_date)
         try:
             df = fetch_and_merge_data(contract_name, start_date, end_date)
         except Exception as e:
@@ -410,7 +409,9 @@ class DataLoader:
             return pd.DataFrame()
 
         if df.empty:
-            logger.warning("No data for %s (%s to %s)", contract_name, start_date, end_date)
+            logger.warning(
+                "No data for %s (%s to %s)", contract_name, start_date, end_date
+            )
             return df
 
         df = self._normalize_datetime(df)

@@ -333,8 +333,8 @@ class Preprocessor:
 
         # Calculate RSI using Wilder's Smoothing (RMA)
         # alpha = 1 / period matches TradingView default
-        gain = df["gain"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-        loss = df["loss"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        gain = df["gain"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        loss = df["loss"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
         rs = gain / loss
         df[f"rsi_{period}"] = 100 - (100 / (1 + rs))
@@ -387,13 +387,25 @@ class Preprocessor:
         # Calculate Smoothed components (Wilder's Smoothing)
         # Using Wilder's Smoothing (RMA) to match TradingView ADX calculation
         # alpha = 1 / period
-        df["tr_smooth"] = df["tr"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-        df["plus_dm_smooth"] = df["plus_dm"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-        df["minus_dm_smooth"] = df["minus_dm"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        df["tr_smooth"] = (
+            df["tr"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        )
+        df["plus_dm_smooth"] = (
+            df["plus_dm"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        )
+        df["minus_dm_smooth"] = (
+            df["minus_dm"]
+            .ewm(alpha=1 / period, min_periods=period, adjust=False)
+            .mean()
+        )
 
         # Calculate DI
-        df["plus_di"] = 100 * (df["plus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf")))
-        df["minus_di"] = 100 * (df["minus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf")))
+        df["plus_di"] = 100 * (
+            df["plus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf"))
+        )
+        df["minus_di"] = 100 * (
+            df["minus_dm_smooth"] / df["tr_smooth"].replace(0, float("-inf"))
+        )
 
         # Calculate DX
         df["dx"] = (
@@ -401,7 +413,9 @@ class Preprocessor:
         )
 
         # Calculate ADX (Also uses RMA on the DX)
-        df[f"adx_{period}"] = df["dx"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+        df[f"adx_{period}"] = (
+            df["dx"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        )
 
         # Fill NaN
         df[f"adx_{period}"] = df[f"adx_{period}"].fillna(0)
@@ -454,8 +468,10 @@ class Preprocessor:
         df["tr"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
         # Average True Range (uses Wilder's Smoothing/RMA in standard calculations)
-        df[f"atr_{period}"] = df["tr"].ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-        
+        df[f"atr_{period}"] = (
+            df["tr"].ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+        )
+
         # Backward fill the initial NaN values so early indicators aren't completely dropped
         df[f"atr_{period}"] = df[f"atr_{period}"].bfill()
 
@@ -621,7 +637,7 @@ class Preprocessor:
         sq_dev = (tp - df["vwap"]) ** 2
         cum_sq_dev = (sq_dev * df["volume"]).groupby(session_id).cumsum()
         vwap_var = cum_sq_dev / cum_vol.replace(0, float("nan"))
-        df["vwap_std"] = vwap_var ** 0.5
+        df["vwap_std"] = vwap_var**0.5
 
         return df
 

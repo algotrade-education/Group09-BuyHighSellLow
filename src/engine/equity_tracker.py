@@ -105,6 +105,7 @@ class SimpleEquityTracker(EquityTracker):
             DataFrame containing the equity curve history.
         """
         return pd.DataFrame(self._records)
+
     def reset(self) -> None:
         """
         Reset the equity tracker to its initial state.

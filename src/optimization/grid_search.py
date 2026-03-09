@@ -42,8 +42,8 @@ class GridSearch:
     """
     Grid search optimizer for strategy parameters.
 
-    Exhaustively tests all combinations (Cartesian product) of parameters 
-    defined in the search grid. Results are ranked by a specified objective 
+    Exhaustively tests all combinations (Cartesian product) of parameters
+    defined in the search grid. Results are ranked by a specified objective
     metric (Sharpe ratio, Profit Factor, etc.).
 
     Supports:
@@ -114,7 +114,7 @@ class GridSearch:
         """
         Run a single backtest and return normalized results.
 
-        This is a static helper to facilitate parallel execution where 
+        This is a static helper to facilitate parallel execution where
         the strategy must be instantiated within the worker process.
 
         Args:
@@ -169,12 +169,12 @@ class GridSearch:
         """
         Execute the grid search across all parameter combinations.
 
-        The method handles process pooling for parallel efficiency. On Windows, 
-        `n_jobs=1` is recommended for stability unless the calling script 
+        The method handles process pooling for parallel efficiency. On Windows,
+        `n_jobs=1` is recommended for stability unless the calling script
         is properly wrapped in `if __name__ == "__main__":`.
 
         Args:
-            data: Preprocessed backtest data (OHLCV). Indicators should be 
+            data: Preprocessed backtest data (OHLCV). Indicators should be
                   removed if using `indicator_fn`.
             initial_capital: Starting capital for each trial.
             show_progress: If True, displays a tqdm progress bar.
