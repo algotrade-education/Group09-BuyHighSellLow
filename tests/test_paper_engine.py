@@ -1,7 +1,7 @@
 """
 Tests for the paper trading engine modules.
 
-Run with the project's .venv (Python 3.12 — required for quickfix):
+Run with the project's .venv (Python 3.12 - required for quickfix):
     .venv\Scripts\python.exe -m pytest tests/test_paper_engine.py -v
 
 Coverage:
@@ -28,6 +28,8 @@ def make_quote(
     q = MagicMock()
     q.latest_matched_price = price
     q.latest_matched_quantity = volume
+    q.bid_price_1 = price - 1
+    q.ask_price_1 = price + 1
     if ts is not None:
         q.timestamp = ts
     elif dt is not None:
@@ -91,7 +93,7 @@ def make_sim_df(n_bars: int = 20, start: datetime = None) -> pd.DataFrame:
 
 
 class TestBarProvider:
-    """Tests for BarProvider — OHLC accumulation and ATR warmup."""
+    """Tests for BarProvider - OHLC accumulation and ATR warmup."""
 
     def test_invalid_bar_freq_raises(self):
         from src.paper.bar_provider import BarProvider
@@ -187,7 +189,7 @@ class TestBarProvider:
         lunch_dt = datetime(2025, 1, 6, 12, 0, 0)
         lunch_dt2 = datetime(2025, 1, 6, 12, 5, 0)
 
-        # on_quote is the async Redis callback — it checks session time before calling _tick
+        # on_quote is the async Redis callback - it checks session time before calling _tick
         async def run():
             await provider.on_quote("HNXDS:VN30F2601", make_quote(1300.0, dt=lunch_dt))
             await provider.on_quote("HNXDS:VN30F2601", make_quote(1305.0, dt=lunch_dt2))
@@ -236,7 +238,7 @@ class TestBarProvider:
 
 
 class TestPositionTracker:
-    """Tests for PositionTracker — position lifecycle and P&L calculation."""
+    """Tests for PositionTracker - position lifecycle and P&L calculation."""
 
     @pytest.fixture()
     def tracker(self):
@@ -270,7 +272,7 @@ class TestPositionTracker:
     def test_long_pnl_positive_on_price_rise(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(fill_price=1350.0, timestamp=ts, exit_reason="Take Profit")
+        tracker.record_close(fill_price=1350.0, qty=1, timestamp=ts, exit_reason="Take Profit")
 
         trade = tracker.trades[0]
         assert trade.is_closed
@@ -281,7 +283,7 @@ class TestPositionTracker:
     def test_short_pnl_positive_on_price_fall(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="SHORT", timestamp=ts)
-        tracker.record_close(fill_price=1250.0, timestamp=ts, exit_reason="Take Profit")
+        tracker.record_close(fill_price=1250.0, qty=1, timestamp=ts, exit_reason="Take Profit")
 
         trade = tracker.trades[0]
         assert trade.pnl == pytest.approx(50.0, abs=1e-6)
@@ -289,7 +291,7 @@ class TestPositionTracker:
     def test_pnl_negative_on_loss(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(fill_price=1270.0, timestamp=ts, exit_reason="Stop Loss")
+        tracker.record_close(fill_price=1270.0, qty=1, timestamp=ts, exit_reason="Stop Loss")
 
         trade = tracker.trades[0]
         assert trade.pnl == pytest.approx(-30.0, abs=1e-6)
@@ -303,7 +305,7 @@ class TestPositionTracker:
         assert tracker.equity == pytest.approx(capital + 50.0, abs=1e-6)
 
     def test_record_close_while_flat_is_noop(self, tracker):
-        result = tracker.record_close(fill_price=1300.0, timestamp=datetime.now())
+        result = tracker.record_close(fill_price=1300.0, qty=1, timestamp=datetime.now())
         assert result is None
         assert tracker.trades == []
 
@@ -371,7 +373,7 @@ class TestPositionTracker:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PositionTracker — cash accounting correctness
+# PositionTracker - cash accounting correctness
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -381,14 +383,14 @@ class TestPositionTrackerCashAccounting:
 
     These tests use real commission rates and the contract multiplier.
     They are designed to catch double-commission or incorrect gross-PnL
-    accounting bugs — a bug of exactly this type was fixed in record_close.
+    accounting bugs - a bug of exactly this type was fixed in record_close.
 
     Key invariant after any number of completed round-trips:
         final_cash == initial_capital + sum(trade.pnl for trade in closed_trades)
     """
 
     INITIAL = 10_000_000
-    RATE = 0.0003  # 0.03% per leg — realistic VN30 commission rate
+    RATE = 0.0003  # 0.03% per leg - realistic VN30 commission rate
     MULT = 100_000.0  # VN30 contract multiplier
 
     @pytest.fixture()
@@ -410,7 +412,7 @@ class TestPositionTrackerCashAccounting:
         """Cash after a profitable LONG round-trip must equal initial + trade.pnl."""
         ts = datetime(2025, 1, 6, 9, 15)
         tracker.record_open(1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(1350.0, timestamp=ts, exit_reason="TP")
+        tracker.record_close(1350.0, qty=1, timestamp=ts, exit_reason="TP")
 
         trade = tracker.trades[0]
         expected_cash = self.INITIAL + trade.pnl
@@ -422,7 +424,7 @@ class TestPositionTrackerCashAccounting:
         """Cash after a losing LONG round-trip must equal initial + trade.pnl (negative)."""
         ts = datetime(2025, 1, 6, 9, 15)
         tracker.record_open(1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(1270.0, timestamp=ts, exit_reason="SL")
+        tracker.record_close(1270.0, qty=1, timestamp=ts, exit_reason="SL")
 
         trade = tracker.trades[0]
         expected_cash = self.INITIAL + trade.pnl
@@ -432,7 +434,7 @@ class TestPositionTrackerCashAccounting:
         """Cash after a profitable SHORT round-trip is correct."""
         ts = datetime(2025, 1, 6, 9, 15)
         tracker.record_open(1300.0, qty=1, side="SHORT", timestamp=ts)
-        tracker.record_close(1250.0, timestamp=ts, exit_reason="TP")
+        tracker.record_close(1250.0, qty=1, timestamp=ts, exit_reason="TP")
 
         trade = tracker.trades[0]
         expected_cash = self.INITIAL + trade.pnl
@@ -443,7 +445,7 @@ class TestPositionTrackerCashAccounting:
         ts = datetime(2025, 1, 6, 9, 15)
         entry, exit_ = 1300.0, 1350.0
         tracker.record_open(entry, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(exit_, timestamp=ts, exit_reason="TP")
+        tracker.record_close(exit_, qty=1, timestamp=ts, exit_reason="TP")
 
         trade = tracker.trades[0]
         gross = (exit_ - entry) * 1 * self.MULT
@@ -461,7 +463,7 @@ class TestPositionTrackerCashAccounting:
         ts = datetime(2025, 1, 6, 9, 15)
         entry, exit_ = 1300.0, 1300.0  # break-even trade (gross = 0)
         tracker.record_open(entry, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(exit_, timestamp=ts, exit_reason="EOD")
+        tracker.record_close(exit_, qty=1, timestamp=ts, exit_reason="EOD")
 
         total_comm = self._calc_comm(entry) + self._calc_comm(exit_)
         expected_cash = self.INITIAL - total_comm
@@ -473,7 +475,7 @@ class TestPositionTrackerCashAccounting:
         """When position is flat, equity should equal cash exactly."""
         ts = datetime(2025, 1, 6, 9, 15)
         tracker.record_open(1300.0, qty=1, side="LONG", timestamp=ts)
-        tracker.record_close(1320.0, timestamp=ts, exit_reason="TP")
+        tracker.record_close(1320.0, qty=1, timestamp=ts, exit_reason="TP")
         tracker.update_unrealized(1320.0)  # re-mark to market (position flat)
 
         assert tracker.equity == pytest.approx(tracker.cash, rel=1e-9)
@@ -503,7 +505,7 @@ class TestPositionTrackerCashAccounting:
             t_open = ts.replace(minute=i * 10)
             t_close = ts.replace(minute=i * 10 + 5)
             tracker.record_open(entry, qty=1, side=side, timestamp=t_open)
-            tracker.record_close(exit_, timestamp=t_close, exit_reason="test")
+            tracker.record_close(exit_, qty=1, timestamp=t_close, exit_reason="test")
 
         total_pnl = sum(t.pnl for t in tracker.trades)
         expected_cash = self.INITIAL + total_pnl
@@ -525,7 +527,7 @@ class TestPositionTrackerCashAccounting:
                 entry, qty=1, side=side, timestamp=ts.replace(minute=i * 10)
             )
             tracker.record_close(
-                exit_, timestamp=ts.replace(minute=i * 10 + 5), exit_reason="test"
+                exit_, qty=1, timestamp=ts.replace(minute=i * 10 + 5), exit_reason="test"
             )
 
         tracker.update_unrealized(0.0)  # position is flat, unrealized = 0
@@ -539,7 +541,7 @@ class TestPositionTrackerCashAccounting:
 
 
 class TestSessionStats:
-    """Tests for SessionStats — metrics computation."""
+    """Tests for SessionStats - metrics computation."""
 
     def _make_tracker_with_trades(self, n_win: int = 3, n_lose: int = 2):
         """Helper: create a PositionTracker with pre-populated closed trades."""
@@ -558,7 +560,7 @@ class TestSessionStats:
             tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
             close_ts = ts.replace(minute=ts.minute + 2)
             tracker.record_close(
-                fill_price=1350.0, timestamp=close_ts, exit_reason="Take Profit"
+                fill_price=1350.0, qty=1, timestamp=close_ts, exit_reason="Take Profit"
             )
             tracker.equity_snapshot(close_ts)
 
@@ -568,7 +570,7 @@ class TestSessionStats:
             tracker.record_open(fill_price=1300.0, qty=1, side="LONG", timestamp=ts)
             close_ts = ts.replace(minute=ts.minute + 2)
             tracker.record_close(
-                fill_price=1270.0, timestamp=close_ts, exit_reason="Stop Loss"
+                fill_price=1270.0, qty=1, timestamp=close_ts, exit_reason="Stop Loss"
             )
             tracker.equity_snapshot(close_ts)
 
