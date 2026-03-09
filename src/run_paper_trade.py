@@ -1,17 +1,22 @@
 """
-Paper trading CLI runner — wires ORB strategy to the live PaperTrader engine.
+Paper trading CLI runner - wires any strategy to the live PaperTrader engine.
 
 Usage:
-    # Live mode (requires Redis + PaperBroker running):
-    python -m src.run_paper_trade --config config/strategy_params/orb_default.json \\
-        --symbol HNXDS:VN30F2601
+    # ORB (default):
+    python -m src.run_paper_trade --strategy orb \\
+        --config config/strategy_params/orb_default.json --symbol HNXDS:VN30F2601
 
-    # Dry-run (FIX/Redis connected but no real orders sent):
-    python -m src.run_paper_trade --config config/strategy_params/orb_default.json \\
-        --symbol HNXDS:VN30F2601 --dry-run
+    # KSB:
+    python -m src.run_paper_trade --strategy ksb \\
+        --config config/strategy_params/ksb_default.json --symbol HNXDS:VN30F2601
+
+    # VWAP:
+    python -m src.run_paper_trade --strategy vwap \\
+        --config config/strategy_params/vwap_default.json --symbol HNXDS:VN30F2601
 
     # Sim mode (replay historical in-sample data, no Redis needed):
-    python -m src.run_paper_trade --config config/strategy_params/orb_default.json \\
+    python -m src.run_paper_trade --strategy vwap \\
+        --config config/strategy_params/vwap_default.json \\
         --symbol HNXDS:VN30F2601 --sim --sample is
 """
 
@@ -25,10 +30,15 @@ from dotenv import load_dotenv
 
 from config.config import DEFAULT_INITIAL_CAPITAL
 from src.paper.engine import PaperTrader
+from src.strategy.base import Strategy
 from src.utils.cli_helpers import (
+    build_ksb_strategy,
     build_orb_strategy,
+    build_vwap_strategy,
+    load_ksb_config_context,
     load_orb_config_context,
     load_sample_data,
+    load_vwap_config_context,
     prepare_backtest_dataset,
 )
 from src.utils.logger import setup_logging
@@ -52,7 +62,7 @@ def _build_clients(dry_run: bool):
     sub_account = os.getenv("PAPER_ACCOUNT_ID_D1", "D1")
 
     # Resolve the correct fixAccountID from the broker REST API first.
-    # The server validates SenderCompID against this UUID — using the .env value directly
+    # The server validates SenderCompID against this UUID - using the .env value directly
     # causes an immediate FIX logout before wait_until_logged_on() can succeed.
     resolved_sender = resolve_fix_sender_comp_id(rest_url, username, password)
     sender = resolved_sender or env_sender
@@ -95,12 +105,33 @@ def _build_clients(dry_run: bool):
     return client, redis_client
 
 
+_CONFIG_LOADERS = {
+    "orb": load_orb_config_context,
+    "ksb": load_ksb_config_context,
+    "vwap": load_vwap_config_context,
+}
+
+_STRATEGY_BUILDERS = {
+    "orb": build_orb_strategy,
+    "ksb": build_ksb_strategy,
+    "vwap": build_vwap_strategy,
+}
+
+_DEFAULT_CONFIGS = {
+    "orb": "config/strategy_params/orb_default.json",
+    "ksb": "config/strategy_params/ksb_default.json",
+    "vwap": "config/strategy_params/vwap_default.json",
+}
+
+
 async def main(args: argparse.Namespace) -> None:
     load_dotenv()
 
-    # Load config
-    config, strategy_params, resample_freq = load_orb_config_context(args.config)
-    strategy = build_orb_strategy(strategy_params)
+    strat_key = args.strategy
+    config_path = args.config or _DEFAULT_CONFIGS[strat_key]
+
+    config, strategy_params, resample_freq = _CONFIG_LOADERS[strat_key](config_path)
+    strategy: Strategy = _STRATEGY_BUILDERS[strat_key](strategy_params)
 
     sim_df = None
 
@@ -125,6 +156,31 @@ async def main(args: argparse.Namespace) -> None:
         # ── Live mode: build real clients ─────────────────────────────────
         client, redis_client = _build_clients(dry_run=args.dry_run)
 
+        # Pre-load historical data for indicator warmup
+        historical_df = None
+        from datetime import datetime, timedelta
+        from src.database.data_service import fetch_and_merge_data
+
+        logger.info("Fetching recent history for indicator warmup...")
+        # Fetch last 3 days to be safe (covering weekends)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=2)
+        
+        # Database stores continuous futures data under VN30F1M, not the specific contract code (e.g., VN30F2601)
+        contract = args.symbol.split(":")[-1]
+        db_symbol = "VN30F1M" if contract.startswith("VN30F") else contract
+
+        raw = fetch_and_merge_data(
+            contract_name=db_symbol,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d"),
+        )
+        if not raw.empty:
+            historical_df = prepare_backtest_dataset(raw, strategy_params, resample_freq)
+            logger.info("Fetched %d historical bars for warmup using symbol %s.", len(historical_df), db_symbol)
+        else:
+            logger.warning("No recent history found for warmup using symbol %s! Strategy starts cold.", db_symbol)
+
         trader = PaperTrader(
             strategy=strategy,
             symbol=args.symbol,
@@ -144,20 +200,29 @@ async def main(args: argparse.Namespace) -> None:
     )
 
     try:
-        await trader.start(sim_df=sim_df)
+        if args.sim:
+            await trader.start(sim_df=sim_df)
+        else:
+            await trader.start(historical_df=historical_df)
     except KeyboardInterrupt:
-        logger.info("Interrupted — stopping…")
+        logger.info("Interrupted - stopping…")
         await trader.stop()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run ORB paper trading (live, dry-run, or sim)."
+        description="Run paper trading (live, dry-run, or sim) for any strategy."
+    )
+    parser.add_argument(
+        "--strategy",
+        choices=["orb", "ksb", "vwap"],
+        default="orb",
+        help="Strategy to run: orb, ksb, or vwap (default: orb).",
     )
     parser.add_argument(
         "--config",
-        default="config/strategy_params/orb_default.json",
-        help="Path to strategy config file.",
+        default=None,
+        help="Path to strategy config file (uses strategy default if omitted).",
     )
     parser.add_argument(
         "--symbol",

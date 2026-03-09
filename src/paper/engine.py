@@ -1,10 +1,10 @@
 """
-PaperTrader — main async engine for live ORB paper trading.
+PaperTrader - main async engine for live ORB paper trading.
 
 Two modes:
-  live  — subscribes to Redis market data (RedisMarketDataClient)
+  live  - subscribes to Redis market data (RedisMarketDataClient)
            and submits real FIX orders via PaperBrokerClient.
-  sim   — replays a historical OHLC DataFrame through the BarProvider
+  sim   - replays a historical OHLC DataFrame through the BarProvider
            (useful when Redis is unavailable or for strategy testing).
 
 Usage (live):
@@ -93,7 +93,7 @@ class PaperTrader:
         )
 
         self._order_mgr = OrderManager(
-            client=client,  # type: ignore — may be None in sim mode
+            client=client,  # type: ignore - may be None in sim mode
             tracker=self._tracker,
             symbol=symbol,
             dry_run=dry_run,
@@ -114,22 +114,22 @@ class PaperTrader:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def start(self, sim_df: Optional["pd.DataFrame"] = None) -> None:
+    async def start(self, historical_df: Optional["pd.DataFrame"] = None, sim_df: Optional["pd.DataFrame"] = None) -> None:
         """
         Start the paper trading engine.
 
         Args:
-            sim_df: If provided, run in sim mode replaying this DataFrame.
-                    If None, run in live mode (requires client + redis_client).
+            historical_df: (Live mode) Recent historical bars for indicator warmup.
+            sim_df: (Sim mode) Replay this DataFrame instead of live market data.
         """
         self._running = True
 
         if sim_df is not None:
             await self._run_sim(sim_df)
         else:
-            await self._run_live()
+            await self._run_live(historical_df)
 
-    async def _run_live(self) -> None:
+    async def _run_live(self, historical_df: Optional["pd.DataFrame"] = None) -> None:
         """Run live mode: connect FIX, subscribe Redis, and process incoming quotes."""
         if self._client is None or self._redis_client is None:
             logger.error(
@@ -137,6 +137,27 @@ class PaperTrader:
                 "Use --sim flag if Redis is not available."
             )
             return
+
+        # Inject historical data for indicator warmup BEFORE live ticks arrive
+        if historical_df is not None and not historical_df.empty:
+            logger.info("Injecting %d historical bars for BarProvider warmup...", len(historical_df))
+            self._bar_provider.preload_history(historical_df)
+
+            # Warm up strategy internal state (e.g. ORB session range)
+            logger.info("Warming up strategy internal state...")
+            for row in historical_df.to_dict(orient="records"):
+                try:
+                    self.strategy.generate_signal(
+                        bar=row, 
+                        current_position=self._tracker.position,
+                        is_warmup=True
+                    )
+                except Exception:
+                    pass
+
+        # Synchronize current broker state (Open Positions / Pending Orders)
+        if not self.dry_run:
+            self._sync_broker_state()
 
         # FIX connection
         if not self.dry_run:
@@ -167,7 +188,8 @@ class PaperTrader:
         logger.info("📡 Listening for %s quotes (press Ctrl+C to stop)…", self.symbol)
         try:
             while self._running:
-                # Emit equity snapshot every bar (BarProvider callback handles this)
+                # Force clock-aligned bar rollovers (resolves illiquid market tick delays)
+                self._bar_provider.check_time()
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             pass
@@ -184,6 +206,46 @@ class PaperTrader:
         )
         await self._bar_provider.replay(sim_df, speed=0.0)
         await self.stop()
+
+    def _sync_broker_state(self) -> None:
+        """
+        Fetch current portfolio and orders from PaperBroker to initialize
+        the PositionTracker and OrderManager on startup.
+        """
+        if self._client is None or self.dry_run:
+            return
+
+        logger.info("Synchronizing broker state for %s...", self.symbol)
+
+        # 1. Sync Positions
+        try:
+            port_res = self._client.get_portfolio_by_sub()
+            if port_res.get("success"):
+                items = port_res.get("items", [])
+                for item in items:
+                    if item.get("instrument") == self.symbol:
+                        qty = float(item.get("quantity", 0))
+                        avg_price = float(item.get("avgPrice") or item.get("totalCost", 0) / (qty or 1))
+                        self._tracker.sync_position(qty, avg_price)
+                        logger.info("Synced Position: %s @ %.2f", qty, avg_price)
+                        break
+            else:
+                logger.warning("Failed to sync portfolio: %s", port_res.get("error"))
+        except Exception as exc:
+            logger.error("Error syncing portfolio: %s", exc)
+
+        # 2. Sync Orders
+        try:
+            from datetime import datetime
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            ord_res = self._client.get_orders(today_str, today_str)
+            if ord_res.get("success"):
+                orders = ord_res.get("items", [])
+                self._order_mgr.sync_open_orders(orders)
+            else:
+                logger.warning("Failed to sync orders: %s", ord_res.get("error"))
+        except Exception as exc:
+            logger.error("Error syncing orders: %s", exc)
 
     async def stop(self) -> None:
         """Stop the engine, attempt cleanup, and print session statistics."""
@@ -217,16 +279,35 @@ class PaperTrader:
         dt: datetime = bar.get("datetime", datetime.now())
         close = float(bar.get("close", 0))
 
+        # Extract indicators for logging
+        atr_key = f"atr_{self.config.get('strategy', {}).get('atr_period', 14)}"
+        atr = bar.get(atr_key, 0.0)
+        volume = bar.get("volume", 0.0)
+        
+        # Build extra info string from available bar items (e.g. adx, rsi from strategy if present)
+        extras = []
+        adx_key = f"adx_{self.config.get('strategy', {}).get('adx_period', 14)}"
+        if adx_key in bar:
+            extras.append(f"adx={bar[adx_key]:.1f}")
+        rsi_key = f"rsi_{self.config.get('strategy', {}).get('rsi_period', 14)}"
+        if rsi_key in bar:
+            extras.append(f"rsi={bar[rsi_key]:.1f}")
+            
+        extra_str = f" | {', '.join(extras)}" if extras else ""
+
         # Update unrealized P&L and take equity snapshot
         self._tracker.update_unrealized(close)
         self._tracker.equity_snapshot(dt)
 
         self._bars_processed += 1
-        logger.debug(
-            "Bar %d: %s close=%.2f | position=%s | equity=%.0f",
+        logger.info(
+            "Bar %d: %s close=%.2f vol=%.0f atr=%.2f%s | position=%s | equity=%.0f",
             self._bars_processed,
             dt.strftime("%Y-%m-%d %H:%M"),
             close,
+            volume,
+            atr,
+            extra_str,
             self._tracker.position.side.value,
             self._tracker.equity,
         )
@@ -251,9 +332,26 @@ class PaperTrader:
             return
 
         if signal.signal in (Signal.LONG, Signal.SHORT) and self._tracker.is_flat:
+            logger.info(
+                "Strategy signal: %s | close=%.2f | reason=%s",
+                signal.signal.name,
+                close,
+                signal.reason or "N/A",
+            )
             self._submit_entry(signal, bar)
         elif signal.signal == Signal.CLOSE and not self._tracker.is_flat:
+            logger.info(
+                "Strategy signal: CLOSE | close=%.2f | reason=%s",
+                close,
+                signal.reason or "N/A",
+            )
             self._order_mgr.submit_exit(reason="Strategy Close")
+        elif signal.signal == Signal.HOLD:
+            logger.info(
+                "Strategy signal: HOLD  | position=%s | reason=%s",
+                self._tracker.position.side.value if not self._tracker.is_flat else "FLAT",
+                signal.reason or "No entry/exit criteria met",
+            )
 
     def _submit_entry(self, signal, bar: Dict[str, Any]) -> None:
         """Compute position size from risk config and submit entry order."""

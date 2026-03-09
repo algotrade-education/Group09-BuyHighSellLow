@@ -1,9 +1,9 @@
 """
-BarProvider — rolling OHLC bar builder for live paper trading.
+BarProvider - rolling OHLC bar builder for live paper trading.
 
 Two modes:
-  * live   — subscribes to RedisMarketDataClient and builds bars from QuoteSnapshot ticks.
-  * sim    — replays a pre-loaded OHLC DataFrame (historical data) bar-by-bar.
+  * live   - subscribes to RedisMarketDataClient and builds bars from QuoteSnapshot ticks.
+  * sim    - replays a pre-loaded OHLC DataFrame (historical data) bar-by-bar.
 
 In both modes, completed bars are enriched with ATR via Preprocessor before being
 handed to the PaperTrader engine callback.
@@ -11,8 +11,10 @@ handed to the PaperTrader engine callback.
 
 import asyncio
 import logging
+import os
 from collections import deque
 from datetime import datetime, time
+from time import monotonic
 from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
@@ -101,8 +103,22 @@ class BarProvider:
         self._warmup = atr_period + 1
         self._bars_emitted = 0
 
+        # Optional quote diagnostics for live subscribe quality checks.
+        # Enable with PAPER_DEBUG_QUOTES=1.
+        self._debug_quotes = os.getenv("PAPER_DEBUG_QUOTES", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self._quote_callbacks = 0
+        self._quote_with_trade_price = 0
+        self._quote_with_bidask = 0
+        self._quote_dropped_no_trade_price = 0
+        self._quote_last_diag_ts = monotonic()
+
     # ------------------------------------------------------------------
-    # Live mode — async callback for RedisMarketDataClient.subscribe()
+    # Live mode - async callback for RedisMarketDataClient.subscribe()
     # ------------------------------------------------------------------
 
     async def on_quote(self, instrument: str, quote: Any) -> None:
@@ -114,22 +130,51 @@ class BarProvider:
             instrument: Symbol string (e.g. 'HNXDS:VN30F2601').
             quote:      QuoteSnapshot from RedisMarketDataClient (merged mode).
         """
+        bid = getattr(quote, "bid_price_1", None)
+        ask = getattr(quote, "ask_price_1", None)
         price = quote.latest_matched_price
+
+        self._quote_callbacks += 1
+        if (bid is not None and bid > 0) or (ask is not None and ask > 0):
+            self._quote_with_bidask += 1
+
         if price is None or price <= 0:
+            self._quote_dropped_no_trade_price += 1
+            self._log_quote_diagnostics(instrument)
             return
 
+        self._quote_with_trade_price += 1
+
         # Derive timestamp
-        if quote.timestamp is not None:
-            # Unix timestamp (UTC+0) → local naive datetime
-            dt = datetime.fromtimestamp(quote.timestamp)
-        else:
-            dt = datetime.now()
+        # Always use local system time for live bar bucketing to prevent 
+        # stale trade timestamps from delaying bar emission.
+        dt = datetime.now()
 
         if not _in_session(dt.time()):
             return
 
         volume = float(quote.latest_matched_quantity or 0.0)
         self._tick(dt, price, volume)
+        self._log_quote_diagnostics(instrument)
+
+    def _log_quote_diagnostics(self, instrument: str) -> None:
+        """Periodically log subscribe callback quality metrics when enabled."""
+        if not self._debug_quotes:
+            return
+
+        now = monotonic()
+        if (now - self._quote_last_diag_ts) <= 15 and self._quote_callbacks % 100 != 0:
+            return
+
+        self._quote_last_diag_ts = now
+        logger.info(
+            "Quote diag | %s | callbacks=%d trade_px=%d bidask=%d dropped_no_trade_px=%d",
+            instrument,
+            self._quote_callbacks,
+            self._quote_with_trade_price,
+            self._quote_with_bidask,
+            self._quote_dropped_no_trade_price,
+        )
 
     def _tick(self, dt: datetime, price: float, volume: float) -> None:
         """Process a single price tick and accumulate into the current bar."""
@@ -139,7 +184,7 @@ class BarProvider:
             # First tick ever
             self._start_bar(bucket, price)
         elif bucket != self._current_bucket:
-            # New bar started — emit the completed bar first
+            # New bar started - emit the completed bar first
             self._emit_bar()
             self._start_bar(bucket, price)
 
@@ -183,9 +228,9 @@ class BarProvider:
             logger.debug("Warming up (%d/%d bars)…", len(self._history), self._warmup)
             return
 
-        # Build DataFrame and add ATR
+        # Build DataFrame and add indicators
         df = pd.DataFrame(self._history)
-        df = self._preprocessor.add_atr(df, period=self.atr_period, copy=True)
+        df = self._preprocessor.add_all_indicators(df, copy=True)
 
         # Take the last row as the bar dict
         bar = df.iloc[-1].to_dict()
@@ -197,8 +242,85 @@ class BarProvider:
             except Exception as exc:
                 logger.error("on_bar callback raised: %s", exc, exc_info=True)
 
+    def check_time(self) -> None:
+        """
+        Called periodically (e.g. every second).
+        If the current system time crosses into a new bucket,
+        close the current bar and start a new empty one, keeping the time aligned.
+        """
+        if self._current_bucket is None:
+            return
+
+        now = datetime.now()
+        from datetime import timedelta
+
+        if not _in_session(now.time()):
+            # If we just crossed out of a session (e.g. exactly 11:30:00)
+            expected_bucket = _bar_bucket(now, self.freq_minutes)
+            if expected_bucket > self._current_bucket:
+                self._emit_bar()
+                self._current_bucket = None
+            return
+
+        expected_bucket = _bar_bucket(now, self.freq_minutes)
+        
+        while expected_bucket > self._current_bucket:
+            self._emit_bar()
+            next_bucket = self._current_bucket + timedelta(minutes=self.freq_minutes)
+            
+            if not _in_session(next_bucket.time()):
+                self._current_bucket = None
+                break
+                
+            self._start_bar(next_bucket, self._bar_close)
+
     # ------------------------------------------------------------------
-    # Sim mode — replay a historical OHLC DataFrame
+    # Pre-load History (Cold Start Fix)
+    # ------------------------------------------------------------------
+
+    def preload_history(self, df: pd.DataFrame) -> None:
+        """
+        Inject historical bars directly into the provider's history.
+        This solves the "cold start" (indicator warmup) problem without triggering `on_bar`.
+        """
+        if df.empty:
+            logger.info("BarProvider.preload_history(): empty DataFrame, no history loaded.")
+            return
+
+        required = {"datetime", "open", "high", "low", "close"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"History DataFrame missing columns: {missing}")
+
+        for row in df.itertuples(index=False):
+            dt: datetime = (
+                row.datetime
+                if isinstance(row.datetime, datetime)
+                else pd.Timestamp(row.datetime).to_pydatetime()
+            )
+            
+            # Use raw datetimes if they are already buckets, otherwise bucket them
+            bucket = _bar_bucket(dt, self.freq_minutes)
+
+            raw = {
+                "datetime": bucket,
+                "open": float(row.open),
+                "high": float(row.high),
+                "low": float(row.low),
+                "close": float(row.close),
+                "volume": float(getattr(row, "volume", 0) or 0),
+            }
+            self._history.append(raw)
+
+        # Keep only as much history as needed
+        max_history = self._warmup * 3
+        if len(self._history) > max_history:
+            self._history = self._history[-max_history:]
+
+        logger.info("Preloaded %d historical bars for indicator warmup.", len(self._history))
+
+    # ------------------------------------------------------------------
+    # Sim mode - replay a historical OHLC DataFrame
     # ------------------------------------------------------------------
 
     async def replay(
@@ -269,8 +391,8 @@ class BarProvider:
                 continue
 
             df_hist = pd.DataFrame(self._history)
-            df_hist = self._preprocessor.add_atr(
-                df_hist, period=self.atr_period, copy=True
+            df_hist = self._preprocessor.add_all_indicators(
+                df_hist, copy=True
             )
             bar = df_hist.iloc[-1].to_dict()
             self._bars_emitted += 1
