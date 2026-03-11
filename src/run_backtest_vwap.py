@@ -179,8 +179,11 @@ if __name__ == "__main__":
     logger.info("Loaded configuration from %s", args.config)
 
     data = load_sample_data(sample=args.sample, contract=args.contract)
+    
     logger.info(
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
-    data = prepare_backtest_dataset(data, strategy_params, resample_freq)
+
+    data, _ = prepare_backtest_dataset(data, strategy_params, resample_freq)
+
     run_backtest(data, config)

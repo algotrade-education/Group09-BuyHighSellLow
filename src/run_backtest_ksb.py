@@ -189,6 +189,6 @@ if __name__ == "__main__":
         "Resampling %s data for %s to %s...", args.sample, args.contract, resample_freq
     )
 
-    data = prepare_backtest_dataset(data, strategy_params, resample_freq)
+    data, _ = prepare_backtest_dataset(data, strategy_params, resample_freq)
 
     run_backtest(data, config)
