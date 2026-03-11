@@ -62,3 +62,42 @@ CLOSE_QUERY = """
         date(c.datetime) BETWEEN %s AND %s
     ORDER BY c.datetime;
 """
+
+# Parameters:
+# 1. futurecode (str): The common contract code (e.g., 'VN30F1M')
+# 2. start_datetime (timestamp): Inclusive lower bound
+# 3. end_datetime (timestamp): Exclusive upper bound
+MATCHED_RANGE_QUERY = """
+    SELECT m.datetime, m.tickersymbol, m.price, v.quantity
+    FROM quote.matched m
+    JOIN quote.futurecontractcode fc ON
+        date(m.datetime) = fc.datetime AND
+        m.tickersymbol = fc.tickersymbol
+    LEFT JOIN quote.total v ON
+        m.tickersymbol = v.tickersymbol AND
+        m.datetime = v.datetime
+    WHERE
+        fc.futurecode = %s AND
+        m.datetime >= %s AND
+        m.datetime < %s
+    ORDER BY m.datetime;
+"""
+
+# Parameters:
+# 1. futurecode (str): The common contract code (e.g., 'VN30F1M')
+# 2. before_datetime (timestamp): Exclusive upper bound
+MATCHED_LAST_BEFORE_QUERY = """
+    SELECT m.datetime, m.tickersymbol, m.price, v.quantity
+    FROM quote.matched m
+    JOIN quote.futurecontractcode fc ON
+        date(m.datetime) = fc.datetime AND
+        m.tickersymbol = fc.tickersymbol
+    LEFT JOIN quote.total v ON
+        m.tickersymbol = v.tickersymbol AND
+        m.datetime = v.datetime
+    WHERE
+        fc.futurecode = %s AND
+        m.datetime < %s
+    ORDER BY m.datetime DESC
+    LIMIT 1;
+"""
