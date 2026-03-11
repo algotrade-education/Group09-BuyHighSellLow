@@ -26,13 +26,15 @@ from config.config import (
     COMMISSION_RATE,
     CONTRACT_MULTIPLIER,
     DEFAULT_INITIAL_CAPITAL,
-    MARGIN_RATE,
 )
 from src.paper.bar_provider import BarProvider
+from src.paper.bar_fallback import load_fallback_bar_for_bucket
+from src.paper.broker_sync import sync_broker_state
 from src.paper.order_manager import OrderManager
 from src.paper.position_tracker import PositionTracker
 from src.paper.stats import SessionStats
-from src.strategy.base import Signal, Strategy
+from src.engine.position_sizer import FixedSizer, PercentRiskSizer, PositionSizer
+from src.strategy.base import Signal, Strategy, TradeSignal
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -87,7 +89,7 @@ class PaperTrader:
 
         # Determine position sizing from config
         risk = config.get("risk", {})
-        self._qty: int = risk.get("min_position_size", 1)
+        self._position_sizer = self._build_position_sizer(risk)
 
         # Sub-components
         self._tracker = PositionTracker(
@@ -108,16 +110,62 @@ class PaperTrader:
             bar_freq=bar_freq,
             atr_period=atr_period,
             on_bar=self._on_new_bar,
+            fallback_bar_provider=self._fallback_bar_for_bucket,
         )
 
         self._stats = SessionStats(self._tracker)
         self._running = False
         self._bars_processed = 0
         self._last_close: float = 0.0
+        self._enable_db_bar_fallback = os.getenv(
+            "PAPER_ENABLE_DB_BAR_FALLBACK", "1"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        self._force_hard_exit = os.getenv(
+            "PAPER_FORCE_HARD_EXIT", "0"
+        ).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _build_position_sizer(self, risk: Dict[str, Any]) -> PositionSizer:
+        """Build position sizer from risk config for paper trading entries."""
+        risk_pct = float(risk.get("risk_per_trade_pct", 0.0) or 0.0)
+        min_size = int(risk.get("min_position_size", 1) or 1)
+        max_size = int(
+            risk.get("max_position_size", max(min_size, 1)) or max(min_size, 1)
+        )
+
+        if risk_pct > 0:
+            logger.info(
+                "PaperTrader using PercentRiskSizer: %.2f%% risk per trade (min=%d max=%d)",
+                risk_pct,
+                min_size,
+                max_size,
+            )
+            return PercentRiskSizer(
+                risk_per_trade_pct=risk_pct,
+                min_size=min_size,
+                max_size=max_size,
+            )
+
+        logger.info("PaperTrader using FixedSizer: size=%d", min_size)
+        return FixedSizer(size=min_size)
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def _fallback_bar_for_bucket(self, bucket_dt: datetime) -> Optional[Dict[str, Any]]:
+        """Load a closed bar from DB when live Redis delivered no trade ticks."""
+        return load_fallback_bar_for_bucket(
+            symbol=self.symbol,
+            bucket_dt=bucket_dt,
+            freq_minutes=self._bar_provider.freq_minutes,
+            enabled=self._enable_db_bar_fallback,
+            logger=logger,
+        )
 
     async def start(
         self,
@@ -195,7 +243,7 @@ class PaperTrader:
                 err = self._client.last_logon_error()
                 logger.error("FIX logon failed: %s", err)
                 return
-            logger.info("✅ FIX session established.")
+            logger.info("FIX session established.")
             # Wire execution report handler
             self._client.on("fix:execution_report", self._order_mgr.on_execution_report)
         else:
@@ -213,14 +261,16 @@ class PaperTrader:
             )
             return
 
-        logger.info("📡 Listening for %s quotes (press Ctrl+C to stop)…", self.symbol)
+        logger.info("Listening for %s quotes (press Ctrl+C to stop)…", self.symbol)
         try:
             while self._running:
                 # Force clock-aligned bar rollovers (resolves illiquid market tick delays)
                 self._bar_provider.check_time()
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
-            pass
+            logger.info("Live loop cancelled.")
+        except Exception as exc:
+            logger.error("Unhandled exception in live loop: %s", exc, exc_info=True)
         finally:
             await self.stop()
 
@@ -243,41 +293,13 @@ class PaperTrader:
         if self._client is None or self.dry_run:
             return
 
-        logger.info("Synchronizing broker state for %s...", self.symbol)
-
-        # 1. Sync Positions
-        try:
-            port_res = self._client.get_portfolio_by_sub()
-            if port_res.get("success"):
-                items = port_res.get("items", [])
-                for item in items:
-                    if item.get("instrument") == self.symbol:
-                        qty = float(item.get("quantity", 0))
-                        avg_price = float(
-                            item.get("avgPrice")
-                            or item.get("totalCost", 0) / (qty or 1)
-                        )
-                        self._tracker.sync_position(qty, avg_price)
-                        logger.info("Synced Position: %s @ %.2f", qty, avg_price)
-                        break
-            else:
-                logger.warning("Failed to sync portfolio: %s", port_res.get("error"))
-        except Exception as exc:
-            logger.error("Error syncing portfolio: %s", exc)
-
-        # 2. Sync Orders
-        try:
-            from datetime import datetime
-
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            ord_res = self._client.get_orders(today_str, today_str)
-            if ord_res.get("success"):
-                orders = ord_res.get("items", [])
-                self._order_mgr.sync_open_orders(orders)
-            else:
-                logger.warning("Failed to sync orders: %s", ord_res.get("error"))
-        except Exception as exc:
-            logger.error("Error syncing orders: %s", exc)
+        sync_broker_state(
+            client=self._client,
+            symbol=self.symbol,
+            tracker=self._tracker,
+            order_manager=self._order_mgr,
+            logger=logger,
+        )
 
     async def stop(self) -> None:
         """Stop the engine, attempt cleanup, and print session statistics."""
@@ -298,13 +320,15 @@ class PaperTrader:
             except Exception:
                 pass
 
-        if self._client is not None and not self.dry_run:
+        self._stats.print_summary()
+
+        if self._client is not None and not self.dry_run and self._force_hard_exit:
             try:
-                os._exit(0)  # Avoid QuickFIX cleanup segfault (see connect.py)
+                os._exit(
+                    0
+                )  # Optional: avoid QuickFIX cleanup segfault (see connect.py)
             except Exception:
                 pass
-
-        self._stats.print_summary()
 
     # ------------------------------------------------------------------
     # Bar callback (called by BarProvider for each completed bar)
@@ -320,6 +344,7 @@ class PaperTrader:
         atr_key = f"atr_{self.config.get('strategy', {}).get('atr_period', 14)}"
         atr = bar.get(atr_key, 0.0)
         volume = bar.get("volume", 0.0)
+        volume_ma_20 = bar.get("volume_ma_20", 0.0)
 
         # Build extra info string from available bar items (e.g. adx, rsi from strategy if present)
         extras = []
@@ -338,11 +363,12 @@ class PaperTrader:
 
         self._bars_processed += 1
         logger.info(
-            "Bar %d: %s close=%.2f vol=%.0f atr=%.2f%s | position=%s | equity=%.0f",
+            "Bar %d: %s close=%.2f vol=%.0f vol_ma20=%.1f atr=%.2f%s | position=%s | equity=%.0f",
             self._bars_processed,
             dt.strftime("%Y-%m-%d %H:%M"),
             close,
             volume,
+            volume_ma_20,
             atr,
             extra_str,
             self._tracker.position.side.value,
@@ -385,28 +411,27 @@ class PaperTrader:
             self._order_mgr.submit_exit(reason="Strategy Close", price=close)
         elif signal.signal == Signal.HOLD:
             logger.info(
-                "Strategy signal: HOLD  | position=%s | reason=%s",
+                "Strategy signal: HOLD  | position=%s | vol=%.0f vol_ma20=%.1f | reason=%s",
                 self._tracker.position.side.value
                 if not self._tracker.is_flat
                 else "FLAT",
+                volume,
+                volume_ma_20,
                 signal.reason or "No entry/exit criteria met",
             )
 
-    def _submit_entry(self, signal, bar: Dict[str, Any]) -> None:
-        """Compute position size from risk config and submit entry order."""
-        qty = self._qty
-        # Simple percent-risk sizing if configured
-        risk = self.config.get("risk", {})
-        risk_pct = risk.get("risk_per_trade_pct", 0.0)
-        if risk_pct > 0 and signal.stop_loss and signal.stop_loss > 0:
-            entry = float(bar.get("close", 0))
-            sl_dist = abs(entry - signal.stop_loss) * CONTRACT_MULTIPLIER
-            if sl_dist > 0:
-                risk_amount = self._tracker.equity * (risk_pct / 100)
-                qty = max(1, int(risk_amount / sl_dist))
-            max_qty = risk.get("max_position_size", 10)
-            min_qty = risk.get("min_position_size", 1)
-            qty = min(max_qty, max(min_qty, qty))
+    def _submit_entry(self, signal: TradeSignal, bar: Dict[str, Any]) -> None:
+        """Compute position size from configured PositionSizer and submit entry order."""
+        entry_price = float(bar.get("close", 0.0) or 0.0)
+        qty = self._position_sizer.calculate_size(
+            equity=self._tracker.equity,
+            entry_price=entry_price,
+            stop_loss=signal.stop_loss,
+            contract_multiplier=CONTRACT_MULTIPLIER,
+        )
+        if qty <= 0:
+            logger.warning("Skipping entry: PositionSizer returned invalid qty=%d", qty)
+            return
 
         self._order_mgr.submit_entry(signal, qty=qty, bar=bar)
 
