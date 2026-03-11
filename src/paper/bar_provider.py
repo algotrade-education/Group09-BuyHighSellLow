@@ -17,8 +17,7 @@ Core Functions:
 import asyncio
 import logging
 import os
-from collections import deque
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional
 
@@ -40,6 +39,7 @@ _FREQ_MINUTES: Dict[str, int] = {
     "5min": 5,
     "15min": 15,
     "30min": 30,
+    "1h": 60,
 }
 
 
@@ -80,6 +80,9 @@ class BarProvider:
         bar_freq: str = "5min",
         atr_period: int = 14,
         on_bar: Optional[Callable[[Dict[str, Any]], None]] = None,
+        fallback_bar_provider: Optional[
+            Callable[[datetime], Optional[Dict[str, Any]]]
+        ] = None,
     ):
         """
         Args:
@@ -96,6 +99,7 @@ class BarProvider:
         self.freq_minutes = _FREQ_MINUTES[bar_freq]
         self.atr_period = atr_period
         self.on_bar = on_bar
+        self._fallback_bar_provider = fallback_bar_provider
 
         self._preprocessor = Preprocessor(atr_period=atr_period)
 
@@ -106,6 +110,25 @@ class BarProvider:
         self._bar_low: float = float("inf")
         self._bar_close: float = 0.0
         self._bar_volume: float = 0.0
+
+        # Recovery and quality tracking for live bars
+        self._bar_has_live_trade: bool = False
+        self._bar_trade_count: int = 0
+        self._bar_first_trade_ts: Optional[datetime] = None
+        self._bar_last_trade_ts: Optional[datetime] = None
+        self._bar_prev_trade_ts: Optional[datetime] = None
+        self._bar_max_gap_seconds: float = 0.0
+        self._bar_db_merged: bool = False
+
+        default_stale_seconds = max(5, int(self.freq_minutes * 60 * 0.1))
+        self._stale_trade_seconds = float(
+            os.getenv("PAPER_BAR_STALE_SECONDS", str(default_stale_seconds))
+        )
+        default_preclose_seconds = max(2, int(self._stale_trade_seconds))
+        self._preclose_db_fetch_seconds = float(
+            os.getenv("PAPER_BAR_PRECLOSE_FETCH_SECONDS", str(default_preclose_seconds))
+        )
+        self._min_live_updates = int(os.getenv("PAPER_BAR_MIN_UPDATES", "2"))
 
         # History of completed raw bars (for ATR calc)
         self._history: List[Dict[str, Any]] = []
@@ -209,8 +232,26 @@ class BarProvider:
             self._bar_high = price
         if price < self._bar_low:
             self._bar_low = price
+
         self._bar_close = price
         self._bar_volume += volume
+
+        # Recovery logic for live trade detection and gap tracking
+        self._bar_has_live_trade = True
+        self._bar_trade_count += 1
+
+        # Get the first trade timestamp for gap calculations
+        if self._bar_first_trade_ts is None:
+            self._bar_first_trade_ts = dt
+
+        # Update gap tracking with the previous trade timestamp
+        if self._bar_prev_trade_ts is not None:
+            gap_seconds = max(0.0, (dt - self._bar_prev_trade_ts).total_seconds())
+            if gap_seconds > self._bar_max_gap_seconds:
+                self._bar_max_gap_seconds = gap_seconds
+
+        self._bar_prev_trade_ts = dt
+        self._bar_last_trade_ts = dt
 
     def _start_bar(self, bucket: datetime, price: float) -> None:
         self._current_bucket = bucket
@@ -220,10 +261,133 @@ class BarProvider:
         self._bar_close = price
         self._bar_volume = 0.0
 
+        self._bar_has_live_trade = False
+        self._bar_trade_count = 0
+        self._bar_first_trade_ts = None
+        self._bar_last_trade_ts = None
+        self._bar_prev_trade_ts = None
+        self._bar_max_gap_seconds = 0.0
+        self._bar_db_merged = False
+
+    def _db_quality_reasons(self, reference_time: datetime) -> List[str]:
+        """Return data quality reasons that require DB merge for current bucket."""
+        if self._current_bucket is None:
+            return []
+
+        bucket_start = self._current_bucket
+        bucket_end = bucket_start + timedelta(minutes=self.freq_minutes)
+        check_time = min(reference_time, bucket_end)
+
+        reasons: List[str] = []
+        if not self._bar_has_live_trade or self._bar_trade_count == 0:
+            reasons.append("no_live_trade")
+            return reasons
+
+        if self._bar_trade_count < self._min_live_updates:
+            reasons.append("too_few_updates")
+
+        if self._bar_max_gap_seconds >= self._stale_trade_seconds:
+            reasons.append("large_internal_gap")
+
+        if self._bar_first_trade_ts is not None:
+            start_gap = max(
+                0.0, (self._bar_first_trade_ts - bucket_start).total_seconds()
+            )
+            if start_gap >= self._stale_trade_seconds:
+                reasons.append("start_gap")
+
+        if self._bar_last_trade_ts is not None:
+            end_gap = max(0.0, (check_time - self._bar_last_trade_ts).total_seconds())
+            if end_gap >= self._stale_trade_seconds:
+                reasons.append("end_gap")
+
+        return reasons
+
+    def _merge_db_bar_into_current(
+        self,
+        fallback: Dict[str, Any],
+        reasons: List[str],
+        *,
+        final_emit: bool,
+    ) -> None:
+        """Merge DB bucket bar with current Redis-aggregated bar state."""
+        db_open = float(fallback.get("open", self._bar_open))
+        db_high = float(fallback.get("high", self._bar_high))
+        db_low = float(fallback.get("low", self._bar_low))
+        db_close = float(fallback.get("close", self._bar_close))
+        db_volume = float(fallback.get("volume", self._bar_volume))
+
+        if not self._bar_has_live_trade:
+            self._bar_open = db_open
+            self._bar_high = db_high
+            self._bar_low = db_low
+            self._bar_close = db_close
+            self._bar_volume = db_volume
+        else:
+            if "start_gap" in reasons:
+                self._bar_open = db_open
+
+            self._bar_high = max(self._bar_high, db_high)
+            self._bar_low = min(self._bar_low, db_low)
+
+            if "end_gap" in reasons or final_emit:
+                self._bar_close = db_close
+
+            self._bar_volume = max(self._bar_volume, db_volume)
+
+        # Set this flag to prevent multiple merges in the same bar when not final emitting
+        self._bar_db_merged = True
+        logger.warning(
+            "DB bar merge %s for %s | rows=%d | reasons=%s | live_updates=%d max_gap=%.0fs",
+            "final" if final_emit else "preclose",
+            self._current_bucket.strftime("%Y-%m-%d %H:%M")
+            if self._current_bucket
+            else "-",
+            fallback.get("rows", 0),
+            ",".join(reasons) if reasons else "none",
+            self._bar_trade_count,
+            self._bar_max_gap_seconds,
+        )
+
+    def _maybe_merge_db_bar(self, *, now: datetime, final_emit: bool) -> bool:
+        """Fetch DB bar and merge into current bar when quality rules indicate staleness."""
+        if self._current_bucket is None or self._fallback_bar_provider is None:
+            return False
+
+        # Get data quality reasons that indicate the current bar may be stale or incomplete
+        reasons = self._db_quality_reasons(now)
+        if not reasons:
+            return False
+        if self._bar_db_merged and not final_emit:
+            return False
+
+        try:
+            fallback = self._fallback_bar_provider(self._current_bucket)
+        except Exception as exc:
+            logger.warning(
+                "Bar fallback lookup failed for %s: %s",
+                self._current_bucket.strftime("%Y-%m-%d %H:%M"),
+                exc,
+            )
+            return False
+
+        if not fallback:
+            logger.warning(
+                "DB bar merge unavailable for %s | reasons=%s",
+                self._current_bucket.strftime("%Y-%m-%d %H:%M"),
+                ",".join(reasons),
+            )
+            return False
+
+        self._merge_db_bar_into_current(fallback, reasons, final_emit=final_emit)
+        return True
+
     def _emit_bar(self) -> None:
         """Finalise the current bar, add it to history, and call on_bar if warmed up."""
         if self._current_bucket is None:
             return
+
+        self._maybe_merge_db_bar(now=datetime.now(), final_emit=True)
 
         raw = {
             "datetime": self._current_bucket,
@@ -269,6 +433,13 @@ class BarProvider:
 
         now = datetime.now()
         from datetime import timedelta
+
+        if self._current_bucket is not None:
+            # Check if we should pre-merge a DB bar due to staleness before the close of the current bucket
+            bucket_end = self._current_bucket + timedelta(minutes=self.freq_minutes)
+            seconds_to_close = max(0.0, (bucket_end - now).total_seconds())
+            if seconds_to_close <= self._preclose_db_fetch_seconds:
+                self._maybe_merge_db_bar(now=now, final_emit=False)
 
         if not _in_session(now.time()):
             # If we just crossed out of a session (e.g. exactly 11:30:00)
@@ -383,6 +554,15 @@ class BarProvider:
         self._bar_low = float(bar_dict.get("low", 0.0))
         self._bar_close = float(bar_dict.get("close", 0.0))
         self._bar_volume = float(bar_dict.get("volume", 0.0))
+
+        self._bar_has_live_trade = True
+        now_ts = datetime.now()
+        self._bar_trade_count = max(1, int(bar_dict.get("trade_count", 1) or 1))
+        self._bar_first_trade_ts = now_ts
+        self._bar_last_trade_ts = now_ts
+        self._bar_prev_trade_ts = now_ts
+        self._bar_max_gap_seconds = 0.0
+        self._bar_db_merged = False
 
         logger.info(
             "Seeded incomplete live bar for %s: O=%.1f H=%.1f L=%.1f C=%.1f V=%.0f",

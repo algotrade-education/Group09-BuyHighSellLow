@@ -28,12 +28,6 @@ from paperbroker.client import PaperBrokerClient
 # Load environment variables
 load_dotenv()
 
-# Setup logger for this example (separate from library logger)
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 logger = logging.getLogger(__name__)
 
 

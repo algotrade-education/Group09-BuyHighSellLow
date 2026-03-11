@@ -5,6 +5,7 @@ It uses psycopg2 to connect to a PostgreSQL database with comprehensive error ha
 
 import logging
 import time
+from datetime import datetime
 from typing import Callable, List, Tuple
 
 import pandas as pd
@@ -16,7 +17,13 @@ from psycopg2 import (
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 from config.config import DB_CONFIG
-from src.database.query import BID_ASK_QUERY, CLOSE_QUERY, MATCHED_QUERY
+from src.database.query import (
+    BID_ASK_QUERY,
+    CLOSE_QUERY,
+    MATCHED_LAST_BEFORE_QUERY,
+    MATCHED_QUERY,
+    MATCHED_RANGE_QUERY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +206,33 @@ class DataService:
             label="matched",
         )
 
+    def get_matched_data_in_range(
+        self,
+        from_datetime: datetime,
+        to_datetime: datetime,
+        contract_name: str,
+    ) -> pd.DataFrame:
+        """Retrieve matched ticks for an exact datetime range [from, to)."""
+        return self._query_to_df(
+            MATCHED_RANGE_QUERY,
+            (contract_name, from_datetime, to_datetime),
+            ["datetime", "tickersymbol", "price", "quantity"],
+            label="matched_range",
+        )
+
+    def get_last_matched_before(
+        self,
+        before_datetime: datetime,
+        contract_name: str,
+    ) -> pd.DataFrame:
+        """Retrieve the last matched tick strictly before the given timestamp."""
+        return self._query_to_df(
+            MATCHED_LAST_BEFORE_QUERY,
+            (contract_name, before_datetime),
+            ["datetime", "tickersymbol", "price", "quantity"],
+            label="matched_last_before",
+        )
+
     def get_bid_ask_data(
         self,
         from_date: str,
@@ -372,3 +406,65 @@ def fetch_and_merge_data(
     )
 
     return data
+
+
+def fetch_bucket_bar(
+    contract_name: str,
+    bucket_start: datetime,
+    bucket_end: datetime,
+) -> pd.DataFrame:
+    """Fetch one bar directly from DB ticks for [bucket_start, bucket_end)."""
+    ticks = data_service.get_matched_data_in_range(
+        from_datetime=bucket_start,
+        to_datetime=bucket_end,
+        contract_name=contract_name,
+    )
+
+    if ticks.empty:
+        return pd.DataFrame()
+
+    ticks["datetime"] = pd.to_datetime(ticks["datetime"])
+    ticks = ticks.sort_values("datetime")
+    ticks["price"] = ticks["price"].astype(float)
+
+    open_px = float(ticks["price"].iloc[0])
+    high_px = float(ticks["price"].max())
+    low_px = float(ticks["price"].min())
+    close_px = float(ticks["price"].iloc[-1])
+
+    volume = 0.0
+    if "quantity" in ticks.columns:
+        qty_series = pd.to_numeric(ticks["quantity"], errors="coerce").fillna(0.0)
+        prev_df = data_service.get_last_matched_before(
+            before_datetime=bucket_start,
+            contract_name=contract_name,
+        )
+        prev_qty = None
+        if not prev_df.empty and "quantity" in prev_df.columns:
+            prev_qty = pd.to_numeric(prev_df["quantity"], errors="coerce").iloc[0]
+
+        if prev_qty is not None and pd.notna(prev_qty):
+            full_qty = pd.concat(
+                [pd.Series([float(prev_qty)]), qty_series], ignore_index=True
+            )
+            diffs = full_qty.diff().iloc[1:]
+        else:
+            diffs = qty_series.diff()
+            if not diffs.empty:
+                diffs.iloc[0] = qty_series.iloc[0]
+
+        volume = float(diffs.clip(lower=0).sum())
+
+    return pd.DataFrame(
+        [
+            {
+                "datetime": bucket_start,
+                "open": open_px,
+                "high": high_px,
+                "low": low_px,
+                "close": close_px,
+                "volume": volume,
+                "rows": len(ticks),
+            }
+        ]
+    )

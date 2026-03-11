@@ -31,14 +31,16 @@ Data Flow:
 
 import argparse
 import asyncio
-import os
-import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 from config.config import DEFAULT_INITIAL_CAPITAL
 from src.paper.engine import PaperTrader
+from src.paper_trade.bootstrap import (
+    build_clients,
+    prepare_live_warmup_data,
+    prepare_sim_replay_data,
+)
 from src.strategy.base import Strategy
 from src.utils.cli_helpers import (
     build_ksb_strategy,
@@ -46,72 +48,11 @@ from src.utils.cli_helpers import (
     build_vwap_strategy,
     load_ksb_config_context,
     load_orb_config_context,
-    load_sample_data,
     load_vwap_config_context,
-    prepare_backtest_dataset,
 )
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/paper_trade.log")
-
-
-def _build_clients(dry_run: bool):
-    """Build PaperBrokerClient + RedisMarketDataClient from .env."""
-    # --- FIX / REST client ---
-    from paperbroker.client import PaperBrokerClient
-    from src.paper.connect import resolve_fix_sender_comp_id
-
-    username = os.getenv("PAPER_USERNAME", "BL01")
-    password = os.getenv("PAPER_PASSWORD", "123")
-    rest_url = os.getenv("PAPER_REST_BASE_URL", "http://localhost:9090")
-    host = os.getenv("SOCKET_CONNECT_HOST", "localhost")
-    port = int(os.getenv("SOCKET_CONNECT_PORT", "5001"))
-    env_sender = os.getenv("SENDER_COMP_ID", "cross-FIX")
-    target = os.getenv("TARGET_COMP_ID", "SERVER")
-    sub_account = os.getenv("PAPER_ACCOUNT_ID_D1", "D1")
-
-    # Resolve the correct fixAccountID from the broker REST API first.
-    # The server validates SenderCompID against this UUID - using the .env value directly
-    # causes an immediate FIX logout before wait_until_logged_on() can succeed.
-    resolved_sender = resolve_fix_sender_comp_id(rest_url, username, password)
-    sender = resolved_sender or env_sender
-
-    client = PaperBrokerClient(
-        default_sub_account=sub_account,
-        username=username,
-        password=password,
-        rest_base_url=rest_url,
-        socket_connect_host=host,
-        socket_connect_port=port,
-        sender_comp_id=sender,
-        target_comp_id=target,
-        console=False,
-    )
-
-    # --- Redis market data client ---
-    redis_host = os.getenv("MARKET_REDIS_HOST")
-    redis_port = int(os.getenv("MARKET_REDIS_PORT", "6379"))
-    redis_pw = os.getenv("MARKET_REDIS_PASSWORD")
-
-    if not redis_host and not dry_run:
-        logger.error(
-            "MARKET_REDIS_HOST is not set. "
-            "Add it to your .env or use --sim to run without Redis."
-        )
-        sys.exit(1)
-
-    redis_client = None
-    if redis_host:
-        from paperbroker.market_data import RedisMarketDataClient
-
-        redis_client = RedisMarketDataClient(
-            host=redis_host,
-            port=redis_port,
-            password=redis_pw,
-            merge_updates=True,  # Always show full snapshots (merged mode)
-        )
-
-    return client, redis_client
 
 
 _CONFIG_LOADERS = {
@@ -149,13 +90,18 @@ async def main(args: argparse.Namespace) -> None:
     strategy: Strategy = _STRATEGY_BUILDERS[strat_key](strategy_params)
 
     sim_df = None
+    historical_df = None
+    incomplete_bar = None
 
     if args.sim:
         # ── Sim mode: load + preprocess historical data ──────────────────
-        logger.info("Sim mode: loading %s data for %s…", args.sample, args.symbol)
-        raw = load_sample_data(sample=args.sample, contract=args.symbol.split(":")[-1])
-        sim_df, _ = prepare_backtest_dataset(raw, strategy_params, resample_freq)
-        logger.info("Sim data ready: %d bars.", len(sim_df))
+        sim_df = prepare_sim_replay_data(
+            sample=args.sample,
+            symbol=args.symbol,
+            strategy_params=strategy_params,
+            resample_freq=resample_freq,
+            logger=logger,
+        )
 
         trader = PaperTrader(
             strategy=strategy,
@@ -169,41 +115,16 @@ async def main(args: argparse.Namespace) -> None:
         )
     else:
         # ── Live mode: build real clients ─────────────────────────────────
-        client, redis_client = _build_clients(dry_run=args.dry_run)
+        client, redis_client = build_clients(dry_run=args.dry_run, logger=logger)
 
         # Pre-load historical data for indicator warmup
-        historical_df = None
-        from datetime import datetime, timedelta
-        from src.database.data_service import fetch_and_merge_data
-
-        logger.info("Fetching recent history for indicator warmup...")
-        # Fetch last 5 days to be safe (covering weekends and holidays)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=5)
-
-        # Database stores continuous futures data under VN30F1M, not the specific contract code (e.g., VN30F2601)
-        contract = args.symbol.split(":")[-1]
-        db_symbol = "VN30F1M" if contract.startswith("VN30F") else contract
-
-        raw = fetch_and_merge_data(
-            contract_name=db_symbol,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d"),
+        historical_df, incomplete_bar = prepare_live_warmup_data(
+            symbol=args.symbol,
+            strategy_params=strategy_params,
+            resample_freq=resample_freq,
+            logger=logger,
+            warmup_days=7,
         )
-        if not raw.empty:
-            historical_df, incomplete_bar = prepare_backtest_dataset(
-                raw, strategy_params, resample_freq
-            )
-            logger.info(
-                "Fetched %d historical bars for warmup using symbol %s.",
-                len(historical_df),
-                db_symbol,
-            )
-        else:
-            logger.warning(
-                "No recent history found for warmup using symbol %s! Strategy starts cold.",
-                db_symbol,
-            )
 
         trader = PaperTrader(
             strategy=strategy,

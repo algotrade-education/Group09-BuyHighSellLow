@@ -56,7 +56,7 @@ class ParsedBar:
 class OpeningRangeBreakout(Strategy):
     """
     Tracks the high and low prices of the first `orb_minutes` of each trading session.
-    Breakouts occur when price crosses above the range high or below the range low 
+    Breakouts occur when price crosses above the range high or below the range low
     (plus a buffer) while filters (ADX, Volume) are satisfied.
 
     Key Stages:
@@ -249,10 +249,16 @@ class OpeningRangeBreakout(Strategy):
     def _check_optional_filters(self, bar: Dict[str, Any]) -> Optional[TradeSignal]:
         """Run optional volume/ADX filters before breakout checks."""
         if self.use_volume_filter:
-            volume = bar.get("volume", 0)
-            volume_ma = bar.get("volume_ma_20", 0)
-            if volume_ma > 0 and volume < volume_ma:
-                return TradeSignal(signal=Signal.HOLD, reason="Volume below average")
+            volume = float(bar.get("volume", 0.0) or 0.0)
+            volume_ma = float(bar.get("volume_ma_20", 0.0) or 0.0)
+            if volume_ma > 0 and volume < 0.5 * volume_ma:
+                return TradeSignal(
+                    signal=Signal.HOLD,
+                    reason=(
+                        "Volume below average: "
+                        f"vol={volume:.0f} < 0.5 * vol_ma_20={(0.5 * volume_ma):.1f}"
+                    ),
+                )
 
         if self.use_adx_filter:
             adx_col = f"adx_{self.atr_period}"
@@ -297,7 +303,7 @@ class OpeningRangeBreakout(Strategy):
 
         if not is_warmup:
             self._trades_this_session += 1
-        
+
         range_in_atr = range_size / atr
 
         return TradeSignal(
@@ -349,7 +355,7 @@ class OpeningRangeBreakout(Strategy):
 
         if not is_warmup:
             self._trades_this_session += 1
-            
+
         range_in_atr = range_size / atr
 
         return TradeSignal(
@@ -385,7 +391,7 @@ class OpeningRangeBreakout(Strategy):
         - Trigger breakout signal if close exceeds range boundaries.
 
         Args:
-            bar: Dict containing at least: ['datetime', 'open', 'high', 'low', 'close'] 
+            bar: Dict containing at least: ['datetime', 'open', 'high', 'low', 'close']
                  + 'atr_{period}' and optionally 'volume', 'volume_ma_20', 'adx_{period}'.
             current_position: Current position object from the engine.
             is_warmup: Prevents state modifications (counters) during indicator warmup.
