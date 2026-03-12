@@ -15,8 +15,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.engine.position import Position, PositionSide, Trade
 from config.config import COMMISSION_RATE, CONTRACT_MULTIPLIER
+from src.engine.position import Position, PositionSide, Trade
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class PositionTracker:
             take_profit or 0,
             self._position.is_flat,
         )
-        
+
         pos_side = PositionSide.LONG if side.upper() == "LONG" else PositionSide.SHORT
 
         # Allow scale-ins / partial fills

@@ -19,7 +19,7 @@ Key Responsibilities:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from config.config import (
     COMMISSION_RATE,
@@ -27,18 +27,18 @@ from config.config import (
     DEFAULT_INITIAL_CAPITAL,
 )
 from config.runtime_config import get_paper_bar_runtime_config, get_paper_runtime_config
+from src.engine.position_sizer import FixedSizer, PercentRiskSizer, PositionSizer
 from src.engine.session_gate import (
     vn30_is_entry_blocked,
     vn30_is_trading_time,
     vn30_seconds_to_window_end,
 )
-from src.paper.bar_provider import BarProvider
 from src.paper.bar_fallback import load_fallback_bar_for_bucket
+from src.paper.bar_provider import BarProvider
 from src.paper.broker_sync import sync_broker_state
 from src.paper.order_manager import OrderManager
 from src.paper.position_tracker import PositionTracker
 from src.paper.stats import SessionStats
-from src.engine.position_sizer import FixedSizer, PercentRiskSizer, PositionSizer
 from src.strategy.base import Signal, Strategy, TradeSignal
 
 if TYPE_CHECKING:

@@ -28,10 +28,8 @@ import sys
 import pandas as pd
 
 from config.config import (
-    IS_SAMPLE_END,
     IS_SAMPLE_START,
     OUT_SAMPLE_END,
-    OUT_SAMPLE_START,
 )
 from src.data.loader import DataLoader
 from src.utils.logger import setup_logging

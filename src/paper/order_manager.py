@@ -18,12 +18,13 @@ Key Responsibilities:
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from src.strategy.base import Signal, TradeSignal
 
 if TYPE_CHECKING:
     from paperbroker.client import PaperBrokerClient
+
     from src.paper.position_tracker import PositionTracker
 
 logger = logging.getLogger(__name__)

@@ -53,7 +53,9 @@ from src.utils.cli_helpers import (
 )
 from src.utils.logger import setup_logging
 
-logger = setup_logging(__name__, log_file="logs/paper_trade.log", capture_all_loggers=True)
+logger = setup_logging(
+    __name__, log_file="logs/paper_trade.log", capture_all_loggers=True
+)
 
 
 _CONFIG_LOADERS = {

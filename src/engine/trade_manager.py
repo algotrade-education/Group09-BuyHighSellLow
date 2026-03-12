@@ -2,8 +2,8 @@
 Trade Manager module responsible for managing trade signals and positions.
 """
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from src.engine.order import Order, OrderSide, OrderType

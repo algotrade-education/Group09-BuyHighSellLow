@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from src.paper.connect import resolve_fix_sender_comp_id
 from src.paper_trade.warmup_cache import load_with_cache

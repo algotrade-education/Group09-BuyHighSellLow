@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from paperbroker.client import PaperBrokerClient
+
     from src.paper.order_manager import OrderManager
     from src.paper.position_tracker import PositionTracker
 

@@ -56,8 +56,8 @@ class KeltnerSqueezeBreakout(Strategy):
     """
     Keltner Squeeze Breakout strategy for VN30F1M.
 
-    This strategy detects periods of low volatility (Bollinger Bands inside 
-    Keltner Channels) and enters on the subsequent breakout if momentum 
+    This strategy detects periods of low volatility (Bollinger Bands inside
+    Keltner Channels) and enters on the subsequent breakout if momentum
     confirms the direction.
 
     Indicators used:
@@ -215,7 +215,11 @@ class KeltnerSqueezeBreakout(Strategy):
     # ------------------------------------------------------------------
 
     def _build_long_signal(
-        self, close: float, atr: float, mom: float, session: str,
+        self,
+        close: float,
+        atr: float,
+        mom: float,
+        session: str,
     ) -> TradeSignal:
         """
         Build a LONG squeeze release signal.
@@ -242,7 +246,11 @@ class KeltnerSqueezeBreakout(Strategy):
         )
 
     def _build_short_signal(
-        self, close: float, atr: float, mom: float, session: str,
+        self,
+        close: float,
+        atr: float,
+        mom: float,
+        session: str,
     ) -> TradeSignal:
         """
         Build a SHORT squeeze release signal.
@@ -312,7 +320,7 @@ class KeltnerSqueezeBreakout(Strategy):
         is_flat = current_position is None or current_position.is_flat
 
         if not self._was_flat and is_flat:
-            # We just exited a trade. Wait, if it's during warmup, 
+            # We just exited a trade. Wait, if it's during warmup,
             # we don't track live exits, but if we did, we'd start cooldown.
             self._bars_since_exit = 0
         self._was_flat = is_flat

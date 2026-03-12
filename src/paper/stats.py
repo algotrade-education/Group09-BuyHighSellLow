@@ -19,12 +19,12 @@ Reporting Features:
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 import pandas as pd
 
-from src.metrics.metrics import MetricsCalculator
 from src.engine.position import Trade
+from src.metrics.metrics import MetricsCalculator
 
 if TYPE_CHECKING:
     from src.paper.position_tracker import PositionTracker

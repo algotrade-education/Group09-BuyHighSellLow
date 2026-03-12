@@ -13,10 +13,11 @@ Features:
   before allowing trade operations.
 """
 
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
+
 import requests
 from dotenv import load_dotenv
 

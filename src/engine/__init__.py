@@ -1,11 +1,11 @@
 # Engine module
 from .backtester import Backtester, BacktestResult
-from .order import Order, OrderType, OrderStatus
+from .order import Order, OrderStatus, OrderType
 from .position import Position, PositionSide
 from .position_sizer import (
-    PositionSizer,
     FixedSizer,
     PercentRiskSizer,
+    PositionSizer,
 )
 
 __all__ = [

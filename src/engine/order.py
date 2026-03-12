@@ -2,10 +2,10 @@
 Order domain models for the trading engine.
 """
 
+import itertools
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import itertools
 from typing import ClassVar, Optional
 
 

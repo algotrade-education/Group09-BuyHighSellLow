@@ -51,7 +51,7 @@ class VWAPBandReversion(Strategy):
     VWAP Band Reversion strategy for VN30F1M.
 
     Fades price extremes back to the session-resetting VWAP (Institutional mean).
-    Entry is triggered when price deviates significantly (Standard Deviation bands) 
+    Entry is triggered when price deviates significantly (Standard Deviation bands)
     from the VWAP, targeting the VWAP itself as the exit point.
 
     Key stages:
@@ -202,7 +202,11 @@ class VWAPBandReversion(Strategy):
     # ------------------------------------------------------------------
 
     def _build_long_signal(
-        self, close: float, vwap: float, atr: float, session: str,
+        self,
+        close: float,
+        vwap: float,
+        atr: float,
+        session: str,
     ) -> TradeSignal:
         """
         Build a LONG mean reversion signal targeting VWAP.
@@ -228,13 +232,16 @@ class VWAPBandReversion(Strategy):
             entry_price=0.0,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            reason=f"VWAP Long (close below lower band)",
+            reason="VWAP Long (close below lower band)",
             metadata={"session": session, "vwap": vwap, "atr": atr},
         )
 
-
     def _build_short_signal(
-        self, close: float, vwap: float, atr: float, session: str,
+        self,
+        close: float,
+        vwap: float,
+        atr: float,
+        session: str,
     ) -> TradeSignal:
         """
         Build a SHORT mean reversion signal targeting VWAP.
@@ -260,7 +267,7 @@ class VWAPBandReversion(Strategy):
             entry_price=0.0,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            reason=f"VWAP Short (close above upper band)",
+            reason="VWAP Short (close above upper band)",
             metadata={"session": session, "vwap": vwap, "atr": atr},
         )
 
@@ -312,7 +319,7 @@ class VWAPBandReversion(Strategy):
             return TradeSignal(signal=Signal.HOLD, reason="Outside trading session")
 
         self._update_session_state(parsed.dt, session)
-        
+
         if not is_warmup:
             self._session_bar_count += 1
 
@@ -323,7 +330,7 @@ class VWAPBandReversion(Strategy):
         if vwap and vwap > 0:
             self._vwap_history.append(vwap)
             if len(self._vwap_history) > self.slope_period + 5:
-                self._vwap_history = self._vwap_history[-(self.slope_period + 5):]
+                self._vwap_history = self._vwap_history[-(self.slope_period + 5) :]
 
         # 3. Cooldown tracking
         is_flat = current_position is None or current_position.is_flat

@@ -5,7 +5,7 @@ These helpers intentionally do not manage argparse to keep each runner's
 command-line surface independent and easy to extend.
 """
 
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 

@@ -2,10 +2,10 @@
 Base classes for strategy implementations.
 """
 
-from abc import ABC, abstractmethod
+import logging
+from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
-import logging
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class TradeSignal:
         take_profit: The price at which to take profit (optional)
         stop_loss: The price at which to stop loss (optional)
         reason: A string describing the reason for the signal
-        metadata: Dictionary containing state information (e.g., indicators, session name, 
+        metadata: Dictionary containing state information (e.g., indicators, session name,
                   range levels) for debugging and audit trails.
     """
 
@@ -115,8 +115,8 @@ class Strategy(ABC):
             bar: Current market data bar (Dict). Should contain OHLCV and required indicators.
             current_position: The `Position` object from the trading engine, if any.
             is_warmup: Flag used during historical data injection (cold start).
-                       - If True: Strategy should update internal indicators/state (e.g., 
-                                  opening range boundaries, VWAP anchors) but MUST NOT 
+                       - If True: Strategy should update internal indicators/state (e.g.,
+                                  opening range boundaries, VWAP anchors) but MUST NOT
                                   trigger new entries or increment trade counters.
                        - If False: Normal live/backtest operation.
         """

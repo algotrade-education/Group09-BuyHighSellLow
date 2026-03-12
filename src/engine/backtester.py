@@ -123,7 +123,9 @@ class Backtester:
             return False
 
         return vn30_is_entry_blocked(
-            dt=timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp,
+            dt=timestamp.to_pydatetime()
+            if hasattr(timestamp, "to_pydatetime")
+            else timestamp,
             entry_cutoff_seconds=self.entry_cutoff_seconds,
             allow_late_entry=self.allow_late_entry,
         )
@@ -243,7 +245,10 @@ class Backtester:
                         current_position=self.trade_manager.position,
                     )
 
-                    if signal.signal in (Signal.LONG, Signal.SHORT) and self._should_block_new_entry(timestamp):
+                    if signal.signal in (
+                        Signal.LONG,
+                        Signal.SHORT,
+                    ) and self._should_block_new_entry(timestamp):
                         logger.debug(
                             "Skipping late entry at %s due to entry cutoff (%.1fs)",
                             timestamp,
