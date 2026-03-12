@@ -90,16 +90,16 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
     param_space = {
         "resample_freq": {
             "type": "categorical",
-            "choices": ["5min", "15min", "1h"],
+            "choices": ["15min"],
         },
-        "orb_minutes": {"type": "int", "low": 15, "high": 60, "step": 5},
+        "orb_minutes": {"type": "int", "low": 15, "high": 60, "step": 15},
         "atr_period": {"type": "int", "low": 5, "high": 30, "step": 1},
-        "atr_tp_multiplier": {"type": "float", "low": 1.5, "high": 6.0, "step": 0.1},
-        "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.1},
-        "breakout_buffer": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.05},
+        "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 3.0, "step": 0.05},
+        "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 1.5, "step": 0.05},
+        "breakout_buffer": {"type": "float", "low": 0.0, "high": 0.5, "step": 0.025},
         "use_range_sl": {"type": "categorical", "choices": [True, False]},
         "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
-        "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.2},
+        "max_range_atr": {"type": "float", "low": 2.0, "high": 6.0, "step": 0.2},
         "max_trades_per_session": {"type": "int", "low": 1, "high": 3, "step": 1},
         "long_only": {"type": "categorical", "choices": [True, False]},
         "use_volume_filter": {"type": "categorical", "choices": [True, False]},
@@ -111,7 +111,7 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
             "type": "float",
             "low": 1.0,
             "high": 4.0,
-            "step": 0.25,
+            "step": 0.1,
         },
     }
 
@@ -119,6 +119,8 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
     risk_params = config.get("risk", {})
     backtester_kwargs = {
         "max_daily_loss_pct": risk_params.get("max_daily_loss", 0.0),
+        "entry_cutoff_seconds": risk_params.get("entry_cutoff_seconds"),
+        "allow_late_entry": risk_params.get("allow_late_entry"),
     }
 
     # Initialize Optuna optimizer
@@ -127,12 +129,10 @@ def run_optuna(data: pd.DataFrame, config: dict, n_trials: int = 300) -> None:
         strategy_class=OpeningRangeBreakout,
         param_space=param_space,
         indicator_fn=preprocess_data,
-        min_trades=500,  # ensure at least ~medium activity
+        min_trades=400,  # ensure at least ~medium activity
         drawdown_penalty=0.1,  # penalize larger drawdowns
         turnover_penalty=0.0,  # do not penalize higher trade count
-        trade_count_bonus=0.1,  # reward more trades among profitable configs
-        min_return_pct=0.0,  # require non-negative total return
-        min_profit_factor=1.0,  # require PF > 1.0
+        trade_count_bonus=0.3,  # reward more trades among profitable configs
         n_trials=n_trials,
         backtester_kwargs=backtester_kwargs,
     )

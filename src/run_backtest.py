@@ -108,6 +108,8 @@ def run_backtest(
         use_trailing_stop=risk_params.get("use_trailing_stop", False),
         trailing_atr_multiplier=risk_params.get("trailing_atr_multiplier", 2.0),
         max_daily_loss_pct=risk_params.get("max_daily_loss", 0.0),
+        entry_cutoff_seconds=risk_params.get("entry_cutoff_seconds"),
+        allow_late_entry=risk_params.get("allow_late_entry"),
     )
 
     # Run backtest

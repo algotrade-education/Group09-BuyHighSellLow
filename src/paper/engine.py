@@ -18,7 +18,6 @@ Key Responsibilities:
 
 import asyncio
 import logging
-import os
 from datetime import datetime
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -26,6 +25,12 @@ from config.config import (
     COMMISSION_RATE,
     CONTRACT_MULTIPLIER,
     DEFAULT_INITIAL_CAPITAL,
+)
+from config.runtime_config import get_paper_bar_runtime_config, get_paper_runtime_config
+from src.engine.session_gate import (
+    vn30_is_entry_blocked,
+    vn30_is_trading_time,
+    vn30_seconds_to_window_end,
 )
 from src.paper.bar_provider import BarProvider
 from src.paper.bar_fallback import load_fallback_bar_for_bucket
@@ -106,28 +111,67 @@ class PaperTrader:
         )
 
         atr_period = config.get("strategy", {}).get("atr_period", 14)
+        bar_runtime_config = get_paper_bar_runtime_config(
+            freq_minutes=self._FREQ_TO_MINUTES.get(bar_freq, 5),
+            risk=risk,
+        )
         self._bar_provider = BarProvider(
             bar_freq=bar_freq,
             atr_period=atr_period,
             on_bar=self._on_new_bar,
             fallback_bar_provider=self._fallback_bar_for_bucket,
+            runtime_config=bar_runtime_config,
         )
 
         self._stats = SessionStats(self._tracker)
         self._running = False
         self._bars_processed = 0
         self._last_close: float = 0.0
-        self._enable_db_bar_fallback = os.getenv(
-            "PAPER_ENABLE_DB_BAR_FALLBACK", "1"
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        self._force_hard_exit = os.getenv(
-            "PAPER_FORCE_HARD_EXIT", "0"
-        ).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+        runtime_config = get_paper_runtime_config(risk)
+        self._enable_db_bar_fallback = runtime_config["enable_db_bar_fallback"]
+        self._force_hard_exit = runtime_config["force_hard_exit"]
+        self._entry_cutoff_seconds = runtime_config["entry_cutoff_seconds"]
+        self._allow_late_entry = runtime_config["allow_late_entry"]
+        self._force_flat_on_session_close = runtime_config[
+            "force_flat_on_session_close"
+        ]
+        self._defer_exit_outside_session = runtime_config["defer_exit_outside_session"]
+        self._deferred_exit_reason: Optional[str] = None
+
+    _FREQ_TO_MINUTES: Dict[str, int] = {
+        "1min": 1,
+        "5min": 5,
+        "15min": 15,
+        "30min": 30,
+        "1h": 60,
+    }
+
+    def _submit_exit_or_defer(
+        self,
+        reason: str,
+        price: float,
+        process_time: datetime,
+    ) -> None:
+        """Submit exit immediately during session, otherwise defer to next tradable bar."""
+        if vn30_is_trading_time(process_time):
+            self._order_mgr.submit_exit(reason=reason, price=price)
+            self._deferred_exit_reason = None
+            return
+
+        if self._defer_exit_outside_session:
+            self._deferred_exit_reason = reason
+            logger.warning(
+                "Deferring exit (%s): process_time=%s is outside trading session.",
+                reason,
+                process_time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            return
+
+        logger.warning(
+            "Skipping exit (%s): process_time=%s is outside trading session.",
+            reason,
+            process_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
     def _build_position_sizer(self, risk: Dict[str, Any]) -> PositionSizer:
         """Build position sizer from risk config for paper trading entries."""
@@ -245,7 +289,9 @@ class PaperTrader:
                 return
             logger.info("FIX session established.")
             # Wire execution report handler
+            logger.info("Wiring execution report handler...")
             self._client.on("fix:execution_report", self._order_mgr.on_execution_report)
+            logger.info("Execution report handler wired successfully.")
         else:
             logger.info("[DRY-RUN] Skipping FIX connection.")
 
@@ -337,8 +383,33 @@ class PaperTrader:
     def _on_new_bar(self, bar: Dict[str, Any]) -> None:
         """Handle one completed bar through risk checks, strategy, and orders."""
         dt: datetime = bar.get("datetime", datetime.now())
+        process_time = datetime.now()
         close = float(bar.get("close", 0))
         self._last_close = close
+
+        trading_now = vn30_is_trading_time(process_time)
+
+        if self._deferred_exit_reason and not self._tracker.is_flat and trading_now:
+            reason = self._deferred_exit_reason
+            logger.info(
+                "Submitting deferred exit at session reopen: %s | process_time=%s",
+                reason,
+                process_time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            self._order_mgr.submit_exit(reason=reason, price=close)
+            self._deferred_exit_reason = None
+
+        if (
+            self._force_flat_on_session_close
+            and not self._tracker.is_flat
+            and not trading_now
+            and self._deferred_exit_reason is None
+        ):
+            self._submit_exit_or_defer(
+                reason="Session Boundary Close",
+                price=close,
+                process_time=process_time,
+            )
 
         # Extract indicators for logging
         atr_key = f"atr_{self.config.get('strategy', {}).get('atr_period', 14)}"
@@ -379,8 +450,10 @@ class PaperTrader:
         if not self._tracker.is_flat:
             exit_trigger = self._tracker.check_sl_tp(bar)
             if exit_trigger:
-                self._order_mgr.submit_exit(
-                    reason=exit_trigger.replace("_", " ").title(), price=close
+                self._submit_exit_or_defer(
+                    reason=exit_trigger.replace("_", " ").title(),
+                    price=close,
+                    process_time=process_time,
                 )
                 return  # Don't generate new entry on same bar
 
@@ -395,6 +468,28 @@ class PaperTrader:
             return
 
         if signal.signal in (Signal.LONG, Signal.SHORT) and self._tracker.is_flat:
+            if vn30_is_entry_blocked(
+                dt=process_time,
+                entry_cutoff_seconds=self._entry_cutoff_seconds,
+                allow_late_entry=self._allow_late_entry,
+            ):
+                seconds_to_end = vn30_seconds_to_window_end(process_time)
+                if seconds_to_end is None:
+                    reason = "outside trading session"
+                else:
+                    reason = (
+                        f"within entry cutoff ({seconds_to_end:.1f}s <= "
+                        f"{self._entry_cutoff_seconds:.1f}s)"
+                    )
+
+                logger.info(
+                    "Skipping %s entry at process_time=%s: %s",
+                    signal.signal.name,
+                    process_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    reason,
+                )
+                return
+
             logger.info(
                 "Strategy signal: %s | close=%.2f | reason=%s",
                 signal.signal.name,
@@ -408,7 +503,11 @@ class PaperTrader:
                 close,
                 signal.reason or "N/A",
             )
-            self._order_mgr.submit_exit(reason="Strategy Close", price=close)
+            self._submit_exit_or_defer(
+                reason="Strategy Close",
+                price=close,
+                process_time=process_time,
+            )
         elif signal.signal == Signal.HOLD:
             logger.info(
                 "Strategy signal: HOLD  | position=%s | vol=%.0f vol_ma20=%.1f | reason=%s",

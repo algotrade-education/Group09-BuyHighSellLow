@@ -246,6 +246,14 @@ class OrderManager:
             **kwargs: Dictionary containing `cl_ord_id`, `ord_status`,
                       `avg_px`, `cum_qty`, and `side`.
         """
+        logger.info(
+            "on_execution_report called with: cl_ord_id=%s, ord_status=%s, avg_px=%s, cum_qty=%s",
+            kwargs.get("cl_ord_id", ""),
+            kwargs.get("ord_status", ""),
+            kwargs.get("avg_px", ""),
+            kwargs.get("cum_qty", ""),
+        )
+
         cl_ord_id = kwargs.get("cl_ord_id", "")
         ord_status = str(kwargs.get("ord_status", ""))
         avg_px = float(kwargs.get("avg_px") or 0.0)
@@ -300,6 +308,14 @@ class OrderManager:
                 cum_qty,
                 meta["qty"],
             )
+            logger.info(
+                "Recording open: fill_price=%.2f, qty=%d, side=%s, SL=%.2f, TP=%.2f",
+                avg_px,
+                incremental_qty,
+                meta["side"],
+                meta.get("stop_loss"),
+                meta.get("take_profit"),
+            )
             self._tracker.record_open(
                 fill_price=avg_px,
                 qty=incremental_qty,
@@ -307,6 +323,11 @@ class OrderManager:
                 timestamp=datetime.now(),
                 stop_loss=meta.get("stop_loss"),
                 take_profit=meta.get("take_profit"),
+            )
+            logger.info(
+                "Position after record_open: is_flat=%s, position=%s",
+                self._tracker.is_flat,
+                self._tracker.position,
             )
             if self.on_fill:
                 self.on_fill("entry", avg_px, incremental_qty)

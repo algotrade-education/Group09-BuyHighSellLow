@@ -27,11 +27,10 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from paperbroker.client import PaperBrokerClient
-from src.paper.connect import resolve_fix_sender_comp_id
-
 from dotenv import load_dotenv
+from paperbroker.client import PaperBrokerClient
 
+from src.paper.connect import resolve_fix_sender_comp_id
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/account_check.log")

@@ -125,6 +125,8 @@ def run_optuna(
     risk_params = config.get("risk", {})
     backtester_kwargs = {
         "max_daily_loss_pct": risk_params.get("max_daily_loss", 0.0),
+        "entry_cutoff_seconds": risk_params.get("entry_cutoff_seconds"),
+        "allow_late_entry": risk_params.get("allow_late_entry"),
     }
 
     optimizer = OptunaSearch(

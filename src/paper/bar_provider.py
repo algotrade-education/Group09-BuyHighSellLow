@@ -16,7 +16,6 @@ Core Functions:
 
 import asyncio
 import logging
-import os
 from datetime import datetime, time, timedelta
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional
@@ -41,6 +40,14 @@ _FREQ_MINUTES: Dict[str, int] = {
     "30min": 30,
     "1h": 60,
 }
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _bar_bucket(dt: datetime, freq_minutes: int) -> datetime:
@@ -83,6 +90,7 @@ class BarProvider:
         fallback_bar_provider: Optional[
             Callable[[datetime], Optional[Dict[str, Any]]]
         ] = None,
+        runtime_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Args:
@@ -120,15 +128,16 @@ class BarProvider:
         self._bar_max_gap_seconds: float = 0.0
         self._bar_db_merged: bool = False
 
+        runtime = runtime_config or {}
         default_stale_seconds = max(5, int(self.freq_minutes * 60 * 0.1))
         self._stale_trade_seconds = float(
-            os.getenv("PAPER_BAR_STALE_SECONDS", str(default_stale_seconds))
+            runtime.get("stale_trade_seconds", default_stale_seconds)
         )
         default_preclose_seconds = max(2, int(self._stale_trade_seconds))
         self._preclose_db_fetch_seconds = float(
-            os.getenv("PAPER_BAR_PRECLOSE_FETCH_SECONDS", str(default_preclose_seconds))
+            runtime.get("preclose_db_fetch_seconds", default_preclose_seconds)
         )
-        self._min_live_updates = int(os.getenv("PAPER_BAR_MIN_UPDATES", "2"))
+        self._min_live_updates = int(runtime.get("min_live_updates", 2))
 
         # History of completed raw bars (for ATR calc)
         self._history: List[Dict[str, Any]] = []
@@ -137,12 +146,7 @@ class BarProvider:
 
         # Optional quote diagnostics for live subscribe quality checks.
         # Enable with PAPER_DEBUG_QUOTES=1.
-        self._debug_quotes = os.getenv("PAPER_DEBUG_QUOTES", "0").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+        self._debug_quotes = _as_bool(runtime.get("debug_quotes", False))
         self._quote_callbacks = 0
         self._quote_with_trade_price = 0
         self._quote_with_bidask = 0
@@ -202,7 +206,7 @@ class BarProvider:
             return
 
         now = monotonic()
-        if (now - self._quote_last_diag_ts) <= 5 and self._quote_callbacks % 100 != 0:
+        if (now - self._quote_last_diag_ts) <= 15 and self._quote_callbacks % 100 != 0:
             return
 
         self._quote_last_diag_ts = now

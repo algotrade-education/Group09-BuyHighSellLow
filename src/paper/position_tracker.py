@@ -85,6 +85,16 @@ class PositionTracker:
             stop_loss:   SL price from the originating TradeSignal.
             take_profit: TP price from the originating TradeSignal.
         """
+        logger.info(
+            "record_open called: fill_price=%.2f, qty=%d, side=%s, SL=%.2f, TP=%.2f, current_is_flat=%s",
+            fill_price,
+            qty,
+            side,
+            stop_loss or 0,
+            take_profit or 0,
+            self._position.is_flat,
+        )
+        
         pos_side = PositionSide.LONG if side.upper() == "LONG" else PositionSide.SHORT
 
         # Allow scale-ins / partial fills
@@ -151,6 +161,15 @@ class PositionTracker:
             fill_price,
             stop_loss or 0,
             take_profit or 0,
+        )
+        logger.info(
+            "After record_open: is_flat=%s, side=%s, qty=%d, entry=%.2f, equity=%.0f, cash=%.0f",
+            self._position.is_flat,
+            self._position.side.value if self._position.side else "NONE",
+            self._position.quantity,
+            self._position.entry_price,
+            self.equity,
+            self.cash,
         )
 
     def record_close(

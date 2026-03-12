@@ -3,14 +3,16 @@ from typing import Callable, Dict, Optional
 
 import pandas as pd
 
+from config.runtime_config import get_backtest_runtime_config
 from src.engine.equity_tracker import EquityTracker, SimpleEquityTracker
 from src.engine.order import Order
 from src.engine.position_sizer import PositionSizer
 from src.engine.result import BacktestResult
+from src.engine.session_gate import vn30_is_entry_blocked
 from src.engine.session_manager import SessionManager, VN30Session
 from src.engine.trade_manager import TradeManager
 from src.metrics.metrics import MetricsCalculator
-from src.strategy.base import Strategy
+from src.strategy.base import Signal, Strategy
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ class Backtester:
         use_trailing_stop: bool = False,
         trailing_atr_multiplier: float = 2.0,
         max_daily_loss_pct: float = 0.0,
+        entry_cutoff_seconds: Optional[float] = None,
+        allow_late_entry: Optional[bool] = None,
     ) -> None:
         """
         Initialize the backtester.
@@ -55,6 +59,8 @@ class Backtester:
             use_trailing_stop: If True, enable trailing stop loss
             trailing_atr_multiplier: ATR multiplier for trailing distance
             max_daily_loss_pct: Max daily loss as fraction of equity (0=disabled)
+            entry_cutoff_seconds: Block new entries this many seconds before session end
+            allow_late_entry: If True, ignore entry cutoff near session boundaries
         """
         self.strategy = strategy
 
@@ -89,6 +95,13 @@ class Backtester:
         # Metrics calculator
         self.metrics_calculator = MetricsCalculator()
 
+        runtime_config = get_backtest_runtime_config(
+            entry_cutoff_seconds=entry_cutoff_seconds,
+            allow_late_entry=allow_late_entry,
+        )
+        self.entry_cutoff_seconds = runtime_config["entry_cutoff_seconds"]
+        self.allow_late_entry = runtime_config["allow_late_entry"]
+
         logger.info(
             "Backtester initialized with %s and %s",
             self.equity_tracker.__class__.__name__,
@@ -99,7 +112,20 @@ class Backtester:
                 "contract_multiplier": contract_multiplier,
                 "margin_rate": margin_rate,
                 "order_ttl": order_ttl,
+                "entry_cutoff_seconds": self.entry_cutoff_seconds,
+                "allow_late_entry": self.allow_late_entry,
             },
+        )
+
+    def _should_block_new_entry(self, timestamp: pd.Timestamp) -> bool:
+        """Return True when VN30 late-entry guard blocks new LONG/SHORT entries."""
+        if not isinstance(self.session_manager, VN30Session):
+            return False
+
+        return vn30_is_entry_blocked(
+            dt=timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp,
+            entry_cutoff_seconds=self.entry_cutoff_seconds,
+            allow_late_entry=self.allow_late_entry,
         )
 
     def run(
@@ -216,6 +242,15 @@ class Backtester:
                         bar=bar,
                         current_position=self.trade_manager.position,
                     )
+
+                    if signal.signal in (Signal.LONG, Signal.SHORT) and self._should_block_new_entry(timestamp):
+                        logger.debug(
+                            "Skipping late entry at %s due to entry cutoff (%.1fs)",
+                            timestamp,
+                            self.entry_cutoff_seconds,
+                        )
+                        continue
+
                     new_order = self.trade_manager.create_order_from_signal(
                         signal=signal,
                         bar=bar,
