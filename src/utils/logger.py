@@ -45,7 +45,7 @@ def setup_logging(
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s")
 
     if capture_all_loggers is None:
-        capture_all_loggers = os.getenv("LOG_CAPTURE_ALL", "1").strip().lower() in {
+        capture_all_loggers = os.getenv("LOG_CAPTURE_ALL", "0").strip().lower() in {
             "1",
             "true",
             "yes",

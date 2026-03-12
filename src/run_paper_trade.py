@@ -31,6 +31,7 @@ Data Flow:
 
 import argparse
 import asyncio
+import sys
 
 from dotenv import load_dotenv
 
@@ -52,7 +53,7 @@ from src.utils.cli_helpers import (
 )
 from src.utils.logger import setup_logging
 
-logger = setup_logging(__name__, log_file="logs/paper_trade.log")
+logger = setup_logging(__name__, log_file="logs/paper_trade.log", capture_all_loggers=True)
 
 
 _CONFIG_LOADERS = {
@@ -147,6 +148,9 @@ async def main(args: argparse.Namespace) -> None:
     try:
         if args.sim:
             await trader.start(sim_df=sim_df)
+
+            # Explicitly exit after sim completes to avoid event loop hanging
+            sys.exit(0)
         else:
             await trader.start(
                 historical_df=historical_df,
