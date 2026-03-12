@@ -83,7 +83,9 @@ def _resolve_bool(
     return default
 
 
-def get_paper_runtime_config(risk: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def get_paper_runtime_config(
+    risk: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     risk_config = risk or {}
 
     return {

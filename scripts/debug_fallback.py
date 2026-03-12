@@ -284,7 +284,7 @@ def main() -> None:
 
     bucket_end = bucket_dt + timedelta(minutes=args.freq)
 
-    print(f"\nFallback Diagnostic")
+    print("\nFallback Diagnostic")
     print(f"  symbol     : {args.symbol}")
     print(f"  db_symbol  : {db_symbol}")
     print(f"  bucket     : [{bucket_dt}  –  {bucket_end})")
