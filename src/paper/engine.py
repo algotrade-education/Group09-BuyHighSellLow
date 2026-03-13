@@ -175,6 +175,14 @@ class PaperTrader:
                 self._force_flat_preclose_seconds,
             )
 
+        logger.info(
+            "Paper runtime force-flat config: on_session_close=%s preclose_seconds=%.1f last_candle=%s defer_outside_session=%s",
+            self._force_flat_on_session_close,
+            self._force_flat_preclose_seconds,
+            self._force_flat_on_last_candle,
+            self._defer_exit_outside_session,
+        )
+
         self._deferred_exit_reason: Optional[str] = None
 
     # ------------------------------------------------------------------
@@ -432,6 +440,20 @@ class PaperTrader:
             )
 
         if not self._tracker.is_flat and self._deferred_exit_reason is None:
+            atc_reason = self._get_atc_safety_close_reason(bar_time)
+            if atc_reason is not None:
+                logger.info(
+                    "Force-flat trigger: %s | bar_time=%s",
+                    atc_reason,
+                    bar_time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                self._submit_exit_or_defer(
+                    reason=atc_reason,
+                    price=close,
+                    process_time=bar_time,
+                    ord_type="MARKET",
+                )
+                return
             reason = self._session_mgr.get_force_close_reason(
                 dt=bar_time, preclose_seconds=self._force_flat_preclose_seconds
             )
@@ -583,19 +605,23 @@ class PaperTrader:
 
     def _maybe_force_flat_by_clock(self, process_time: datetime) -> None:
         """Run a per-second preclose flat check so exits don't depend on bar-close timing."""
-        if self._tracker.is_flat or self._force_flat_preclose_seconds <= 0:
+        if self._tracker.is_flat:
             return
 
-        reason = self._session_mgr.get_force_close_reason(
-            dt=process_time,
-            preclose_seconds=self._force_flat_preclose_seconds,
-        )
+        reason = None
+        if self._force_flat_preclose_seconds > 0:
+            reason = self._session_mgr.get_force_close_reason(
+                dt=process_time,
+                preclose_seconds=self._force_flat_preclose_seconds,
+            )
+        if reason is None:
+            reason = self._get_atc_safety_close_reason(process_time)
         if not reason:
             return
 
         if self._last_close <= 0:
             logger.warning(
-                "Clock preclose trigger ready but skipped: last_close unavailable."
+                "Clock force-flat trigger ready but skipped: last_close unavailable."
             )
             return
 
@@ -702,6 +728,17 @@ class PaperTrader:
                 return converted
 
         return fallback
+
+    def _get_atc_safety_close_reason(self, dt: datetime) -> Optional[str]:
+        """Fallback force-close when VN30 enters ATC with an open position."""
+        if not self._force_flat_on_session_close:
+            return None
+
+        is_atc_session = getattr(self._session_mgr, "is_atc_session", None)
+        if callable(is_atc_session) and is_atc_session(dt):
+            return "ATC Safety Close"
+
+        return None
 
     def _fallback_bar_for_bucket(self, bucket_dt: datetime) -> Optional[Dict[str, Any]]:
         """Load a closed bar from DB when live Redis delivered no trade ticks."""
