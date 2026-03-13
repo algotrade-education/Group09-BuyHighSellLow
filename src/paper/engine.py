@@ -283,6 +283,7 @@ class PaperTrader:
                 logger.error("FIX logon failed: %s", err)
                 return
             logger.info("FIX session established.")
+
             # Wire execution report handler
             logger.info("Wiring execution report handler...")
             self._client.on("fix:execution_report", self._order_mgr.on_execution_report)

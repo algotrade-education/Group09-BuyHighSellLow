@@ -36,12 +36,12 @@ import sys
 from dotenv import load_dotenv
 
 from config.config import DEFAULT_INITIAL_CAPITAL
-from src.paper.engine import PaperTrader
 from src.paper.bootstrap import (
     build_clients,
     prepare_live_warmup_data,
     prepare_sim_replay_data,
 )
+from src.paper.engine import PaperTrader
 from src.strategy.base import Strategy
 from src.utils.cli_helpers import (
     build_ksb_strategy,

@@ -13,7 +13,7 @@ Accounting Principles:
 
 import logging
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from config.config import COMMISSION_RATE, CONTRACT_MULTIPLIER
 from src.engine.position import Position, PositionSide, Trade
@@ -130,7 +130,7 @@ class PositionTracker:
             self._position.stop_loss = stop_loss
         if take_profit is not None:
             self._position.take_profit = take_profit
- 
+
         commission = self._calc_commission(fill_price, qty)
         self.cash -= commission
         self._update_daily_pnl_only()
@@ -325,7 +325,9 @@ class PositionTracker:
             self._current_date = current_date
             self._start_of_day_equity = self.equity
             self._daily_pnl = 0.0
-            logger.info("New day started: Resetting daily P&L. Start equity: %.2f", self.equity)
+            logger.info(
+                "New day started: Resetting daily P&L. Start equity: %.2f", self.equity
+            )
         else:
             self._update_daily_pnl_only()
 

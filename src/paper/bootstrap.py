@@ -2,9 +2,9 @@
 
 import os
 import sys
-import requests
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
+import requests
 
 from src.paper.warmup_cache import load_with_cache
 from src.utils.cli_helpers import load_sample_data, prepare_backtest_dataset
