@@ -256,6 +256,12 @@ class PaperTrader:
             for raw_row in historical_df.to_dict(orient="records"):
                 bar: Dict[str, Any] = {str(k): v for k, v in raw_row.items()}
                 try:
+                    # Initialize P&L tracking during warmup so the baseline is ready for today
+                    dt = bar.get("datetime") or bar.get("timestamp") or datetime.now()
+                    bar_time = self._resolve_bar_time(dt, datetime.now())
+                    self._tracker.update_daily_pnl(bar_time)
+                    self._tracker.update_unrealized(float(bar.get("close", 0.0) or 0.0))
+
                     self.strategy.generate_signal(
                         bar=bar,
                         current_position=self._tracker.position,
@@ -394,6 +400,7 @@ class PaperTrader:
         close = float(bar.get("close", 0))
         self._last_close = close
 
+        self._tracker.update_unrealized(close)
         self._tracker.update_daily_pnl(bar_time)
 
         trading_now = self._session_mgr.is_trading_hours(process_time)

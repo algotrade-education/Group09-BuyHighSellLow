@@ -2,16 +2,49 @@
 
 import os
 import sys
+import requests
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-from src.paper.connect import resolve_fix_sender_comp_id
+
 from src.paper.warmup_cache import load_with_cache
 from src.utils.cli_helpers import load_sample_data, prepare_backtest_dataset
+from src.utils.logger import setup_logging
 
 if TYPE_CHECKING:
     import pandas as pd
     from paperbroker.client import PaperBrokerClient
     from paperbroker.market_data import RedisMarketDataClient
+
+logger = setup_logging(__name__, log_file="logs/paper_bootstrap.log")
+
+
+def resolve_fix_sender_comp_id(
+    rest_base_url: str, username: str, password: str
+) -> str | None:
+    """
+    Fetch the unique FIX Account UUID (SenderCompID) from the REST API.
+
+    The PaperBroker server identifies sessions using a dynamic UUID rather
+    than a static username. Attempting to log on with the human-readable
+    username as the `SenderCompID` will result in an immediate FIX rejection.
+
+    Returns:
+        The `fixAccountID` string if successful, else `None`.
+    """
+    url = f"{rest_base_url.rstrip('/')}/api/fix-account-info/get-fix-id"
+    try:
+        response = requests.post(
+            url,
+            json={"username": username, "password": password},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        if isinstance(payload, dict):
+            return payload.get("fixAccountID") or payload.get("accountID")
+    except Exception as exc:
+        logger.warning(f"⚠️ Could not resolve fixAccountID from REST: {exc}")
+    return None
 
 
 def build_clients(

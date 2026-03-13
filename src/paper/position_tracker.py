@@ -130,9 +130,10 @@ class PositionTracker:
             self._position.stop_loss = stop_loss
         if take_profit is not None:
             self._position.take_profit = take_profit
-
+ 
         commission = self._calc_commission(fill_price, qty)
         self.cash -= commission
+        self._update_daily_pnl_only()
 
         if self._current_trade is None:
             # New trade
@@ -217,6 +218,7 @@ class PositionTracker:
         # Update cash: gross P&L realised, minus exit commission
         # (entry commission was already subtracted in record_open)
         self.cash += gross_pnl - exit_commission
+        self._update_daily_pnl_only()
 
         # Partial closes: we keep the trade 'open' in _current_trade
         # but accumulate the weighted average exit price.
@@ -307,19 +309,30 @@ class PositionTracker:
         if not self._position.is_flat:
             self._position.update_unrealized_pnl(current_price)
         self.equity = self.cash + self._position.unrealized_pnl
-        if self._current_date is not None:
-            self._daily_pnl = self.equity - self._start_of_day_equity
+        self._update_daily_pnl_only()
 
     def update_daily_pnl(self, timestamp: datetime) -> None:
         """Reset daily tracking if a new day has started."""
         current_date = timestamp.date()
+        if self._current_date is None:
+            self._current_date = current_date
+            self._start_of_day_equity = self.equity
+            self._daily_pnl = 0.0
+            logger.info("Initializing daily P&L. Start equity: %.2f", self.equity)
+            return
+
         if self._current_date != current_date:
             self._current_date = current_date
             self._start_of_day_equity = self.equity
             self._daily_pnl = 0.0
             logger.info("New day started: Resetting daily P&L. Start equity: %.2f", self.equity)
         else:
-            self._daily_pnl = self.equity - self._start_of_day_equity
+            self._update_daily_pnl_only()
+
+    def _update_daily_pnl_only(self) -> None:
+        """Helper to update internal daily_pnl field without resetting baseline."""
+        self.equity = self.cash + self._position.unrealized_pnl
+        self._daily_pnl = self.equity - self._start_of_day_equity
 
     def equity_snapshot(self, timestamp: datetime) -> Tuple[datetime, float]:
         """Record and return the current equity snapshot."""
