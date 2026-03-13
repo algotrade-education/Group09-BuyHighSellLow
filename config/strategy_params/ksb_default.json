@@ -25,6 +25,10 @@
     "risk_per_trade_pct": 1.0,
     "max_daily_loss": 0.02,
     "use_trailing_stop": true,
-    "trailing_atr_multiplier": 2.0
+    "trailing_atr_multiplier": 2.0,
+    "entry_cutoff_seconds": 60,
+    "allow_late_entry": false,
+    "force_flat_on_session_close": false,
+    "defer_exit_outside_session": true
   }
 }
