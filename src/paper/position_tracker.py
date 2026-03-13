@@ -12,7 +12,7 @@ Accounting Principles:
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from config.config import COMMISSION_RATE, CONTRACT_MULTIPLIER
@@ -41,10 +41,12 @@ class PositionTracker:
         initial_capital: float = 500_000_000,
         commission_rate: float = COMMISSION_RATE,
         contract_multiplier: float = CONTRACT_MULTIPLIER,
+        max_daily_loss_pct: float = 0.0,
     ):
         self.initial_capital = initial_capital
         self.commission_rate = commission_rate
         self.contract_multiplier = contract_multiplier
+        self.max_daily_loss_pct = max_daily_loss_pct
 
         self.cash: float = initial_capital
         self.equity: float = initial_capital
@@ -60,6 +62,11 @@ class PositionTracker:
 
         # Equity curve: list of (datetime, equity) snapshots
         self._equity_snapshots: List[Tuple[datetime, float]] = []
+
+        # Daily risk tracking
+        self._current_trading_date: Optional[date] = None
+        self._daily_pnl: float = 0.0
+        self._daily_loss_hit: bool = False
 
     # ------------------------------------------------------------------
     # Position lifecycle
@@ -241,6 +248,7 @@ class PositionTracker:
             # Reset exit tracking
             self._cum_exit_qty = 0
             self._weighted_exit_price = 0.0
+            self.record_trade_pnl(trade.pnl)
 
         logger.info(
             "Position reduced by %d (%s): fill=%.2f | P&L=%.2f | Remaining: %d",
@@ -303,6 +311,27 @@ class PositionTracker:
             self._position.update_unrealized_pnl(current_price)
         self.equity = self.cash + self._position.unrealized_pnl
 
+    def update_daily_pnl(self, timestamp: datetime) -> None:
+        """Reset daily loss state when the trading date changes."""
+        trading_date = timestamp.date() if hasattr(timestamp, "date") else None
+        if trading_date and trading_date != self._current_trading_date:
+            self._current_trading_date = trading_date
+            self._daily_pnl = 0.0
+            self._daily_loss_hit = False
+
+    def record_trade_pnl(self, pnl: float) -> None:
+        """Accumulate realized P&L and trip the max daily loss guard if breached."""
+        self._daily_pnl += pnl
+        if self.max_daily_loss_pct > 0 and self._daily_pnl < -(
+            self.max_daily_loss_pct * self.equity
+        ):
+            self._daily_loss_hit = True
+            logger.info(
+                "Max daily loss reached: daily_pnl=%.2f, limit=%.2f",
+                self._daily_pnl,
+                -(self.max_daily_loss_pct * self.equity),
+            )
+
     def equity_snapshot(self, timestamp: datetime) -> Tuple[datetime, float]:
         """Record and return the current equity snapshot."""
         snap = (timestamp, self.equity)
@@ -358,6 +387,14 @@ class PositionTracker:
     @property
     def is_flat(self) -> bool:
         return self._position.is_flat
+
+    @property
+    def daily_pnl(self) -> float:
+        return self._daily_pnl
+
+    @property
+    def is_daily_loss_hit(self) -> bool:
+        return self._daily_loss_hit
 
     # ------------------------------------------------------------------
     # Helpers

@@ -94,6 +94,11 @@ def get_paper_runtime_config(
             "PAPER_ENABLE_DB_BAR_FALLBACK",
             True,
         ),
+        "close_on_shutdown": _resolve_bool(
+            risk_config.get("close_on_shutdown"),
+            "PAPER_CLOSE_ON_SHUTDOWN",
+            False,
+        ),
         "force_hard_exit": _resolve_bool(
             risk_config.get("force_hard_exit"),
             "PAPER_FORCE_HARD_EXIT",
@@ -112,6 +117,16 @@ def get_paper_runtime_config(
         "force_flat_on_session_close": _resolve_bool(
             risk_config.get("force_flat_on_session_close"),
             "PAPER_FORCE_FLAT_ON_SESSION_CLOSE",
+            False,
+        ),
+        "force_flat_preclose_seconds": _resolve_float(
+            risk_config.get("force_flat_preclose_seconds"),
+            "PAPER_FORCE_FLAT_PRECLOSE_SECONDS",
+            0.0,
+        ),
+        "force_flat_on_last_candle": _resolve_bool(
+            risk_config.get("force_flat_on_last_candle"),
+            "PAPER_FORCE_FLAT_ON_LAST_CANDLE",
             False,
         ),
         "defer_exit_outside_session": _resolve_bool(

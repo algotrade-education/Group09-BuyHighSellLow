@@ -18,7 +18,8 @@ Key Responsibilities:
 
 import asyncio
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from config.config import (
@@ -29,6 +30,7 @@ from config.config import (
 from config.runtime_config import get_paper_bar_runtime_config, get_paper_runtime_config
 from src.engine.position_sizer import FixedSizer, PercentRiskSizer, PositionSizer
 from src.engine.session_gate import (
+    vn30_active_window_end,
     vn30_is_entry_blocked,
     vn30_is_trading_time,
     vn30_seconds_to_window_end,
@@ -101,6 +103,7 @@ class PaperTrader:
             initial_capital=initial_capital,
             commission_rate=COMMISSION_RATE,
             contract_multiplier=CONTRACT_MULTIPLIER,
+            max_daily_loss_pct=float(risk.get("max_daily_loss", 0.0) or 0.0),
         )
 
         self._order_mgr = OrderManager(
@@ -129,12 +132,32 @@ class PaperTrader:
         self._last_close: float = 0.0
         runtime_config = get_paper_runtime_config(risk)
         self._enable_db_bar_fallback = runtime_config["enable_db_bar_fallback"]
+        self._close_on_shutdown = runtime_config["close_on_shutdown"]
         self._force_hard_exit = runtime_config["force_hard_exit"]
         self._entry_cutoff_seconds = runtime_config["entry_cutoff_seconds"]
         self._allow_late_entry = runtime_config["allow_late_entry"]
+        self._use_trailing_stop = bool(risk.get("use_trailing_stop", False))
+        self._trailing_atr_multiplier = float(
+            risk.get("trailing_atr_multiplier", 2.0) or 2.0
+        )
         self._force_flat_on_session_close = runtime_config[
             "force_flat_on_session_close"
         ]
+        self._force_flat_preclose_seconds = runtime_config[
+            "force_flat_preclose_seconds"
+        ]
+        self._force_flat_on_last_candle = runtime_config["force_flat_on_last_candle"]
+        if (
+            self._force_flat_on_session_close
+            and self._force_flat_preclose_seconds <= 0
+            and not self._force_flat_on_last_candle
+        ):
+            self._force_flat_preclose_seconds = 15.0
+            logger.warning(
+                "force_flat_on_session_close is enabled with no proactive trigger; "
+                "using fallback preclose window: %.1fs",
+                self._force_flat_preclose_seconds,
+            )
         self._defer_exit_outside_session = runtime_config["defer_exit_outside_session"]
         self._deferred_exit_reason: Optional[str] = None
 
@@ -145,6 +168,10 @@ class PaperTrader:
         "30min": 30,
         "1h": 60,
     }
+
+    # ------------------------------------------------------------------
+    # Internal Helpers
+    # ------------------------------------------------------------------
 
     def _submit_exit_or_defer(
         self,
@@ -196,6 +223,84 @@ class PaperTrader:
 
         logger.info("PaperTrader using FixedSizer: size=%d", min_size)
         return FixedSizer(size=min_size)
+
+    def _resolve_bar_time(self, dt: Any, fallback: datetime) -> datetime:
+        """Return bar timestamp as python datetime for session-boundary checks."""
+        if isinstance(dt, datetime):
+            return dt
+
+        to_py = getattr(dt, "to_pydatetime", None)
+        if callable(to_py):
+            converted = to_py()
+            if isinstance(converted, datetime):
+                return converted
+
+        return fallback
+
+    def _apply_trailing_stop(self, bar: Dict[str, Any]) -> None:
+        """Move stop loss in favor of the trade using ATR trailing distance."""
+        if not self._use_trailing_stop:
+            return
+
+        pos = self._tracker.position
+        if pos.is_flat or pos.stop_loss is None:
+            return
+
+        atr = 0.0
+        for key, value in bar.items():
+            if str(key).startswith("atr_") and value and value > 0:
+                atr = float(value)
+                break
+
+        if atr <= 0:
+            return
+
+        trail_distance = self._trailing_atr_multiplier * atr
+        close = float(bar.get("close", 0.0) or 0.0)
+
+        if pos.is_long:
+            new_sl = close - trail_distance
+            if new_sl > pos.stop_loss:
+                logger.info(
+                    "Trailing stop updated: LONG SL %.2f -> %.2f",
+                    pos.stop_loss,
+                    new_sl,
+                )
+                pos.stop_loss = new_sl
+        elif pos.is_short:
+            new_sl = close + trail_distance
+            if new_sl < pos.stop_loss:
+                logger.info(
+                    "Trailing stop updated: SHORT SL %.2f -> %.2f",
+                    pos.stop_loss,
+                    new_sl,
+                )
+                pos.stop_loss = new_sl
+
+    def _redis_quote_callback(
+        self,
+        instrument_or_snapshot: Any,
+        quote: Optional[Any] = None,
+    ) -> None:
+        """
+        Adapter for Redis market data callbacks.
+
+        Supports both callback shapes observed across client/type stubs:
+        - (instrument, quote)
+        - (quote_snapshot)
+        """
+        if quote is None:
+            snapshot = instrument_or_snapshot
+            instrument = getattr(snapshot, "instrument", self.symbol)
+        else:
+            instrument = str(instrument_or_snapshot or self.symbol)
+            snapshot = quote
+
+        result = self._bar_provider.on_quote(instrument, snapshot)
+
+        # on_quote may be async; if it returns a coroutine, schedule it
+        if asyncio.iscoroutine(result):
+            asyncio.create_task(result)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -267,10 +372,13 @@ class PaperTrader:
         # Warm up strategy internal state (e.g. ORB session range)
         if historical_df is not None and not historical_df.empty:
             logger.info("Warming up strategy internal state...")
-            for row in historical_df.to_dict(orient="records"):
+            for raw_row in historical_df.to_dict(orient="records"):
+                bar: Dict[str, Any] = {str(k): v for k, v in raw_row.items()}
                 try:
                     self.strategy.generate_signal(
-                        bar=row, current_position=self._tracker.position, is_warmup=True
+                        bar=bar,
+                        current_position=self._tracker.position,
+                        is_warmup=True,
                     )
                 except Exception:
                     pass
@@ -298,7 +406,7 @@ class PaperTrader:
         # Redis subscription
         logger.info("Subscribing to Redis market data for %s…", self.symbol)
         try:
-            await self._redis_client.subscribe(self.symbol, self._bar_provider.on_quote)
+            await self._redis_client.subscribe(self.symbol, self._redis_quote_callback)
         except Exception as exc:
             logger.error("Redis subscription failed: %s", exc)
             logger.error(
@@ -351,14 +459,21 @@ class PaperTrader:
         """Stop the engine, attempt cleanup, and print session statistics."""
         self._running = False
 
-        # Close any open position at last price
+        # Optionally close any open position at last price
         if not self._tracker.is_flat:
-            logger.info(
-                "Closing open position on shutdown (last_close=%.2f)…", self._last_close
-            )
-            self._order_mgr.submit_exit(
-                reason="Session End", price=self._last_close or None
-            )
+            if self._close_on_shutdown:
+                logger.info(
+                    "Closing open position on shutdown (last_close=%.2f)…",
+                    self._last_close,
+                )
+                self._order_mgr.submit_exit(
+                    reason="Shutdown Close", price=self._last_close or None
+                )
+            else:
+                logger.warning(
+                    "Shutdown detected with open position; preserving position "
+                    "(set PAPER_CLOSE_ON_SHUTDOWN=true to auto-close)."
+                )
 
         if self._redis_client is not None:
             try:
@@ -384,8 +499,10 @@ class PaperTrader:
         """Handle one completed bar through risk checks, strategy, and orders."""
         dt: datetime = bar.get("datetime", datetime.now())
         process_time = datetime.now()
+        bar_time = self._resolve_bar_time(dt, process_time)
         close = float(bar.get("close", 0))
         self._last_close = close
+        self._tracker.update_daily_pnl(bar_time)
 
         trading_now = vn30_is_trading_time(process_time)
 
@@ -410,6 +527,44 @@ class PaperTrader:
                 price=close,
                 process_time=process_time,
             )
+
+        if not self._tracker.is_flat and self._deferred_exit_reason is None:
+            seconds_to_end = vn30_seconds_to_window_end(bar_time)
+
+            should_force_flat_preclose = (
+                self._force_flat_preclose_seconds > 0
+                and seconds_to_end is not None
+                and seconds_to_end <= self._force_flat_preclose_seconds
+            )
+
+            window_end = vn30_active_window_end(bar_time)
+            bar_is_last_in_window = False
+            if self._force_flat_on_last_candle and window_end is not None:
+                bar_close_time = bar_time + timedelta(
+                    minutes=self._bar_provider.freq_minutes
+                )
+                bar_is_last_in_window = bar_close_time >= window_end
+
+            if should_force_flat_preclose or bar_is_last_in_window:
+                if bar_is_last_in_window:
+                    reason = "Last Candle Close"
+                else:
+                    reason = (
+                        f"Session Preclose ({seconds_to_end:.1f}s <= "
+                        f"{self._force_flat_preclose_seconds:.1f}s)"
+                    )
+
+                logger.info(
+                    "Force-flat trigger: %s | bar_time=%s",
+                    reason,
+                    bar_time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                self._submit_exit_or_defer(
+                    reason=reason,
+                    price=close,
+                    process_time=bar_time,
+                )
+                return
 
         # Extract indicators for logging
         atr_key = f"atr_{self.config.get('strategy', {}).get('atr_period', 14)}"
@@ -456,6 +611,16 @@ class PaperTrader:
                     process_time=process_time,
                 )
                 return  # Don't generate new entry on same bar
+
+            self._apply_trailing_stop(bar)
+
+        if self._tracker.is_daily_loss_hit and self._tracker.is_flat:
+            logger.info(
+                "Skipping signal generation: max daily loss reached "
+                "(daily_pnl=%.2f).",
+                self._tracker.daily_pnl,
+            )
+            return
 
         # --- Strategy signal ---
         try:
