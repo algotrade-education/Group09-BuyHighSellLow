@@ -5,7 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from src.paper.connect import resolve_fix_sender_comp_id
-from src.paper_trade.warmup_cache import load_with_cache
+from src.paper.warmup_cache import load_with_cache
 from src.utils.cli_helpers import load_sample_data, prepare_backtest_dataset
 
 if TYPE_CHECKING:

@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 
 from config.config import DEFAULT_INITIAL_CAPITAL
 from src.paper.engine import PaperTrader
-from src.paper_trade.bootstrap import (
+from src.paper.bootstrap import (
     build_clients,
     prepare_live_warmup_data,
     prepare_sim_replay_data,

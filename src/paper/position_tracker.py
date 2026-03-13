@@ -61,6 +61,11 @@ class PositionTracker:
         # Equity curve: list of (datetime, equity) snapshots
         self._equity_snapshots: List[Tuple[datetime, float]] = []
 
+        # Daily P&L tracking
+        self._current_date: Optional[date] = None
+        self._start_of_day_equity: float = initial_capital
+        self._daily_pnl: float = 0.0
+
     # ------------------------------------------------------------------
     # Position lifecycle
     # ------------------------------------------------------------------
@@ -302,6 +307,19 @@ class PositionTracker:
         if not self._position.is_flat:
             self._position.update_unrealized_pnl(current_price)
         self.equity = self.cash + self._position.unrealized_pnl
+        if self._current_date is not None:
+            self._daily_pnl = self.equity - self._start_of_day_equity
+
+    def update_daily_pnl(self, timestamp: datetime) -> None:
+        """Reset daily tracking if a new day has started."""
+        current_date = timestamp.date()
+        if self._current_date != current_date:
+            self._current_date = current_date
+            self._start_of_day_equity = self.equity
+            self._daily_pnl = 0.0
+            logger.info("New day started: Resetting daily P&L. Start equity: %.2f", self.equity)
+        else:
+            self._daily_pnl = self.equity - self._start_of_day_equity
 
     def equity_snapshot(self, timestamp: datetime) -> Tuple[datetime, float]:
         """Record and return the current equity snapshot."""
@@ -328,6 +346,10 @@ class PositionTracker:
     @property
     def is_flat(self) -> bool:
         return self._position.is_flat
+
+    @property
+    def daily_pnl(self) -> float:
+        return self._daily_pnl
 
     # ------------------------------------------------------------------
     # Helpers

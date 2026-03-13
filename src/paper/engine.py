@@ -59,6 +59,14 @@ class PaperTrader:
     BarProvider (Data) -> PaperTrader (Check SL/TP -> Strategy Signal) -> OrderManager (Execution)
     """
 
+    _FREQ_TO_MINUTES: Dict[str, int] = {
+        "1min": 1,
+        "5min": 5,
+        "15min": 15,
+        "30min": 30,
+        "1h": 60,
+    }
+
     def __init__(
         self,
         strategy: Strategy,
@@ -113,7 +121,9 @@ class PaperTrader:
         self._session_mgr: SessionManager = VN30Session()
         self._risk_mgr = RiskManager(
             use_trailing_stop=bool(risk.get("use_trailing_stop", False)),
-            trailing_atr_multiplier=float(risk.get("trailing_atr_multiplier", 2.0) or 2.0),
+            trailing_atr_multiplier=float(
+                risk.get("trailing_atr_multiplier", 2.0) or 2.0
+            ),
             max_daily_loss_pct=float(risk.get("max_daily_loss", 0.0) or 0.0),
             initial_capital=initial_capital,
         )
@@ -135,18 +145,22 @@ class PaperTrader:
         self._running = False
         self._bars_processed = 0
         self._last_close: float = 0.0
-        
+
         # Engine execution config
         self._enable_db_bar_fallback = runtime_config["enable_db_bar_fallback"]
         self._close_on_shutdown = runtime_config["close_on_shutdown"]
         self._force_hard_exit = runtime_config["force_hard_exit"]
         self._defer_exit_outside_session = runtime_config["defer_exit_outside_session"]
-        
+
         # Session forcing
         self._entry_cutoff_seconds = runtime_config["entry_cutoff_seconds"]
         self._allow_late_entry = runtime_config["allow_late_entry"]
-        self._force_flat_on_session_close = runtime_config["force_flat_on_session_close"]
-        self._force_flat_preclose_seconds = runtime_config["force_flat_preclose_seconds"]
+        self._force_flat_on_session_close = runtime_config[
+            "force_flat_on_session_close"
+        ]
+        self._force_flat_preclose_seconds = runtime_config[
+            "force_flat_preclose_seconds"
+        ]
         self._force_flat_on_last_candle = runtime_config["force_flat_on_last_candle"]
 
         if (
@@ -163,149 +177,23 @@ class PaperTrader:
 
         self._deferred_exit_reason: Optional[str] = None
 
-    _FREQ_TO_MINUTES: Dict[str, int] = {
-        "1min": 1,
-        "5min": 5,
-        "15min": 15,
-        "30min": 30,
-        "1h": 60,
-    }
-
-    # ------------------------------------------------------------------
-    # Internal Helpers
-    # ------------------------------------------------------------------
-
-    def _submit_exit_or_defer(
-        self,
-        reason: str,
-        price: float,
-        process_time: datetime,
-    ) -> None:
-        """Submit exit immediately during session, otherwise defer to next tradable bar."""
-        if self._session_mgr.is_trading_hours(process_time):
-            self._order_mgr.submit_exit(reason=reason, price=price)
-            self._deferred_exit_reason = None
-            return
-
-        if self._defer_exit_outside_session:
-            self._deferred_exit_reason = reason
-            logger.warning(
-                "Deferring exit (%s): process_time=%s is outside trading session.",
-                reason,
-                process_time.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            return
-
-        logger.warning(
-            "Skipping exit (%s): process_time=%s is outside trading session.",
-            reason,
-            process_time.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-
-    def _build_position_sizer(self, risk: Dict[str, Any]) -> PositionSizer:
-        """Build position sizer from risk config for paper trading entries."""
-        risk_pct = float(risk.get("risk_per_trade_pct", 0.0) or 0.0)
-        min_size = int(risk.get("min_position_size", 1) or 1)
-        max_size = int(
-            risk.get("max_position_size", max(min_size, 1)) or max(min_size, 1)
-        )
-
-        if risk_pct > 0:
-            logger.info(
-                "PaperTrader using PercentRiskSizer: %.2f%% risk per trade (min=%d max=%d)",
-                risk_pct,
-                min_size,
-                max_size,
-            )
-            return PercentRiskSizer(
-                risk_per_trade_pct=risk_pct,
-                min_size=min_size,
-                max_size=max_size,
-            )
-
-        logger.info("PaperTrader using FixedSizer: size=%d", min_size)
-        return FixedSizer(size=min_size)
-
-    def _resolve_bar_time(self, dt: Any, fallback: datetime) -> datetime:
-        """Return bar timestamp as python datetime for session-boundary checks."""
-        if isinstance(dt, datetime):
-            return dt
-
-        to_py = getattr(dt, "to_pydatetime", None)
-        if callable(to_py):
-            converted = to_py()
-            if isinstance(converted, datetime):
-                return converted
-
-        return fallback
-
-
-
-    def _redis_quote_callback(
-        self,
-        instrument_or_snapshot: Any,
-        quote: Optional[Any] = None,
-    ) -> None:
-        """
-        Adapter for Redis market data callbacks.
-
-        Supports both callback shapes observed across client/type stubs:
-        - (instrument, quote)
-        - (quote_snapshot)
-        """
-        if quote is None:
-            snapshot = instrument_or_snapshot
-            instrument = getattr(snapshot, "instrument", self.symbol)
-        else:
-            instrument = str(instrument_or_snapshot or self.symbol)
-            snapshot = quote
-
-        result = self._bar_provider.on_quote(instrument, snapshot)
-
-        # on_quote may be async; if it returns a coroutine, schedule it
-        if asyncio.iscoroutine(result):
-            asyncio.create_task(result)
-
-    def _maybe_force_flat_by_clock(self, process_time: datetime) -> None:
-        """Run a per-second preclose flat check so exits don't depend on bar-close timing."""
-        if self._tracker.is_flat or self._force_flat_preclose_seconds <= 0:
-            return
-
-        reason = self._session_mgr.get_force_close_reason(
-            dt=process_time,
-            preclose_seconds=self._force_flat_preclose_seconds,
-        )
-        if not reason:
-            return
-
-        if self._last_close <= 0:
-            logger.warning(
-                "Clock preclose trigger ready but skipped: last_close unavailable."
-            )
-            return
-
-        logger.info(
-            "Clock preclose force-flat trigger: %s | process_time=%s",
-            reason,
-            process_time.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        self._submit_exit_or_defer(
-            reason=reason,
-            price=self._last_close,
-            process_time=process_time,
-        )
-
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _fallback_bar_for_bucket(self, bucket_dt: datetime) -> Optional[Dict[str, Any]]:
-        """Load a closed bar from DB when live Redis delivered no trade ticks."""
-        return load_fallback_bar_for_bucket(
+    def _sync_broker_state(self) -> None:
+        """
+        Fetch current portfolio and orders from PaperBroker to initialize
+        the PositionTracker and OrderManager on startup.
+        """
+        if self._client is None or self.dry_run:
+            return
+
+        sync_broker_state(
+            client=self._client,
             symbol=self.symbol,
-            bucket_dt=bucket_dt,
-            freq_minutes=self._bar_provider.freq_minutes,
-            enabled=self._enable_db_bar_fallback,
+            tracker=self._tracker,
+            order_manager=self._order_mgr,
             logger=logger,
         )
 
@@ -433,22 +321,6 @@ class PaperTrader:
         await self._bar_provider.replay(sim_df, speed=0.0)
         await self.stop()
 
-    def _sync_broker_state(self) -> None:
-        """
-        Fetch current portfolio and orders from PaperBroker to initialize
-        the PositionTracker and OrderManager on startup.
-        """
-        if self._client is None or self.dry_run:
-            return
-
-        sync_broker_state(
-            client=self._client,
-            symbol=self.symbol,
-            tracker=self._tracker,
-            order_manager=self._order_mgr,
-            logger=logger,
-        )
-
     async def stop(self) -> None:
         """Stop the engine, attempt cleanup, and print session statistics."""
         self._running = False
@@ -486,8 +358,33 @@ class PaperTrader:
                 pass
 
     # ------------------------------------------------------------------
-    # Bar callback (called by BarProvider for each completed bar)
+    # Callbacks
     # ------------------------------------------------------------------
+
+    def _redis_quote_callback(
+        self,
+        instrument_or_snapshot: Any,
+        quote: Optional[Any] = None,
+    ) -> None:
+        """
+        Adapter for Redis market data callbacks.
+
+        Supports both callback shapes observed across client/type stubs:
+        - (instrument, quote)
+        - (quote_snapshot)
+        """
+        if quote is None:
+            snapshot = instrument_or_snapshot
+            instrument = getattr(snapshot, "instrument", self.symbol)
+        else:
+            instrument = str(instrument_or_snapshot or self.symbol)
+            snapshot = quote
+
+        result = self._bar_provider.on_quote(instrument, snapshot)
+
+        # on_quote may be async; if it returns a coroutine, schedule it
+        if asyncio.iscoroutine(result):
+            asyncio.create_task(result)
 
     def _on_new_bar(self, bar: Dict[str, Any]) -> None:
         """Handle one completed bar through risk checks, strategy, and orders."""
@@ -496,6 +393,7 @@ class PaperTrader:
         bar_time = self._resolve_bar_time(dt, process_time)
         close = float(bar.get("close", 0))
         self._last_close = close
+
         self._tracker.update_daily_pnl(bar_time)
 
         trading_now = self._session_mgr.is_trading_hours(process_time)
@@ -524,18 +422,21 @@ class PaperTrader:
 
         if not self._tracker.is_flat and self._deferred_exit_reason is None:
             reason = self._session_mgr.get_force_close_reason(
-                dt=bar_time, 
-                preclose_seconds=self._force_flat_preclose_seconds
+                dt=bar_time, preclose_seconds=self._force_flat_preclose_seconds
             )
-            
+
             # Additional heuristic: checking if the *next* candle will fall outside
             # the active window to handle edge-of-session closures explicitly.
             bar_is_last_in_window = False
             if self._force_flat_on_last_candle:
                 # E.g. 14:25 + 5m = 14:30. If active window ends at 14:30, it's the last candle.
-                bar_close_time = bar_time + timedelta(minutes=self._bar_provider.freq_minutes)
+                bar_close_time = bar_time + timedelta(
+                    minutes=self._bar_provider.freq_minutes
+                )
                 # Ensure the close time isn't still inside session
-                if not self._session_mgr.is_trading_hours(bar_close_time - timedelta(seconds=1)):
+                if not self._session_mgr.is_trading_hours(
+                    bar_close_time - timedelta(seconds=1)
+                ):
                     bar_is_last_in_window = True
 
             if reason is not None or bar_is_last_in_window:
@@ -548,7 +449,7 @@ class PaperTrader:
                     bar_time.strftime("%Y-%m-%d %H:%M:%S"),
                 )
                 self._submit_exit_or_defer(
-                    reason=reason,
+                    reason=reason or "Session Boundary Close",
                     price=close,
                     process_time=bar_time,
                 )
@@ -603,10 +504,11 @@ class PaperTrader:
             self._risk_mgr.apply_trailing_stop(self._tracker.position, bar)
 
         # Track daily loss using RiskManager
-        if self._tracker.is_flat and self._risk_mgr.is_daily_loss_hit(self._tracker.daily_pnl):
+        if self._tracker.is_flat and self._risk_mgr.is_daily_loss_hit(
+            self._tracker.daily_pnl
+        ):
             logger.info(
-                "Skipping signal generation: max daily loss reached "
-                "(daily_pnl=%.2f).",
+                "Skipping signal generation: max daily loss reached (daily_pnl=%.2f).",
                 self._tracker.daily_pnl,
             )
             return
@@ -665,6 +567,39 @@ class PaperTrader:
                 signal.reason or "No entry/exit criteria met",
             )
 
+    def _maybe_force_flat_by_clock(self, process_time: datetime) -> None:
+        """Run a per-second preclose flat check so exits don't depend on bar-close timing."""
+        if self._tracker.is_flat or self._force_flat_preclose_seconds <= 0:
+            return
+
+        reason = self._session_mgr.get_force_close_reason(
+            dt=process_time,
+            preclose_seconds=self._force_flat_preclose_seconds,
+        )
+        if not reason:
+            return
+
+        if self._last_close <= 0:
+            logger.warning(
+                "Clock preclose trigger ready but skipped: last_close unavailable."
+            )
+            return
+
+        logger.info(
+            "Clock preclose force-flat trigger: %s | process_time=%s",
+            reason,
+            process_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self._submit_exit_or_defer(
+            reason=reason,
+            price=self._last_close,
+            process_time=process_time,
+        )
+
+    # ------------------------------------------------------------------
+    # Execution Logic
+    # ------------------------------------------------------------------
+
     def _submit_entry(self, signal: TradeSignal, bar: Dict[str, Any]) -> None:
         """Compute position size from configured PositionSizer and submit entry order."""
         entry_price = float(bar.get("close", 0.0) or 0.0)
@@ -679,6 +614,84 @@ class PaperTrader:
             return
 
         self._order_mgr.submit_entry(signal, qty=qty, bar=bar)
+
+    def _submit_exit_or_defer(
+        self,
+        reason: str,
+        price: float,
+        process_time: datetime,
+    ) -> None:
+        """Submit exit immediately during session, otherwise defer to next tradable bar."""
+        if self._session_mgr.is_trading_hours(process_time):
+            self._order_mgr.submit_exit(reason=reason, price=price)
+            self._deferred_exit_reason = None
+            return
+
+        if self._defer_exit_outside_session:
+            self._deferred_exit_reason = reason
+            logger.warning(
+                "Deferring exit (%s): process_time=%s is outside trading session.",
+                reason,
+                process_time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            return
+
+        logger.warning(
+            "Skipping exit (%s): process_time=%s is outside trading session.",
+            reason,
+            process_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _build_position_sizer(self, risk: Dict[str, Any]) -> PositionSizer:
+        """Build position sizer from risk config for paper trading entries."""
+        risk_pct = float(risk.get("risk_per_trade_pct", 0.0) or 0.0)
+        min_size = int(risk.get("min_position_size", 1) or 1)
+        max_size = int(
+            risk.get("max_position_size", max(min_size, 1)) or max(min_size, 1)
+        )
+
+        if risk_pct > 0:
+            logger.info(
+                "PaperTrader using PercentRiskSizer: %.2f%% risk per trade (min=%d max=%d)",
+                risk_pct,
+                min_size,
+                max_size,
+            )
+            return PercentRiskSizer(
+                risk_per_trade_pct=risk_pct,
+                min_size=min_size,
+                max_size=max_size,
+            )
+
+        logger.info("PaperTrader using FixedSizer: size=%d", min_size)
+        return FixedSizer(size=min_size)
+
+    def _resolve_bar_time(self, dt: Any, fallback: datetime) -> datetime:
+        """Return bar timestamp as python datetime for session-boundary checks."""
+        if isinstance(dt, datetime):
+            return dt
+
+        to_py = getattr(dt, "to_pydatetime", None)
+        if callable(to_py):
+            converted = to_py()
+            if isinstance(converted, datetime):
+                return converted
+
+        return fallback
+
+    def _fallback_bar_for_bucket(self, bucket_dt: datetime) -> Optional[Dict[str, Any]]:
+        """Load a closed bar from DB when live Redis delivered no trade ticks."""
+        return load_fallback_bar_for_bucket(
+            symbol=self.symbol,
+            bucket_dt=bucket_dt,
+            freq_minutes=self._bar_provider.freq_minutes,
+            enabled=self._enable_db_bar_fallback,
+            logger=logger,
+        )
 
     # ------------------------------------------------------------------
     # Properties
