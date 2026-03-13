@@ -29,17 +29,13 @@ from config.config import (
 )
 from config.runtime_config import get_paper_bar_runtime_config, get_paper_runtime_config
 from src.engine.position_sizer import FixedSizer, PercentRiskSizer, PositionSizer
-from src.engine.session_gate import (
-    vn30_active_window_end,
-    vn30_is_entry_blocked,
-    vn30_is_trading_time,
-    vn30_seconds_to_window_end,
-)
+from src.engine.session_manager import SessionManager, VN30Session
 from src.paper.bar_fallback import load_fallback_bar_for_bucket
 from src.paper.bar_provider import BarProvider
 from src.paper.broker_sync import sync_broker_state
 from src.paper.order_manager import OrderManager
 from src.paper.position_tracker import PositionTracker
+from src.paper.risk_manager import RiskManager
 from src.paper.stats import SessionStats
 from src.strategy.base import Signal, Strategy, TradeSignal
 
@@ -98,12 +94,11 @@ class PaperTrader:
         risk = config.get("risk", {})
         self._position_sizer = self._build_position_sizer(risk)
 
-        # Sub-components
+        # Managers
         self._tracker = PositionTracker(
             initial_capital=initial_capital,
             commission_rate=COMMISSION_RATE,
             contract_multiplier=CONTRACT_MULTIPLIER,
-            max_daily_loss_pct=float(risk.get("max_daily_loss", 0.0) or 0.0),
         )
 
         self._order_mgr = OrderManager(
@@ -111,6 +106,16 @@ class PaperTrader:
             tracker=self._tracker,
             symbol=symbol,
             dry_run=dry_run,
+        )
+
+        runtime_config = get_paper_runtime_config(risk)
+
+        self._session_mgr: SessionManager = VN30Session()
+        self._risk_mgr = RiskManager(
+            use_trailing_stop=bool(risk.get("use_trailing_stop", False)),
+            trailing_atr_multiplier=float(risk.get("trailing_atr_multiplier", 2.0) or 2.0),
+            max_daily_loss_pct=float(risk.get("max_daily_loss", 0.0) or 0.0),
+            initial_capital=initial_capital,
         )
 
         atr_period = config.get("strategy", {}).get("atr_period", 14)
@@ -130,23 +135,20 @@ class PaperTrader:
         self._running = False
         self._bars_processed = 0
         self._last_close: float = 0.0
-        runtime_config = get_paper_runtime_config(risk)
+        
+        # Engine execution config
         self._enable_db_bar_fallback = runtime_config["enable_db_bar_fallback"]
         self._close_on_shutdown = runtime_config["close_on_shutdown"]
         self._force_hard_exit = runtime_config["force_hard_exit"]
+        self._defer_exit_outside_session = runtime_config["defer_exit_outside_session"]
+        
+        # Session forcing
         self._entry_cutoff_seconds = runtime_config["entry_cutoff_seconds"]
         self._allow_late_entry = runtime_config["allow_late_entry"]
-        self._use_trailing_stop = bool(risk.get("use_trailing_stop", False))
-        self._trailing_atr_multiplier = float(
-            risk.get("trailing_atr_multiplier", 2.0) or 2.0
-        )
-        self._force_flat_on_session_close = runtime_config[
-            "force_flat_on_session_close"
-        ]
-        self._force_flat_preclose_seconds = runtime_config[
-            "force_flat_preclose_seconds"
-        ]
+        self._force_flat_on_session_close = runtime_config["force_flat_on_session_close"]
+        self._force_flat_preclose_seconds = runtime_config["force_flat_preclose_seconds"]
         self._force_flat_on_last_candle = runtime_config["force_flat_on_last_candle"]
+
         if (
             self._force_flat_on_session_close
             and self._force_flat_preclose_seconds <= 0
@@ -158,7 +160,7 @@ class PaperTrader:
                 "using fallback preclose window: %.1fs",
                 self._force_flat_preclose_seconds,
             )
-        self._defer_exit_outside_session = runtime_config["defer_exit_outside_session"]
+
         self._deferred_exit_reason: Optional[str] = None
 
     _FREQ_TO_MINUTES: Dict[str, int] = {
@@ -180,7 +182,7 @@ class PaperTrader:
         process_time: datetime,
     ) -> None:
         """Submit exit immediately during session, otherwise defer to next tradable bar."""
-        if vn30_is_trading_time(process_time):
+        if self._session_mgr.is_trading_hours(process_time):
             self._order_mgr.submit_exit(reason=reason, price=price)
             self._deferred_exit_reason = None
             return
@@ -237,45 +239,7 @@ class PaperTrader:
 
         return fallback
 
-    def _apply_trailing_stop(self, bar: Dict[str, Any]) -> None:
-        """Move stop loss in favor of the trade using ATR trailing distance."""
-        if not self._use_trailing_stop:
-            return
 
-        pos = self._tracker.position
-        if pos.is_flat or pos.stop_loss is None:
-            return
-
-        atr = 0.0
-        for key, value in bar.items():
-            if str(key).startswith("atr_") and value and value > 0:
-                atr = float(value)
-                break
-
-        if atr <= 0:
-            return
-
-        trail_distance = self._trailing_atr_multiplier * atr
-        close = float(bar.get("close", 0.0) or 0.0)
-
-        if pos.is_long:
-            new_sl = close - trail_distance
-            if new_sl > pos.stop_loss:
-                logger.info(
-                    "Trailing stop updated: LONG SL %.2f -> %.2f",
-                    pos.stop_loss,
-                    new_sl,
-                )
-                pos.stop_loss = new_sl
-        elif pos.is_short:
-            new_sl = close + trail_distance
-            if new_sl < pos.stop_loss:
-                logger.info(
-                    "Trailing stop updated: SHORT SL %.2f -> %.2f",
-                    pos.stop_loss,
-                    new_sl,
-                )
-                pos.stop_loss = new_sl
 
     def _redis_quote_callback(
         self,
@@ -301,6 +265,35 @@ class PaperTrader:
         # on_quote may be async; if it returns a coroutine, schedule it
         if asyncio.iscoroutine(result):
             asyncio.create_task(result)
+
+    def _maybe_force_flat_by_clock(self, process_time: datetime) -> None:
+        """Run a per-second preclose flat check so exits don't depend on bar-close timing."""
+        if self._tracker.is_flat or self._force_flat_preclose_seconds <= 0:
+            return
+
+        reason = self._session_mgr.get_force_close_reason(
+            dt=process_time,
+            preclose_seconds=self._force_flat_preclose_seconds,
+        )
+        if not reason:
+            return
+
+        if self._last_close <= 0:
+            logger.warning(
+                "Clock preclose trigger ready but skipped: last_close unavailable."
+            )
+            return
+
+        logger.info(
+            "Clock preclose force-flat trigger: %s | process_time=%s",
+            reason,
+            process_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self._submit_exit_or_defer(
+            reason=reason,
+            price=self._last_close,
+            process_time=process_time,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -419,6 +412,7 @@ class PaperTrader:
         try:
             while self._running:
                 # Force clock-aligned bar rollovers (resolves illiquid market tick delays)
+                self._maybe_force_flat_by_clock(datetime.now())
                 self._bar_provider.check_time()
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
@@ -504,7 +498,7 @@ class PaperTrader:
         self._last_close = close
         self._tracker.update_daily_pnl(bar_time)
 
-        trading_now = vn30_is_trading_time(process_time)
+        trading_now = self._session_mgr.is_trading_hours(process_time)
 
         if self._deferred_exit_reason and not self._tracker.is_flat and trading_now:
             reason = self._deferred_exit_reason
@@ -529,30 +523,24 @@ class PaperTrader:
             )
 
         if not self._tracker.is_flat and self._deferred_exit_reason is None:
-            seconds_to_end = vn30_seconds_to_window_end(bar_time)
-
-            should_force_flat_preclose = (
-                self._force_flat_preclose_seconds > 0
-                and seconds_to_end is not None
-                and seconds_to_end <= self._force_flat_preclose_seconds
+            reason = self._session_mgr.get_force_close_reason(
+                dt=bar_time, 
+                preclose_seconds=self._force_flat_preclose_seconds
             )
-
-            window_end = vn30_active_window_end(bar_time)
+            
+            # Additional heuristic: checking if the *next* candle will fall outside
+            # the active window to handle edge-of-session closures explicitly.
             bar_is_last_in_window = False
-            if self._force_flat_on_last_candle and window_end is not None:
-                bar_close_time = bar_time + timedelta(
-                    minutes=self._bar_provider.freq_minutes
-                )
-                bar_is_last_in_window = bar_close_time >= window_end
+            if self._force_flat_on_last_candle:
+                # E.g. 14:25 + 5m = 14:30. If active window ends at 14:30, it's the last candle.
+                bar_close_time = bar_time + timedelta(minutes=self._bar_provider.freq_minutes)
+                # Ensure the close time isn't still inside session
+                if not self._session_mgr.is_trading_hours(bar_close_time - timedelta(seconds=1)):
+                    bar_is_last_in_window = True
 
-            if should_force_flat_preclose or bar_is_last_in_window:
+            if reason is not None or bar_is_last_in_window:
                 if bar_is_last_in_window:
                     reason = "Last Candle Close"
-                else:
-                    reason = (
-                        f"Session Preclose ({seconds_to_end:.1f}s <= "
-                        f"{self._force_flat_preclose_seconds:.1f}s)"
-                    )
 
                 logger.info(
                     "Force-flat trigger: %s | bar_time=%s",
@@ -603,18 +591,19 @@ class PaperTrader:
 
         # --- SL/TP check BEFORE generating new signal ---
         if not self._tracker.is_flat:
-            exit_trigger = self._tracker.check_sl_tp(bar)
+            exit_trigger = self._risk_mgr.get_exit_trigger(self._tracker.position, bar)
             if exit_trigger:
                 self._submit_exit_or_defer(
-                    reason=exit_trigger.replace("_", " ").title(),
+                    reason=exit_trigger,
                     price=close,
                     process_time=process_time,
                 )
                 return  # Don't generate new entry on same bar
 
-            self._apply_trailing_stop(bar)
+            self._risk_mgr.apply_trailing_stop(self._tracker.position, bar)
 
-        if self._tracker.is_daily_loss_hit and self._tracker.is_flat:
+        # Track daily loss using RiskManager
+        if self._tracker.is_flat and self._risk_mgr.is_daily_loss_hit(self._tracker.daily_pnl):
             logger.info(
                 "Skipping signal generation: max daily loss reached "
                 "(daily_pnl=%.2f).",
@@ -633,20 +622,12 @@ class PaperTrader:
             return
 
         if signal.signal in (Signal.LONG, Signal.SHORT) and self._tracker.is_flat:
-            if vn30_is_entry_blocked(
+            if self._session_mgr.is_entry_blocked(
                 dt=process_time,
-                entry_cutoff_seconds=self._entry_cutoff_seconds,
-                allow_late_entry=self._allow_late_entry,
+                cutoff_seconds=self._entry_cutoff_seconds,
+                allow_late=self._allow_late_entry,
             ):
-                seconds_to_end = vn30_seconds_to_window_end(process_time)
-                if seconds_to_end is None:
-                    reason = "outside trading session"
-                else:
-                    reason = (
-                        f"within entry cutoff ({seconds_to_end:.1f}s <= "
-                        f"{self._entry_cutoff_seconds:.1f}s)"
-                    )
-
+                reason = f"within entry cutoff ({self._entry_cutoff_seconds:.1f}s)"
                 logger.info(
                     "Skipping %s entry at process_time=%s: %s",
                     signal.signal.name,

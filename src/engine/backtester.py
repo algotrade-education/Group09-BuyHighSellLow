@@ -8,7 +8,6 @@ from src.engine.equity_tracker import EquityTracker, SimpleEquityTracker
 from src.engine.order import Order
 from src.engine.position_sizer import PositionSizer
 from src.engine.result import BacktestResult
-from src.engine.session_gate import vn30_is_entry_blocked
 from src.engine.session_manager import SessionManager, VN30Session
 from src.engine.trade_manager import TradeManager
 from src.metrics.metrics import MetricsCalculator
@@ -118,16 +117,15 @@ class Backtester:
         )
 
     def _should_block_new_entry(self, timestamp: pd.Timestamp) -> bool:
-        """Return True when VN30 late-entry guard blocks new LONG/SHORT entries."""
-        if not isinstance(self.session_manager, VN30Session):
+        """Return True when late-entry guard blocks new LONG/SHORT entries."""
+        cutoff = self.entry_cutoff_seconds or 0.0
+        if cutoff <= 0:
             return False
 
-        return vn30_is_entry_blocked(
-            dt=timestamp.to_pydatetime()
-            if hasattr(timestamp, "to_pydatetime")
-            else timestamp,
-            entry_cutoff_seconds=self.entry_cutoff_seconds,
-            allow_late_entry=self.allow_late_entry,
+        return self.session_manager.is_entry_blocked(
+            dt=timestamp.to_pydatetime() if hasattr(timestamp, "to_pydatetime") else timestamp,
+            cutoff_seconds=cutoff,
+            allow_late=self.allow_late_entry or False,
         )
 
     def run(

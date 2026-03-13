@@ -484,7 +484,7 @@ class TestORBOptionalFilters:
         )
         self._setup_range(strat)
 
-        # volume (100) < volume_ma (200) → filtered
+        # volume (100) < 0.5 * volume_ma (300) = 150 → filtered
         bar = _morning(
             15,
             close=1315.0,
@@ -492,7 +492,7 @@ class TestORBOptionalFilters:
             low=1310.0,
             atr=10.0,
             volume=100.0,
-            volume_ma=200.0,
+            volume_ma=300.0,
         )
         sig = strat.generate_signal(bar)
         assert sig.signal == Signal.HOLD

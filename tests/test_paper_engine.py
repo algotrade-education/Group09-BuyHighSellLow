@@ -317,62 +317,6 @@ class TestPositionTracker:
         assert result is None
         assert tracker.trades == []
 
-    def test_check_sl_tp_stop_loss(self, tracker):
-        ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(
-            fill_price=1300.0,
-            qty=1,
-            side="LONG",
-            timestamp=ts,
-            stop_loss=1280.0,
-            take_profit=1340.0,
-        )
-        bar = make_bar(low=1275.0, high=1305.0)  # low hits SL
-        assert tracker.check_sl_tp(bar) == "STOP_LOSS"
-
-    def test_check_sl_tp_take_profit(self, tracker):
-        ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(
-            fill_price=1300.0,
-            qty=1,
-            side="LONG",
-            timestamp=ts,
-            stop_loss=1280.0,
-            take_profit=1340.0,
-        )
-        bar = make_bar(low=1305.0, high=1345.0)  # high hits TP
-        assert tracker.check_sl_tp(bar) == "TAKE_PROFIT"
-
-    def test_check_sl_tp_no_trigger(self, tracker):
-        ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(
-            fill_price=1300.0,
-            qty=1,
-            side="LONG",
-            timestamp=ts,
-            stop_loss=1280.0,
-            take_profit=1340.0,
-        )
-        bar = make_bar(low=1295.0, high=1320.0)  # neither hits
-        assert tracker.check_sl_tp(bar) is None
-
-    def test_check_sl_while_flat_returns_none(self, tracker):
-        bar = make_bar(low=1000.0, high=2000.0)  # would trigger anything
-        assert tracker.check_sl_tp(bar) is None
-
-    def test_short_sl_triggered_by_high(self, tracker):
-        ts = datetime(2025, 1, 6, 9, 15, 0)
-        tracker.record_open(
-            fill_price=1300.0,
-            qty=1,
-            side="SHORT",
-            timestamp=ts,
-            stop_loss=1330.0,
-            take_profit=1260.0,
-        )
-        bar = make_bar(low=1295.0, high=1335.0)  # high > SL
-        assert tracker.check_sl_tp(bar) == "STOP_LOSS"
-
     def test_equity_snapshot(self, tracker):
         ts = datetime(2025, 1, 6, 9, 15, 0)
         tracker.equity_snapshot(ts)

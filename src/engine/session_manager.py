@@ -6,7 +6,8 @@ when signals should be skipped, and when positions must be closed at EOD.
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+from typing import Optional
 
 
 class SessionManager(ABC):
@@ -64,6 +65,20 @@ class SessionManager(ABC):
             The name of the current trading session.
         """
         return self.__class__.__name__
+
+    def is_entry_blocked(self, dt: datetime, cutoff_seconds: float, allow_late: bool = False) -> bool:
+        """
+        Check if new entries should be blocked (e.g., too close to session end).
+        By default, returns False in the base class.
+        """
+        return False
+
+    def get_force_close_reason(self, dt: datetime, preclose_seconds: float) -> Optional[str]:
+        """
+        Check if the current time triggers a pre-close forced exit.
+        Returns the reason string if triggered, None otherwise.
+        """
+        return None
 
 
 class AlwaysOpenSession(SessionManager):
@@ -194,3 +209,62 @@ class VN30Session(SessionManager):
     def should_skip_signal_generation(self, dt: datetime) -> bool:
         """Skip signal generation during ATC or outside of trading hours."""
         return self.is_atc_session(dt) or not self.is_trading_hours(dt)
+
+    def _get_active_window_end(self, dt: datetime) -> Optional[datetime]:
+        """Return datetime end of the current VN30 sub-session window, else None."""
+        t = dt.time()
+
+        if self.morning[0] <= t < self.morning[1]:
+            return dt.replace(
+                hour=self.morning[1].hour,
+                minute=self.morning[1].minute,
+                second=0,
+                microsecond=0,
+            )
+
+        if self.afternoon[0] <= t < self.afternoon[1]:
+            return dt.replace(
+                hour=self.afternoon[1].hour,
+                minute=self.afternoon[1].minute,
+                second=0,
+                microsecond=0,
+            )
+
+        if self.atc_start <= t < self.atc_end:
+            return dt.replace(
+                hour=self.atc_end.hour,
+                minute=self.atc_end.minute,
+                second=0,
+                microsecond=0,
+            )
+
+        return None
+
+    def _seconds_to_window_end(self, dt: datetime) -> Optional[float]:
+        """Return seconds until active sub-session end, else None if outside trading."""
+        window_end = self._get_active_window_end(dt)
+        if window_end is None:
+            return None
+        return max(0.0, (window_end - dt).total_seconds())
+
+    def is_entry_blocked(self, dt: datetime, cutoff_seconds: float, allow_late: bool = False) -> bool:
+        """Return True when new entries should be blocked at dt for VN30."""
+        if allow_late or cutoff_seconds <= 0:
+            return False
+
+        seconds = self._seconds_to_window_end(dt)
+        if seconds is None:
+            return True  # Blocked if outside trading hours
+            
+        return seconds <= cutoff_seconds
+
+    def get_force_close_reason(self, dt: datetime, preclose_seconds: float) -> Optional[str]:
+        """Check if the current time triggers a pre-close forced exit."""
+        if preclose_seconds <= 0:
+            return None
+            
+        seconds = self._seconds_to_window_end(dt)
+        if seconds is not None and seconds <= preclose_seconds:
+            return f"Session Preclose ({seconds:.1f}s <= {preclose_seconds:.1f}s)"
+            
+        return None
