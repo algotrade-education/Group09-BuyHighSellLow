@@ -186,7 +186,7 @@ class PaperTrader:
         Fetch current portfolio and orders from PaperBroker to initialize
         the PositionTracker and OrderManager on startup.
         """
-        if self._client is None or self.dry_run:
+        if self._client is None:
             return
 
         sync_broker_state(
@@ -250,6 +250,12 @@ class PaperTrader:
         if incomplete_bar is not None:
             self._bar_provider.seed_current_live_bar(incomplete_bar)
 
+        # Synchronize current broker state (Open Positions / Pending Orders)
+        # We do this BEFORE warmup so Initializing daily P&L uses real data.
+        # We also do it in dry-run mode if a client is available for context.
+        if self._client is not None:
+            self._sync_broker_state()
+
         # Warm up strategy internal state (e.g. ORB session range)
         if historical_df is not None and not historical_df.empty:
             logger.info("Warming up strategy internal state...")
@@ -269,10 +275,6 @@ class PaperTrader:
                     )
                 except Exception:
                     pass
-
-        # Synchronize current broker state (Open Positions / Pending Orders)
-        if not self.dry_run:
-            self._sync_broker_state()
 
         # FIX connection
         if not self.dry_run:

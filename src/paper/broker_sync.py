@@ -26,6 +26,14 @@ def sync_broker_state(
     logger.info("Synchronizing broker state for %s...", symbol)
 
     try:
+        cash_response = client.get_cash_balance()
+        if cash_response and "remainCash" in cash_response:
+            cash = float(cash_response["remainCash"])
+            tracker.sync_cash(cash)
+    except Exception as exc:
+        logger.error("Error syncing cash balance: %s", exc)
+
+    try:
         portfolio_response = client.get_portfolio_by_sub()
         if portfolio_response.get("success"):
             items = portfolio_response.get("items", [])

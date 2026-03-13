@@ -296,9 +296,23 @@ class PositionTracker:
         self._trades.append(trade)
         self._current_trade = trade
 
+        # Update equity based on synced position
+        self.equity = self.cash + self._position.unrealized_pnl
+
         logger.info(
             "Resynced tracked position: %s %d @ %.2f", pos_side.name, abs_qty, avg_price
         )
+
+    def sync_cash(self, cash: float) -> None:
+        """
+        Synchronize tracker cash balance with broker.
+
+        Args:
+            cash: Current cash balance in VND.
+        """
+        self.cash = cash
+        self.equity = cash + self._position.unrealized_pnl
+        logger.info("Synced Cash Balance: %.2f", cash)
 
     # ------------------------------------------------------------------
     # Real-time updates
