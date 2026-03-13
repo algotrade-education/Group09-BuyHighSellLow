@@ -39,6 +39,7 @@ class TradeSignal:
     entry_price: float = 0.0
     take_profit: Optional[float] = None
     stop_loss: Optional[float] = None
+    ord_type: str = "LIMIT"
     reason: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
 

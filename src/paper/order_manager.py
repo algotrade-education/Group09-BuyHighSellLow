@@ -63,7 +63,6 @@ class OrderManager:
         self._dry_run = dry_run
 
         # Map cl_ord_id → pending signal metadata so we can call tracker on fill
-        # Map cl_ord_id → pending signal metadata so we can call tracker on fill
         self._pending_entries: Dict[str, Dict[str, Any]] = {}
 
         # Map cl_ord_id → exit reason for pending exits
@@ -84,6 +83,7 @@ class OrderManager:
         signal: TradeSignal,
         qty: int,
         bar: Optional[Dict[str, Any]] = None,
+        timestamp: Optional[datetime] = None,
     ) -> Optional[str]:
         """
         Submit an entry order derived from a TradeSignal.
@@ -92,6 +92,7 @@ class OrderManager:
             signal: TradeSignal with signal=LONG or SHORT.
             qty:    Number of contracts to trade.
             bar:    Current bar dict (used for mid-price fallback if entry_price=0).
+            timestamp: Optional execution timestamp for dry-run.
 
         Returns:
             clOrdId string if submitted, None on failure or dry-run.
@@ -100,6 +101,7 @@ class OrderManager:
             return None
 
         side = "BUY" if signal.is_long else "SELL"
+        ord_type = signal.ord_type or "LIMIT"
         # Use MARKET order: price is still required by the broker for LIMIT.
         # entry_price=0 in ORB means market order; use current close as limit reference.
         price = signal.entry_price
@@ -107,12 +109,13 @@ class OrderManager:
             price = float(bar.get("close", 0))
 
         logger.info(
-            "%sSubmitting ENTRY: %s %d %s @ %.2f | SL=%.2f | TP=%.2f",
+            "%sSubmitting ENTRY: %s %d %s @ %.2f (%s) | SL=%.2f | TP=%.2f",
             "[DRY-RUN] " if self._dry_run else "",
             side,
             qty,
             self._symbol,
             price,
+            ord_type,
             signal.stop_loss or 0,
             signal.take_profit or 0,
         )
@@ -123,7 +126,7 @@ class OrderManager:
                 fill_price=price or 1300.0,
                 qty=qty,
                 side="LONG" if signal.is_long else "SHORT",
-                timestamp=datetime.now(),
+                timestamp=timestamp or datetime.now(),
                 stop_loss=signal.stop_loss,
                 take_profit=signal.take_profit,
             )
@@ -135,7 +138,7 @@ class OrderManager:
                 side=side,
                 qty=qty,
                 price=price,
-                ord_type="LIMIT",
+                ord_type=ord_type,
                 tif="GTC",
             )
             # Store metadata so on_execution_report can update the tracker
@@ -159,6 +162,8 @@ class OrderManager:
         self,
         reason: str = "Manual",
         price: Optional[float] = None,
+        ord_type: str = "LIMIT",
+        timestamp: Optional[datetime] = None,
     ) -> Optional[str]:
         """
         Submit an exit order to close the current position.
@@ -166,6 +171,8 @@ class OrderManager:
         Args:
             reason: Human-readable exit reason (e.g. 'Stop Loss', 'EOD').
             price:  Limit price. If None, uses SL/TP from position or entry_price fallback.
+            ord_type: Order type (e.g. 'LIMIT', 'MARKET').
+            timestamp: Optional execution timestamp for dry-run.
 
         Returns:
             clOrdId string if submitted, None on failure or dry-run.
@@ -191,20 +198,21 @@ class OrderManager:
             price = pos.entry_price
 
         logger.info(
-            "%sSubmitting EXIT (%s): %s %d %s @ %.2f",
+            "%sSubmitting EXIT (%s): %s %d %s @ %.2f (%s)",
             "[DRY-RUN] " if self._dry_run else "",
             reason,
             side,
             qty,
             self._symbol,
             price,
+            ord_type,
         )
 
         if self._dry_run:
             self._tracker.record_close(
                 fill_price=price,
                 qty=qty,
-                timestamp=datetime.now(),
+                timestamp=timestamp or datetime.now(),
                 exit_reason=reason,
             )
             return None
@@ -215,7 +223,7 @@ class OrderManager:
                 side=side,
                 qty=qty,
                 price=price,
-                ord_type="LIMIT",
+                ord_type=ord_type,
                 tif="GTC",
             )
             self._pending_exits[cl_ord_id] = reason

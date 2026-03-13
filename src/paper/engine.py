@@ -406,7 +406,7 @@ class PaperTrader:
         self._tracker.update_unrealized(close)
         self._tracker.update_daily_pnl(bar_time)
 
-        trading_now = self._session_mgr.is_trading_hours(process_time)
+        trading_now = self._session_mgr.is_trading_hours(bar_time)
 
         if self._deferred_exit_reason and not self._tracker.is_flat and trading_now:
             reason = self._deferred_exit_reason
@@ -427,7 +427,8 @@ class PaperTrader:
             self._submit_exit_or_defer(
                 reason="Session Boundary Close",
                 price=close,
-                process_time=process_time,
+                process_time=bar_time,
+                ord_type="MARKET",
             )
 
         if not self._tracker.is_flat and self._deferred_exit_reason is None:
@@ -462,6 +463,7 @@ class PaperTrader:
                     reason=reason or "Session Boundary Close",
                     price=close,
                     process_time=bar_time,
+                    ord_type="MARKET",
                 )
                 return
 
@@ -508,6 +510,7 @@ class PaperTrader:
                     reason=exit_trigger,
                     price=close,
                     process_time=process_time,
+                    ord_type="MARKET", # Emergency exits should be MARKET
                 )
                 return  # Don't generate new entry on same bar
 
@@ -535,7 +538,7 @@ class PaperTrader:
 
         if signal.signal in (Signal.LONG, Signal.SHORT) and self._tracker.is_flat:
             if self._session_mgr.is_entry_blocked(
-                dt=process_time,
+                dt=bar_time,
                 cutoff_seconds=self._entry_cutoff_seconds,
                 allow_late=self._allow_late_entry,
             ):
@@ -543,7 +546,7 @@ class PaperTrader:
                 logger.info(
                     "Skipping %s entry at process_time=%s: %s",
                     signal.signal.name,
-                    process_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    bar_time.strftime("%Y-%m-%d %H:%M:%S"),
                     reason,
                 )
                 return
@@ -554,7 +557,7 @@ class PaperTrader:
                 close,
                 signal.reason or "N/A",
             )
-            self._submit_entry(signal, bar)
+            self._submit_entry(signal, bar, bar_time)
         elif signal.signal == Signal.CLOSE and not self._tracker.is_flat:
             logger.info(
                 "Strategy signal: CLOSE | close=%.2f | reason=%s",
@@ -564,7 +567,8 @@ class PaperTrader:
             self._submit_exit_or_defer(
                 reason="Strategy Close",
                 price=close,
-                process_time=process_time,
+                process_time=bar_time,
+                ord_type=signal.ord_type or "LIMIT",
             )
         elif signal.signal == Signal.HOLD:
             logger.info(
@@ -604,13 +608,16 @@ class PaperTrader:
             reason=reason,
             price=self._last_close,
             process_time=process_time,
+            ord_type="MARKET",
         )
 
     # ------------------------------------------------------------------
     # Execution Logic
     # ------------------------------------------------------------------
 
-    def _submit_entry(self, signal: TradeSignal, bar: Dict[str, Any]) -> None:
+    def _submit_entry(
+        self, signal: TradeSignal, bar: Dict[str, Any], bar_time: datetime
+    ) -> None:
         """Compute position size from configured PositionSizer and submit entry order."""
         entry_price = float(bar.get("close", 0.0) or 0.0)
         qty = self._position_sizer.calculate_size(
@@ -623,17 +630,20 @@ class PaperTrader:
             logger.warning("Skipping entry: PositionSizer returned invalid qty=%d", qty)
             return
 
-        self._order_mgr.submit_entry(signal, qty=qty, bar=bar)
+        self._order_mgr.submit_entry(signal, qty=qty, bar=bar, timestamp=bar_time)
 
     def _submit_exit_or_defer(
         self,
         reason: str,
         price: float,
         process_time: datetime,
+        ord_type: str = "LIMIT",
     ) -> None:
         """Submit exit immediately during session, otherwise defer to next tradable bar."""
         if self._session_mgr.is_trading_hours(process_time):
-            self._order_mgr.submit_exit(reason=reason, price=price)
+            self._order_mgr.submit_exit(
+                reason=reason, price=price, ord_type=ord_type, timestamp=process_time
+            )
             self._deferred_exit_reason = None
             return
 

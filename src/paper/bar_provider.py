@@ -600,6 +600,13 @@ class BarProvider:
             logger.warning("BarProvider.replay(): empty DataFrame, nothing to replay.")
             return
 
+        # Optimization: if the DataFrame already contains indicators (calculated during 
+        # prepare_backtest_dataset), we should use them instead of re-calculating 
+        # on an empty history, which would cause discrepancies due to EWM warmup.
+        has_indicators = "atr" in df.columns or f"atr_{self._preprocessor.atr_period}" in df.columns
+        if has_indicators:
+            logger.info("Sim replay detecting pre-calculated indicators; skipping re-calculation.")
+
         required = {"datetime", "open", "high", "low", "close"}
         missing = required - set(df.columns)
         if missing:
@@ -638,20 +645,25 @@ class BarProvider:
                 "close": price_close,
                 "volume": volume,
             }
-            self._history.append(raw)
-            max_history = self._warmup * 3
-            if len(self._history) > max_history:
-                self._history = self._history[-max_history:]
+            if has_indicators:
+                # Use the existing row columns as the bar
+                bar = row._asdict()
+            else:
+                self._history.append(raw)
+                max_history = self._warmup * 10 # Increased for better EWM stability
+                if len(self._history) > max_history:
+                    self._history = self._history[-max_history:]
 
-            if len(self._history) < self._warmup:
-                logger.debug("Warming up (%d/%d)…", len(self._history), self._warmup)
-                if speed > 0:
-                    await asyncio.sleep(speed)
-                continue
+                if len(self._history) < self._warmup:
+                    logger.debug("Warming up (%d/%d)…", len(self._history), self._warmup)
+                    if speed > 0:
+                        await asyncio.sleep(speed)
+                    continue
 
-            df_hist = pd.DataFrame(self._history)
-            df_hist = self._preprocessor.add_all_indicators(df_hist, copy=True)
-            bar = df_hist.iloc[-1].to_dict()
+                df_hist = pd.DataFrame(self._history)
+                df_hist = self._preprocessor.add_all_indicators(df_hist, copy=True)
+                bar = df_hist.iloc[-1].to_dict()
+            
             self._bars_emitted += 1
 
             if self.on_bar is not None:

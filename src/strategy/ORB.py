@@ -82,6 +82,8 @@ class OpeningRangeBreakout(Strategy):
         use_adx_filter: bool = False,
         adx_min: float = 20.0,
         max_trades_per_session: int = 1,
+        entry_ord_type: str = "LIMIT",
+        exit_ord_type: str = "LIMIT",
         **kwargs,
     ):
         """
@@ -101,6 +103,8 @@ class OpeningRangeBreakout(Strategy):
             use_adx_filter: If True, require ADX > adx_min for entry
             adx_min: Minimum ADX value when use_adx_filter is enabled
             max_trades_per_session: Maximum number of entries allowed per session
+            entry_ord_type: Order type for entries ("LIMIT" or "MARKET")
+            exit_ord_type: Order type for exits ("LIMIT" or "MARKET")
         """
         super().__init__(name="OpeningRangeBreakout")
 
@@ -117,6 +121,8 @@ class OpeningRangeBreakout(Strategy):
         self.use_adx_filter = use_adx_filter
         self.adx_min = adx_min
         self.max_trades_per_session = max(1, int(max_trades_per_session))
+        self.entry_ord_type = entry_ord_type
+        self.exit_ord_type = exit_ord_type
 
         # Session state
         self._current_date: Optional[date] = None
@@ -142,6 +148,8 @@ class OpeningRangeBreakout(Strategy):
             "use_adx_filter": use_adx_filter,
             "adx_min": adx_min,
             "max_trades_per_session": self.max_trades_per_session,
+            "entry_ord_type": entry_ord_type,
+            "exit_ord_type": exit_ord_type,
         }
 
         logger.info("Strategy params: %s", self._params)
@@ -311,6 +319,7 @@ class OpeningRangeBreakout(Strategy):
             entry_price=0.0,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            ord_type=self.entry_ord_type,
             reason=f"ORB Long breakout ({session}, range={range_size:.1f})",
             metadata={
                 "session": session,
@@ -363,6 +372,7 @@ class OpeningRangeBreakout(Strategy):
             entry_price=0.0,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            ord_type=self.entry_ord_type,
             reason=f"ORB Short breakout ({session}, range={range_size:.1f})",
             metadata={
                 "session": session,
