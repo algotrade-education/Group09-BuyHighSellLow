@@ -1,0 +1,57 @@
+name: Backtest Regression
+
+on:
+  schedule:
+    - cron: "0 1 * * *"    # 1am mỗi ngày
+  workflow_dispatch:         # Trigger thủ công khi cần
+
+jobs:
+  regression:
+    name: Backtest Regression Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[optimization,viz]"
+
+      - name: Run regression backtest
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: python -m tests.regression.run_regression
+
+      - name: Upload regression report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-report-${{ github.run_id }}
+          path: reports/regression/
+          retention-days: 30
+
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().slice(0, 10);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Backtest regression failed — ${date}`,
+              body: [
+                "Nightly regression backtest failed.",
+                "",
+                `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ].join("\n"),
+              labels: ["regression", "automated"],
+            });

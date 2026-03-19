@@ -1,0 +1,38 @@
+repos:
+  # Ruff — lint và format (thay thế black + isort + flake8)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.6
+    hooks:
+      - id: ruff
+        args: [--fix]           # Auto-fix safe issues
+      - id: ruff-format         # Format code
+
+  # Mypy — type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [pydantic>=2.9.0]
+        args: [--ignore-missing-imports]
+
+  # General hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]       # Block files > 500KB (data files, etc.)
+      - id: debug-statements      # Block leftover breakpoint(), pdb, etc.
+      - id: no-commit-to-branch
+        args: [--branch, main]    # Block commit thẳng vào main
+
+  # Secret scanning — tránh commit DB password, API keys
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

@@ -1,0 +1,126 @@
+[build-system]
+requires = ["setuptools>=80.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-v2"
+description = "Algorithmic trading framework for backtesting and paper trading"
+version = "2.0.0"
+requires-python = ">=3.12"
+
+# Core — tất cả mọi người cần
+dependencies = [
+    "pandas>=2.2.0,<3.0.0",
+    "numpy>=2.1.0",
+    "pyarrow>=18.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.9.0",
+    "psycopg2-binary>=2.9.10",
+]
+
+[project.optional-dependencies]
+# Chỉ cần khi chạy optimization
+optimization = [
+    "optuna>=3.6.0",
+    "tqdm>=4.66.0",
+]
+
+# Chỉ cần khi chạy paper trading live
+paper = [
+    "redis>=5.0.0",
+]
+
+# Visualization
+viz = [
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+]
+
+# Dev tools
+dev = [
+    "pytest>=8.2.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+    "mypy>=1.13.0",
+    "pre-commit>=3.7.0",
+]
+
+# Install tất cả
+all = [
+    "trading-v2[optimization,paper,viz,dev]",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "config*"]
+
+# ── Ruff (lint + format) ──────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear — common bug patterns
+    "UP",   # pyupgrade — use modern Python syntax
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long — ruff format handles this
+    "B008",   # do not perform function calls in default args (Pydantic Field)
+    "SIM108", # ternary operator — sometimes less readable
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "config"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]   # allow assert in tests
+
+# ── Mypy ─────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+exclude = [
+    "tests/",
+    "results/",
+    "src/run_*.py",
+]
+
+# ── Pytest ───────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:reports/coverage",
+    "--cov-fail-under=70",
+]
+
+# ── Coverage ─────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "tests/*",
+    "src/run_*.py",     # Runner scripts không cần test coverage
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
