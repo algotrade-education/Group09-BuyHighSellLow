@@ -4,7 +4,7 @@ Algorithmic trading framework for backtesting and paper trading.
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.13+
 - pip
 - (Optional) PostgreSQL for historical/backtest data
 - (Optional) Redis for live paper market data mode

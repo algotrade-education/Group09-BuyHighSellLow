@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "trading-v2"
 description = "Algorithmic trading framework for backtesting and paper trading"
 version = "2.0.0"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 
 # Core — tất cả mọi người cần
 dependencies = [
@@ -58,7 +58,7 @@ include = ["src*", "config*"]
 
 # ── Ruff (lint + format) ──────────────────────────────────────────
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
@@ -85,7 +85,7 @@ known-first-party = ["src", "config"]
 
 # ── Mypy ─────────────────────────────────────────────────────────
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = false
 ignore_missing_imports = true
 disallow_untyped_defs = true
@@ -106,6 +106,7 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=html:reports/coverage",
+    "--cov-report=xml:reports/coverage/coverage.xml",
     "--cov-fail-under=70",
 ]
 
