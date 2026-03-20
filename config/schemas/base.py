@@ -38,9 +38,9 @@ class RiskConfig(BaseModel):
     Risk management configuration fields.
 
     Notes:
-        - max_daily_loss: Maximum loss allowed per day. Use percentage of equity (0.02 = 2% of equity)
-        - trailing_stop: Only activate if use_trailing_stop is True.
-        - entry_cutoff_second and allow_late_entry: Used to control late entries and only for Paper Trading.
+        - max_daily_loss: Maximum loss allowed per day, expressed as a percentage of equity (0.02 = 2% of equity).
+        - Trailing stop behavior is controlled via use_trailing_stop together with trailing_atr_multiplier.
+        - entry_cutoff_seconds and allow_late_entry: Used to control late entries and only for Paper Trading.
     """
 
     model_config = ConfigDict(

@@ -103,10 +103,10 @@ class AppSecrets(BaseSettings):
 @lru_cache(maxsize=1)
 def get_secrets() -> AppSecrets:
     """
-    Lazy singleton — chỉ load secrets khi được gọi lần đầu.
-    Dùng lru_cache để tránh đọc .env nhiều lần.
+    Lazy singleton - load secrets on first call and cache the result for subsequent calls.
 
     Raises:
-        ValidationError: Nếu required env vars bị thiếu.
+        ValidationError: If the environment variables or .env file contain invalid values
+        that do not conform to the expected types or constraints defined in the secrets schemas.
     """
     return AppSecrets()
