@@ -21,7 +21,7 @@ class ORBStrategyConfig(BaseStrategyConfig):
     Take Profit:
         - Always set at a multiple of ATR distance from the entry price (e.g., if long, TP is set at entry price + ATR * tp_atr_multiplier).
 
-    Filiter (Optional):
+    Filter (Optional):
         - Volume filter: Only take trades if the volume during the opening range is above a certain threshold.
         - ADX filter: Only take trades if the ADX during the opening range is above a certain threshold, indicating a strong trend.
     """

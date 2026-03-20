@@ -8,11 +8,7 @@ Usage:
     from config.secrets import get_secrets
     secrets = get_secrets()
     conn = psycopg2.connect(
-        host=secrets.db_host.get_secret_value(),
-        port=secrets.db_port,
-        user=secrets.db_user.get_secret_value(),
-        password=secrets.db_password.get_secret_value(),
-        dbname=secrets.db_name.get_secret_value()
+        **secrets.db.to_psycopg2_kwargs()
     )
 """
 

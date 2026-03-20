@@ -77,7 +77,7 @@ class VN30SessionConfig:
         Returns:
             bool: True if it's trading time, False otherwise.
         """
-        return cls.get_session(current_time) != Session.CLOSED
+        return cls.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
 
     @classmethod
     def is_signal_allowed(cls, current_time: time) -> bool:
