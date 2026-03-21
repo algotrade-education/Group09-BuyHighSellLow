@@ -163,6 +163,33 @@ class TestDataServiceBase:
         assert "close" in df.columns
         assert "volume" in df.columns
 
+    def test_aggregate_to_ohlcv_resets_volume_diff_each_day(
+        self, service: ConcreteDataService
+    ) -> None:
+        """Volume diff should reset at each day boundary for cumulative quantity."""
+        ticks = pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(
+                    [
+                        "2024-01-01 09:00:00",
+                        "2024-01-01 09:00:30",
+                        "2024-01-02 09:00:00",
+                        "2024-01-02 09:00:30",
+                    ]
+                ),
+                "price": [1200.0, 1201.0, 1199.0, 1200.0],
+                # Cumulative quantity resets at start of a new day
+                "quantity": [100.0, 150.0, 20.0, 50.0],
+            }
+        )
+
+        df = service._aggregate_to_ohlcv(ticks)
+
+        day2_row = df[df["datetime"] == pd.Timestamp("2024-01-02 09:00:00")]
+        assert not day2_row.empty
+        # Expected: first tick of day2 contributes 20, next contributes +30 => total 50
+        assert day2_row["volume"].iloc[0] == 50.0
+
     def test_calculate_volume_no_quantity_column(self, service: ConcreteDataService) -> None:
         """Test _calculate_volume when quantity column is missing."""
         ticks = pd.DataFrame(

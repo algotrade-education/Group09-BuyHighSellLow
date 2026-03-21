@@ -295,11 +295,16 @@ class DataServiceBase(ABC):
         if "quantity" in ticks.columns:
             qty = pd.to_numeric(ticks["quantity"], errors="coerce").fillna(0)
 
-            # Since quantity is cumulative (from quote.total), we must diff to get tick volume FIRST
-            # clip(lower=0) naturally handles jumping to a new day where cumulative volume resets to 0
-            tick_vols = qty.diff().clip(lower=0)
-            if not tick_vols.empty:
-                tick_vols.iloc[0] = qty.iloc[0]
+            dt_index = pd.DatetimeIndex(ticks.index)
+
+            # quantity is cumulative within each trading day; it resets when a new day starts.
+            # Therefore diff must also reset at day boundaries.
+            day_keys = dt_index.normalize()  # Group by date, ignore time
+            tick_vols = qty.groupby(day_keys).diff()
+            first_tick_of_day = tick_vols.isna()
+
+            tick_vols.loc[first_tick_of_day] = qty.loc[first_tick_of_day]
+            tick_vols = tick_vols.clip(lower=0)
 
             vol = tick_vols.resample("1min").sum()
             ohlcv["volume"] = vol
