@@ -20,7 +20,7 @@ class SessionConfig(ABC):
     Any market (VN30, S&P500, etc.) should implement this interface.
     """
 
-    # Default: no ATC session — subclass can override if needed (e.g., VN30)
+    # Default: no ATC session - subclass can override if needed (e.g., VN30)
     ATC_START: time | None = None
     ATC_END: time | None = None
 
@@ -159,7 +159,7 @@ class VN30SessionConfig(SessionConfig):
         """
         Check if signal generation is allowed at the given time.
 
-        For VN30: Same as is_trading_time() — no new signals during ATC.
+        For VN30: Same as is_trading_time() - no new signals during ATC.
         ATC (14:30-14:45) is for executing existing orders only.
 
         Args:
