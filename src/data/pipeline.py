@@ -174,12 +174,18 @@ class DataPipeline:
         Data fingerprint: shape + first datetime + last datetime + dtypes
         Do not hash actual data values to keep it fast - we assume if shape and dtypes are the same, the data is the same for our use case.
         """
+        # Hash the actual data values using pandas built-in fast hashing
+        # This guarantees that if prices/volumes update but shape remains the same,
+        # the cache is properly invalidated.
+        df_hash = pd.util.hash_pandas_object(df, index=False).sum()
+
         data_sig = "|".join(
             [
                 str(df.shape),
                 str(df[DATETIME_COL].iloc[0]) if DATETIME_COL in df.columns else "",
                 str(df[DATETIME_COL].iloc[-1]) if DATETIME_COL in df.columns else "",
                 str(df.dtypes.to_dict()),
+                str(df_hash),
             ]
         )
 
