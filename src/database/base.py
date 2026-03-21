@@ -276,7 +276,7 @@ class DataServiceBase(ABC):
             current = chunk_end + pd.Timedelta(days=1)
 
     def _aggregate_to_ohlcv(self, ticks: pd.DataFrame) -> pd.DataFrame:
-        """Aggregate tick data to OHLCV on daily frequency."""
+        """Aggregate tick data to OHLCV on 1-minute frequency."""
         if ticks.empty:
             return pd.DataFrame()
 
