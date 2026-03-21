@@ -102,7 +102,7 @@ class PostgresDataService(DataServiceBase):
         return self._query_to_df(
             query=CLOSE_QUERY,
             params=(contract_name, from_date, to_date),
-            columns=["date", "tickersymbol", "close"],
+            columns=["datetime", "tickersymbol", "close"],
             label="close",
         )
 
@@ -143,10 +143,10 @@ class PostgresDataService(DataServiceBase):
             rows = self._conn.execute(query, params)
             return pd.DataFrame(rows, columns=columns)
         except TimeoutError:
-            logger.error("Query timeout khi fetch '%s'.", label)
+            logger.error("Query timeout when fetching '%s'.", label)
             return pd.DataFrame()
         except Exception as e:
-            logger.error("Query failed khi fetch '%s': %s", label, e)
+            logger.error("Query failed when fetching '%s': %s", label, e)
             return pd.DataFrame()
 
 
