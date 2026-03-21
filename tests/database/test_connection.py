@@ -112,7 +112,7 @@ class TestDatabaseConnection:
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_connect.return_value = mock_conn
 
-        db_conn.ensure_connnected()
+        db_conn.ensure_connected()
 
         mock_connect.assert_called_once()
         assert db_conn._conn is not None
@@ -139,7 +139,7 @@ class TestDatabaseConnection:
         mock_conn2.cursor.return_value.__enter__.return_value = mock_cursor2
         mock_connect.return_value = mock_conn2
 
-        db_conn.ensure_connnected()
+        db_conn.ensure_connected()
 
         assert mock_connect.call_count == 2
 
@@ -193,7 +193,7 @@ class TestDatabaseConnection:
         db_conn.connect()
 
         # Mock ensure_connected to skip health check, then make execute raise timeout
-        with patch.object(db_conn, "ensure_connnected"):
+        with patch.object(db_conn, "ensure_connected"):
             mock_cursor.execute.side_effect = psycopg2.extensions.QueryCanceledError("timeout")
 
             with pytest.raises(TimeoutError, match="timed out"):

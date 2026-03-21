@@ -107,7 +107,7 @@ class DatabaseConnection:
                 logger.error("Unexpected error during DB connection: %s", str(e))
                 raise
 
-    def ensure_connnected(self) -> None:
+    def ensure_connected(self) -> None:
         """
         Check connection health and reconnect if necessary.
         Call before executing queries to ensure the connection is alive.
@@ -140,7 +140,7 @@ class DatabaseConnection:
             ConnectionError: If the connection is not established.
             psycopg2.Error: If the query execution fails.
         """
-        self.ensure_connnected()
+        self.ensure_connected()
 
         if self._conn is None:
             raise ConnectionError("Not connected to the database.")
