@@ -213,25 +213,29 @@ class TestDataLoaderCache:
 
 
 class TestDataLoaderChunking:
-    """Test DataLoader chunked loading."""
+    """Test DataLoader delegates chunking config to data service."""
 
-    def test_fetch_chunks_single_chunk(self, mock_data_service, sample_ohlcv):
+    def test_fetch_from_db_passes_chunk_size_to_data_service(self, mock_data_service, sample_ohlcv):
         mock_data_service.fetch_ohlcv.return_value = sample_ohlcv
         loader = DataLoader(mock_data_service, chunk_size_days=60)
 
-        chunks = list(loader._fetch_chunks("VN30F1M", "2024-01-01", "2024-01-31"))
+        result = loader._fetch_from_db("VN30F1M", "2024-01-01", "2024-01-31")
 
-        assert len(chunks) == 1
-        assert len(chunks[0]) == 10
+        assert len(result) == 10
+        mock_data_service.fetch_ohlcv.assert_called_once_with(
+            contract_name="VN30F1M",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+            chunk_size_days=60,
+        )
 
-    def test_fetch_chunks_multiple_chunks(self, mock_data_service, sample_ohlcv):
+    def test_fetch_from_db_single_service_call(self, mock_data_service, sample_ohlcv):
         mock_data_service.fetch_ohlcv.return_value = sample_ohlcv
         loader = DataLoader(mock_data_service, chunk_size_days=15)
 
-        chunks = list(loader._fetch_chunks("VN30F1M", "2024-01-01", "2024-02-15"))
+        loader._fetch_from_db("VN30F1M", "2024-01-01", "2024-02-15")
 
-        assert len(chunks) >= 2
-        assert mock_data_service.fetch_ohlcv.call_count >= 2
+        assert mock_data_service.fetch_ohlcv.call_count == 1
 
     def test_fetch_chunks_deduplication(self, mock_data_service, tmp_path):
         # Create overlapping chunks

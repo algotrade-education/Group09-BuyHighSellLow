@@ -154,51 +154,25 @@ class DataLoader:
 
     def _fetch_from_db(self, symbol: str, start: str, end: str) -> pd.DataFrame:
         """
-        Fetch data from DB in chunks, concatenate.
-        Dedup between chunks by overlapping 1 day and dropping duplicates (keep last).
+        Fetch data from DB.
+
+        Chunking responsibility belongs to the database layer via
+        DataServiceBase.fetch_ohlcv(chunk_size_days=...).
         """
-        chunks = list(self._fetch_chunks(symbol, start, end))
-        if not chunks:
+        df = self._svc.fetch_ohlcv(
+            contract_name=symbol,
+            from_date=start,
+            to_date=end,
+            chunk_size_days=self._chunk_size,
+        )
+        if df is None or df.empty:
             return pd.DataFrame()
 
-        df = pd.concat(chunks, ignore_index=True)
-
-        # Dedup at chunk boundaries - keep last occurrence (assume last is most correct)
+        # Defensive dedup/sort in case upstream implementation changes
         df = df.drop_duplicates(subset=[DATETIME_COL], keep="last")
         df = df.sort_values(DATETIME_COL, ignore_index=True)
 
         return df
-
-    def _fetch_chunks(self, symbol: str, start: str, end: str) -> Iterator[pd.DataFrame]:
-        """Generator - yeild each chunk of data from DB, do not load all into RAM at once."""
-        date_ranges = list(pd.date_range(start=start, end=end, freq=f"{self._chunk_size}D"))
-
-        # Ensure end date included
-        if pd.Timestamp(end) not in date_ranges:
-            date_ranges.append(pd.Timestamp(end))
-
-        for i in range(len(date_ranges) - 1):
-            # Overlap 1 day to catch duplicates at chunk boundaries
-            chunk_start = date_ranges[i].strftime("%Y-%m-%d")
-            chunk_end = date_ranges[i + 1].strftime("%Y-%m-%d")
-
-            logger.debug("Fetching chunk %s -> %s...", chunk_start, chunk_end)
-            try:
-                chunk = self._svc.fetch_ohlcv(
-                    contract_name=symbol,
-                    from_date=chunk_start,
-                    to_date=chunk_end,
-                )
-                if chunk is not None and not chunk.empty:
-                    yield chunk
-            except Exception as e:
-                logger.error(
-                    "Chunk fetch failed [%s -> %s]: %s",
-                    chunk_start,
-                    chunk_end,
-                    e,
-                )
-                raise
 
     @staticmethod
     def _read_csv_chunks(paths: list[str], datetime_col: str) -> Iterator[pd.DataFrame]:
