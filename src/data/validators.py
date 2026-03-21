@@ -229,13 +229,16 @@ class DataValidator:
             return warnings
 
         diffs = dt.diff().dropna()
-        median_diff = diffs.median()
+        positive_diffs = diffs[diffs > pd.Timedelta(0)]
+        if positive_diffs.empty:
+            return warnings
+        min_diff = positive_diffs.min()
 
-        # Gap > 10x median diff là bất thường
-        large_gaps = (diffs > median_diff * 10).sum()
+        # Gap > 10x minimum observed interval is abnormal
+        large_gaps = (diffs > min_diff * 10).sum()
         if large_gaps > 0:
             warnings.append(
-                f"{large_gaps} abnormal time gap (> 10x median interval). May indicate missing data or holidays."
+                f"{large_gaps} abnormal time gap (> 10x minimum interval). May indicate missing data or holidays."
             )
         return warnings
 
