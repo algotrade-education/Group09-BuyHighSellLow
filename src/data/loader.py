@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 DATETIME_COL = "datetime"
 _CACHE_VERSION = "v2"
+_CACHE_FILE_PREFIX = "ohlcv"
 
 
 class DataLoader:
@@ -243,7 +244,7 @@ class DataLoader:
             logger.warning("Cache save failed: %s", e)
 
     def _cache_path(self, cache_key: str) -> Path:
-        return self._cache_dir / f"{cache_key}.parquet"
+        return self._cache_dir / f"{_CACHE_FILE_PREFIX}_{cache_key}.parquet"
 
     def _build_cache_key(self, symbol: str, start: str, end: str, freq: str) -> str:
         sig = f"{_CACHE_VERSION}|{symbol}|{start}|{end}|{freq}"
@@ -266,7 +267,7 @@ class DataLoader:
             return 0
 
         count = 0
-        for f in self._cache_dir.glob("*.parquet"):
+        for f in self._cache_dir.glob(f"{_CACHE_FILE_PREFIX}_*.parquet"):
             f.unlink()
             count += 1
 

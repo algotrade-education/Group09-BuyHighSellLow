@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 DATETIME_COL = "datetime"
 _CACHE_VERSION = "v2"  # Tăng khi thay đổi indicator logic để invalidate cache cũ
+_CACHE_FILE_PREFIX = "ind"
 
 
 class DataPipeline:
@@ -231,7 +232,7 @@ class DataPipeline:
             logger.warning("Cache save failed: %s", e)
 
     def _cache_path(self, cache_key: str) -> Path:
-        return self._cache_dir / f"{cache_key}.parquet"
+        return self._cache_dir / f"{_CACHE_FILE_PREFIX}_{cache_key}.parquet"
 
     def clear_cache(self) -> int:
         """Delete all cache files. Returns number of files deleted."""
@@ -239,7 +240,7 @@ class DataPipeline:
             return 0
 
         count = 0
-        for f in self._cache_dir.glob("*.parquet"):
+        for f in self._cache_dir.glob(f"{_CACHE_FILE_PREFIX}_*.parquet"):
             f.unlink()
             count += 1
 

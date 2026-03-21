@@ -168,8 +168,8 @@ class TestDataPipelineCache:
 
         key2 = pipeline._build_cache_key(sample_df_modified)
 
-        # Keys should be same (we only check shape/datetime, not values)
-        assert key1 == key2
+        # Keys should differ because cache key includes data values hash
+        assert key1 != key2
 
     def test_build_cache_key_different_registry(self, sample_df):
         registry1 = IndicatorRegistry()
@@ -220,3 +220,20 @@ class TestDataPipelineCache:
         result2 = pipeline2.run(sample_df)
 
         assert "adx_14" in result2.columns
+
+    def test_clear_cache_does_not_delete_loader_cache(
+        self, sample_df, registry_with_indicators, tmp_path
+    ):
+        pipeline = DataPipeline(registry_with_indicators, cache_dir=str(tmp_path))
+
+        # Create indicator cache
+        _ = pipeline.run(sample_df)
+
+        # Create loader cache file in same folder
+        loader_cache_file = tmp_path / "ohlcv_dummy.parquet"
+        sample_df.to_parquet(loader_cache_file, index=False)
+
+        count = pipeline.clear_cache()
+
+        assert count == 1
+        assert loader_cache_file.exists()

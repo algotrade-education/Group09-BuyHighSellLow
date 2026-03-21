@@ -6,7 +6,9 @@ from unittest.mock import Mock
 import pandas as pd
 import pytest
 
+from src.data.indicators import IndicatorRegistry, IndicatorSpec
 from src.data.loader import DataLoader
+from src.data.pipeline import DataPipeline
 
 
 @pytest.fixture
@@ -210,6 +212,26 @@ class TestDataLoaderCache:
 
         assert len(result) == 10
         mock_data_service.fetch_ohlcv.assert_called()
+
+    def test_invalidate_cache_does_not_delete_pipeline_cache(
+        self, mock_data_service, sample_ohlcv, tmp_path
+    ):
+        loader = DataLoader(mock_data_service, cache_dir=str(tmp_path))
+        mock_data_service.fetch_ohlcv.return_value = sample_ohlcv
+
+        registry = IndicatorRegistry().register(
+            IndicatorSpec(name="volume_ma", params={"period": 3}, output_column="vma_3")
+        )
+        pipeline = DataPipeline(registry, cache_dir=str(tmp_path), use_cache=True)
+
+        loader.load("VN30F1M", "2024-01-01", "2024-01-31")
+        _ = pipeline.run(sample_ohlcv)
+
+        deleted = loader.invalidate_cache()
+
+        assert deleted == 1
+        indicator_cache_files = list(tmp_path.glob("ind_*.parquet"))
+        assert len(indicator_cache_files) == 1
 
 
 class TestDataLoaderChunking:
