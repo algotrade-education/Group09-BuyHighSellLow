@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from database.base import DataServiceBase
 from src.data.validators import DataValidator
+from src.database.base import DataServiceBase
 
 logger = logging.getLogger(__name__)
 
