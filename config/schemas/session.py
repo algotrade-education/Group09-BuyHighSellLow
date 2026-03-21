@@ -26,7 +26,7 @@ class SessionConfig(ABC):
 
     def has_atc(self) -> bool:
         """Check if this market has an ATC (At-The-Close) session."""
-        return self.ATC_START is not None
+        return self.ATC_START is not None and self.ATC_END is not None
 
     # Session boundaries - subclasses must define these as class attributes
     MORNING_START: time
