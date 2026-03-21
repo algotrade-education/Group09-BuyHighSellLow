@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # --- Type Aliases ---
-ResampleFreq = Literal["1min", "5min", "15min", "30min", "1h", "1D", "1W", "1M"]
+ResampleFreq = Literal["1min", "5min", "15min", "30min", "1H", "1D", "1W", "1M"]
 
 PositiveFloat = Annotated[float, Field(gt=0)]
 PositiveInt = Annotated[int, Field(gt=0)]
