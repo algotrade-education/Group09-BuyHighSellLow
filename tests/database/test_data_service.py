@@ -137,7 +137,7 @@ class TestPostgresDataService:
 
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
-        assert list(df.columns) == ["date", "tickersymbol", "close"]
+        assert list(df.columns) == ["datetime", "tickersymbol", "close"]
         mock_connection.execute.assert_called_once_with(
             CLOSE_QUERY, ("VN30F1M", "2024-01-01", "2024-01-31")
         )
