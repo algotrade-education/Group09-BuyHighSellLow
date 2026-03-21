@@ -99,6 +99,11 @@ exclude = [
     "^src/run_.*\\.py$", # Thêm dấu ^ và sửa dấu * thành regex chuẩn
 ]
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
 # ── Pytest ───────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
