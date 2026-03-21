@@ -158,13 +158,13 @@ class DataPreprocessor:
         # Handle markets with or without ATC
         if sess.has_atc():
             atc_end = sess.ATC_END.hour * 60 + sess.ATC_END.minute  # type: ignore
-            mask = ((minutes >= morning_start) & (minutes <= morning_end)) | (
-                (minutes >= afternoon_start) & (minutes <= atc_end)
+            mask = ((minutes >= morning_start) & (minutes < morning_end)) | (
+                (minutes >= afternoon_start) & (minutes < atc_end)
             )
         else:
             afternoon_end = sess.AFTERNOON_END.hour * 60 + sess.AFTERNOON_END.minute
-            mask = ((minutes >= morning_start) & (minutes <= morning_end)) | (
-                (minutes >= afternoon_start) & (minutes <= afternoon_end)
+            mask = ((minutes >= morning_start) & (minutes < morning_end)) | (
+                (minutes >= afternoon_start) & (minutes < afternoon_end)
             )
 
         filtered = df[mask].reset_index(drop=True)
@@ -194,8 +194,8 @@ class DataPreprocessor:
         afternoon_end = sess.AFTERNOON_END.hour * 60 + sess.AFTERNOON_END.minute
 
         conditions = [
-            (minutes >= morning_start) & (minutes <= morning_end),
-            (minutes >= afternoon_start) & (minutes <= afternoon_end),
+            (minutes >= morning_start) & (minutes < morning_end),
+            (minutes >= afternoon_start) & (minutes < afternoon_end),
         ]
         choices = [
             Session.MORNING.value,
@@ -206,7 +206,7 @@ class DataPreprocessor:
         if sess.has_atc():
             atc_start = sess.ATC_START.hour * 60 + sess.ATC_START.minute  # type: ignore
             atc_end = sess.ATC_END.hour * 60 + sess.ATC_END.minute  # type: ignore
-            conditions.append((minutes >= atc_start) & (minutes <= atc_end))
+            conditions.append((minutes >= atc_start) & (minutes < atc_end))
             choices.append(Session.ATC.value)
 
         df["session"] = np.select(conditions, choices, default=Session.CLOSED.value)

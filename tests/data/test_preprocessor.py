@@ -169,71 +169,77 @@ class TestDataPreprocessorFilterTradingHours:
             {
                 "datetime": pd.to_datetime(
                     [
-                        "2024-01-01 09:00",  # Morning start
-                        "2024-01-01 10:00",  # Morning
-                        "2024-01-01 11:30",  # Morning end
+                        "2024-01-01 09:00",  # Morning start - kept
+                        "2024-01-01 10:00",  # Morning - kept
+                        "2024-01-01 11:29",  # Last morning bar - kept
+                        "2024-01-01 11:30",  # MORNING_END is exclusive -> lunch break, filtered out
                     ]
                 ),
-                "open": [100, 101, 102],
-                "high": [101, 102, 103],
-                "low": [99, 100, 101],
-                "close": [100, 101, 102],
-                "volume": [1000, 1100, 1200],
+                "open": [100, 101, 102, 103],
+                "high": [101, 102, 103, 104],
+                "low": [99, 100, 101, 102],
+                "close": [100, 101, 102, 103],
+                "volume": [1000, 1100, 1200, 1300],
             }
         )
         preprocessor = DataPreprocessor()
 
         result = preprocessor.filter_trading_hours(df)
 
-        assert len(result) == 3
+        assert len(result) == 3  # 11:30 filtered out (exclusive boundary)
+        assert "2024-01-01 11:30" not in result["datetime"].astype(str).values
 
     def test_filter_removes_lunch_break(self):
         df = pd.DataFrame(
             {
                 "datetime": pd.to_datetime(
                     [
-                        "2024-01-01 11:30",  # Morning end
+                        "2024-01-01 11:25",  # Last morning bar - kept
+                        "2024-01-01 11:30",  # Lunch start - filtered out (exclusive boundary)
                         "2024-01-01 12:00",  # Lunch
                         "2024-01-01 13:00",  # Afternoon start
                     ]
                 ),
-                "open": [100, 101, 102],
-                "high": [101, 102, 103],
-                "low": [99, 100, 101],
-                "close": [100, 101, 102],
-                "volume": [1000, 1100, 1200],
+                "open": [99, 100, 101, 102],
+                "high": [105, 101, 102, 103],
+                "low": [99, 100, 101, 102],
+                "close": [100, 101, 102, 103],
+                "volume": [1000, 1100, 1200, 1300],
             }
         )
         preprocessor = DataPreprocessor()
 
         result = preprocessor.filter_trading_hours(df)
 
-        # Should remove lunch break
+        # 11:30 (exclusive boundary) and 12:00 (lunch) are both filtered out -> 2 bars remain
         assert len(result) == 2
-        assert "2024-01-01 12:00" not in result["datetime"].astype(str).values
+        assert "2024-01-01 11:30" not in result["datetime"].astype(str).values
 
     def test_filter_keeps_afternoon_session(self):
         df = pd.DataFrame(
             {
                 "datetime": pd.to_datetime(
                     [
-                        "2024-01-01 13:00",  # Afternoon start
-                        "2024-01-01 14:00",  # Afternoon
-                        "2024-01-01 14:45",  # Before ATC
+                        "2024-01-01 13:00",  # Afternoon start - kept
+                        "2024-01-01 14:00",  # Afternoon - kept
+                        "2024-01-01 14:30",  # ATC start - kept (within ATC session)
+                        "2024-01-01 14:44",  # Last ATC bar - kept
+                        "2024-01-01 14:45",  # ATC_END is exclusive -> after close, filtered out
                     ]
                 ),
-                "open": [100, 101, 102],
-                "high": [101, 102, 103],
-                "low": [99, 100, 101],
-                "close": [100, 101, 102],
-                "volume": [1000, 1100, 1200],
+                "open": [100, 101, 102, 103, 104],
+                "high": [101, 102, 103, 104, 105],
+                "low": [99, 100, 101, 102, 103],
+                "close": [100, 101, 102, 103, 104],
+                "volume": [1000, 1100, 1200, 1300, 1400],
             }
         )
         preprocessor = DataPreprocessor()
 
         result = preprocessor.filter_trading_hours(df)
 
-        assert len(result) == 3
+        assert len(result) == 4  # 14:45 filtered out (exclusive boundary)
+        assert "2024-01-01 14:45" not in result["datetime"].astype(str).values
 
     def test_filter_removes_before_market_open(self):
         df = pd.DataFrame(
