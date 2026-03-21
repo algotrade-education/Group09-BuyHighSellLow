@@ -13,19 +13,69 @@ Usage:
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, overload
+from typing import Any
 
 from src.data.indicators.base import IndicatorBase
 
-_T = TypeVar("_T")
+# --- Indicator Factory ---
+# Plain dict, populated lazily on first access to avoid circular imports and reduce initial load time.
+#
+# To add new indicator:
+# 1. Implement the indicator class in src/data/indicators/, inheriting from IndicatorBase.
+# 2. Call register_indicator("name", YourIndicatorClass) to add it to the factory.
+# 3. No need for manual imports in this file - the factory will lazy load the class when first accessed.
 
-# Set of supported indicator names. This can be expanded as new indicators are implemented.
-# Populated by _INDICATOR_FACTORY at end of file
-_SUPPORTED_INDICATORS = {
-    "atr",
-    "adx",
-    "volume_ma",
-}
+_factory: dict[str, Callable[..., IndicatorBase]] = {}
+_factory_loaded = False
+
+
+def _ensure_factory_loaded() -> None:
+    global _factory_loaded
+    if _factory_loaded:
+        return
+
+    from src.data.indicators.adx import WilderADX
+    from src.data.indicators.atr import WilderATR
+    from src.data.indicators.volume_ma import VolumeMA
+
+    _factory.update(
+        {
+            "atr": WilderATR,
+            "adx": WilderADX,
+            "volume_ma": VolumeMA,
+        }
+    )
+    _factory_loaded = True
+
+
+def register_indicator(name: str, cls: Callable[..., IndicatorBase]) -> None:
+    """
+    Register a new indicator class in the factory.
+
+    Call this function at the end of the indicator module after defining the class, e.g.:
+        # At the end of file of macd.py
+        register_indicator("macd", MACD)
+
+    Then use the indicator in the registry:
+        registry.register(IndicatorSpec(name="macd", params={"fast_period": 12, "slow_period": 26, "signal_period": 9}, output_column="macd_12_26_9"))
+    """
+    _ensure_factory_loaded()
+    _factory[name] = cls
+
+
+def get_indicator_class(name: str) -> Callable[..., IndicatorBase] | None:
+    """Get the indicator class from the factory by name. None if not found."""
+    _ensure_factory_loaded()
+    return _factory.get(name)
+
+
+def _get_supported_indicators() -> set[str]:
+    """Get the set of supported indicator names from the factory."""
+    _ensure_factory_loaded()
+    return set(_factory.keys())
+
+
+# --- Indicator Registry and Spec ---
 
 
 @dataclass
@@ -47,9 +97,13 @@ class IndicatorSpec:
     output_column: str = ""  # Column name in DataFrame output, e.g., "atr_14"
 
     def __post_init__(self) -> None:
-        if self.name not in _SUPPORTED_INDICATORS:
+        """
+        Validate the indicator name and auto-generate output_column if not provided.
+        """
+        supported = _get_supported_indicators()
+        if self.name not in supported:
             raise ValueError(
-                f"Unsupported indicator name: {self.name}. Supported indicators: {_SUPPORTED_INDICATORS}"
+                f"Unsupported indicator name: {self.name}.Supported indicators: {supported}"
             )
 
         # Auto generate output_column if not provided, e.g., "atr_14" for ATR with period 14
@@ -128,9 +182,15 @@ class IndicatorRegistry:
         Returns:
             A dictionary mapping output column names to their corresponding IndicatorBase instances.
         """
-        return {
-            spec.output_column: _INDICATOR_FACTORY[spec.name](**spec.params) for spec in self._specs
-        }
+        results: dict[str, IndicatorBase] = {}
+        for spec in self._specs:
+            cls = get_indicator_class(spec.name)
+            if cls is None:
+                raise ValueError(f"Indicator class for '{spec.name}' not found in factory.")
+
+            results[spec.output_column] = cls(**spec.params)
+
+        return results
 
     def __len__(self) -> int:
         return len(self._specs)
@@ -148,7 +208,7 @@ def _get_warm_up(spec: IndicatorSpec) -> int:
     Get the warm-up period required for an indicator spec.
     Returns 1 if the indicator is not found or fails to instantiate.
     """
-    indicator_cls = _INDICATOR_FACTORY.get(spec.name)
+    indicator_cls = get_indicator_class(spec.name)
     if indicator_cls is None:
         return 1
 
@@ -158,48 +218,3 @@ def _get_warm_up(spec: IndicatorSpec) -> int:
         return int(instance.warm_up_required)
     except Exception:
         return 1
-
-
-def _lazy_factory() -> dict[str, Callable[..., IndicatorBase]]:
-    """
-    Lazy load indicator classes when first accessed.
-    This avoids circular imports and reduces initial load time.
-    """
-    from src.data.indicators.adx import WilderADX
-    from src.data.indicators.atr import WilderATR
-    from src.data.indicators.volume_ma import VolumeMA
-
-    return {
-        "atr": WilderATR,
-        "adx": WilderADX,
-        "volume_ma": VolumeMA,
-    }
-
-
-class _LazyFactory(dict[str, Callable[..., IndicatorBase]]):
-    """Dict lazy-load indicator classes when first accessed."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._loaded = False
-
-    def __getitem__(self, key: str) -> Callable[..., IndicatorBase]:
-        if not self._loaded:
-            self.update(_lazy_factory())
-            self._loaded = True
-        return super().__getitem__(key)
-
-    @overload
-    def get(self, key: str, default: None = None) -> Callable[..., IndicatorBase] | None: ...
-
-    @overload
-    def get(self, key: str, default: "_T") -> Callable[..., IndicatorBase] | "_T": ...
-
-    def get(self, key: str, default: object = None) -> object:
-        if not self._loaded:
-            self.update(_lazy_factory())
-            self._loaded = True
-        return super().get(key, default)
-
-
-_INDICATOR_FACTORY = _LazyFactory()
