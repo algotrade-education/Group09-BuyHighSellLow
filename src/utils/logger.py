@@ -1,19 +1,11 @@
 """
-src/utils/logger.py
-
-Logging setup cho toàn bộ project.
-
-V2 fixes vs V1:
-    - Không remove handlers của third-party libraries (Optuna, psycopg2, etc.)
-      khi capture_all_loggers=True — chỉ remove handlers do mình add trước đó
-    - Thêm structured JSON logging cho production paper trading
-    - LOG_FORMAT env var: "text" (default) hoặc "json"
+Logging configuration for trading system.
 
 Usage:
-    # Ở đầu mỗi run_*.py script
+    # On each run_*.py script, call setup_logging once at the start:
     logger = setup_logging("run_backtest", log_file="logs/backtest.log")
 
-    # Trong src/ modules — không gọi setup_logging, chỉ getLogger
+    # In src/ modules, use logging.getLogger(__name__) to get a logger:
     logger = logging.getLogger(__name__)
 """
 
@@ -28,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# ── JSON Formatter ────────────────────────────────────────────────
+# ── JSON Formatter ───
 
 
 class JsonFormatter(logging.Formatter):
@@ -102,7 +94,7 @@ def setup_logging(
     """
     Setup logging configuration.
 
-    Call once at the start of each run_*.py script — do not call in src/ modules.
+    Call once at the start of each run_*.py script - do not call in src/ modules.
     src/ modules should only use logging.getLogger(__name__).
 
     Args:
@@ -176,7 +168,7 @@ def setup_logging(
     return logger
 
 
-# ── Private helpers ───────────────────────────────────────────────
+# ── Private helpers ───
 
 
 def _setup_root_logger(
@@ -188,14 +180,11 @@ def _setup_root_logger(
 ) -> None:
     """
     Configure root logger.
-
-    V2 fix: chỉ remove handlers do mình tạo ra (tagged với _HANDLER_TAG).
-    Không remove handlers của third-party libraries như Optuna hay psycopg2.
     """
     root = logging.getLogger()
     root.setLevel(min_level)
 
-    # Chỉ remove handlers do setup_logging tạo ra trước đó
+    # Only remove handlers that we added in a previous setup_logging call
     for handler in list(root.handlers):
         if getattr(handler, _HANDLER_TAG, False):
             root.removeHandler(handler)
@@ -214,7 +203,7 @@ def _make_formatter(log_format: str) -> logging.Formatter:
     if log_format == "json":
         return JsonFormatter()
     return logging.Formatter(
-        "[%(asctime)s] [%(levelname)-8s] %(name)s — %(message)s",
+        "[%(asctime)s] [%(levelname)-8s] %(name)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -243,7 +232,7 @@ def _make_file_handler(
 
 
 def _fix_windows_encoding() -> None:
-    """Ensure stdout/stderr handle Unicode trên Windows cp1252 consoles."""
+    """Ensure stdout/stderr handle Unicode on Windows cp1252 consoles."""
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
