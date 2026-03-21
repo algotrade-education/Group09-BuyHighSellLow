@@ -235,6 +235,10 @@ class DataPreprocessor:
             "5min": "5min",
             "15min": "15min",
             "30min": "30min",
+            "1H": "1H",
+            "1D": "1D",
+            "1W": "1W",
+            "1M": "1M",
         }
 
         if freq not in mapping:
