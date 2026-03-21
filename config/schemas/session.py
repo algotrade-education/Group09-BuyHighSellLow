@@ -2,6 +2,7 @@
 Single source of truth for session configuration.
 """
 
+from abc import ABC, abstractmethod
 from datetime import time
 from enum import StrEnum
 
@@ -13,7 +14,81 @@ class Session(StrEnum):
     CLOSED = "closed"
 
 
-class VN30SessionConfig:
+class SessionConfig(ABC):
+    """
+    Abstract interface for market session configuration.
+    Any market (VN30, S&P500, etc.) should implement this interface.
+    """
+
+    # Default: no ATC session — subclass can override if needed (e.g., VN30)
+    ATC_START: time | None = None
+    ATC_END: time | None = None
+
+    def has_atc(self) -> bool:
+        """Check if this market has an ATC (At-The-Close) session."""
+        return self.ATC_START is not None
+
+    # Session boundaries - subclasses must define these as class attributes
+    MORNING_START: time
+    MORNING_END: time
+    AFTERNOON_START: time
+    AFTERNOON_END: time
+    TRADING_DAYS_PER_YEAR: int
+
+    @abstractmethod
+    def get_session(self, current_time: time) -> Session:
+        """
+        Determine the current session based on the given time.
+
+        Args:
+            current_time: The time to check.
+
+        Returns:
+            The current session (MORNING, AFTERNOON, ATC, or CLOSED).
+        """
+        pass
+
+    @abstractmethod
+    def is_trading_time(self, current_time: time) -> bool:
+        """
+        Check if the given time is within any trading session (excluding ATC).
+
+        Args:
+            current_time: The time to check.
+
+        Returns:
+            True if it's trading time, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    def is_signal_allowed(self, current_time: time) -> bool:
+        """
+        Check if signal generation is allowed at the given time.
+
+        Args:
+            current_time: The time to check.
+
+        Returns:
+            True if signal generation is allowed, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    def bars_per_year(self, freq_minutes: int) -> int:
+        """
+        Calculate the number of bars per year based on the given frequency.
+
+        Args:
+            freq_minutes: The frequency in minutes (e.g., 1, 5, 15).
+
+        Returns:
+            The estimated number of bars per year.
+        """
+        pass
+
+
+class VN30SessionConfig(SessionConfig):
     """
     Defines all trading schedule of VN30 Futures
 
@@ -46,8 +121,7 @@ class VN30SessionConfig:
     BARS_PER_DAY_5MIN: int = 51  # Exclude ATC bars
     BARS_PER_DAY_15MIN: int = 17  # Exclude ATC bars
 
-    @classmethod
-    def get_session(cls, current_time: time) -> Session:
+    def get_session(self, current_time: time) -> Session:
         """
         Determine the current session based on the given time.
 
@@ -57,19 +131,21 @@ class VN30SessionConfig:
         Returns:
             Session: The current session (MORNING, AFTERNOON, ATC, or CLOSED).
         """
-        if cls.MORNING_START <= current_time < cls.MORNING_END:
+        if self.MORNING_START <= current_time < self.MORNING_END:
             return Session.MORNING
-        elif cls.AFTERNOON_START <= current_time < cls.AFTERNOON_END:
+        elif self.AFTERNOON_START <= current_time < self.AFTERNOON_END:
             return Session.AFTERNOON
-        elif cls.ATC_START <= current_time < cls.ATC_END:
+        elif self.ATC_START and self.ATC_END and self.ATC_START <= current_time < self.ATC_END:
             return Session.ATC
         else:
             return Session.CLOSED
 
-    @classmethod
-    def is_trading_time(cls, current_time: time) -> bool:
+    def is_trading_time(self, current_time: time) -> bool:
         """
         Check if the given time is within any trading session (excluding ATC).
+
+        For VN30: ATC (14:30-14:45) is trading time but NOT signal generation time.
+        This method returns False for ATC to prevent new signals during close.
 
         Args:
             current_time (time): The time to check.
@@ -77,12 +153,14 @@ class VN30SessionConfig:
         Returns:
             bool: True if it's trading time, False otherwise.
         """
-        return cls.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
+        return self.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
 
-    @classmethod
-    def is_signal_allowed(cls, current_time: time) -> bool:
+    def is_signal_allowed(self, current_time: time) -> bool:
         """
         Check if signal generation is allowed at the given time.
+
+        For VN30: Same as is_trading_time() — no new signals during ATC.
+        ATC (14:30-14:45) is for executing existing orders only.
 
         Args:
             current_time (time): The time to check.
@@ -90,10 +168,9 @@ class VN30SessionConfig:
         Returns:
             bool: True if signal generation is allowed, False otherwise.
         """
-        return cls.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
+        return self.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
 
-    @classmethod
-    def bars_per_year(cls, freq_minutes: int) -> int:
+    def bars_per_year(self, freq_minutes: int) -> int:
         """
         Calculate the number of bars per year based on the given frequency.
 
@@ -112,4 +189,64 @@ class VN30SessionConfig:
                 f"freq_minutes={freq_minutes} không chia đều vào trading_minutes_per_day={trading_minutes_per_day}"
             )
         bars_per_day = trading_minutes_per_day // freq_minutes
-        return bars_per_day * cls.TRADING_DAYS_PER_YEAR
+        return bars_per_day * self.TRADING_DAYS_PER_YEAR
+
+
+class SPXSessionConfig(SessionConfig):
+    """
+    S&P 500 Futures session configuration.
+
+    Trading hours: 9:30 AM - 4:00 PM ET (no lunch break)
+    Total trading time: 390 minutes/day
+    """
+
+    MORNING_START: time = time(9, 30)
+    MORNING_END: time = time(16, 0)  # Exclusive
+
+    # S&P 500 has no afternoon session - use same as morning for interface compliance
+    AFTERNOON_START: time = time(16, 0)
+    AFTERNOON_END: time = time(16, 0)  # No afternoon session
+
+    TRADING_DAYS_PER_YEAR: int = 252
+
+    def get_session(self, current_time: time) -> Session:
+        """
+        Determine the current session for S&P 500.
+
+        Args:
+            current_time: The time to check.
+
+        Returns:
+            Session: MORNING (9:30-16:00) or CLOSED
+        """
+        if self.MORNING_START <= current_time < self.MORNING_END:
+            return Session.MORNING
+        else:
+            return Session.CLOSED
+
+    def is_trading_time(self, current_time: time) -> bool:
+        """Check if within trading hours (9:30-16:00 ET)."""
+        return self.get_session(current_time) == Session.MORNING
+
+    def is_signal_allowed(self, current_time: time) -> bool:
+        """Signal generation allowed during trading hours."""
+        return self.is_trading_time(current_time)
+
+    def bars_per_year(self, freq_minutes: int) -> int:
+        """
+        Calculate bars per year for S&P 500.
+
+        Args:
+            freq_minutes: Frequency in minutes (e.g., 1, 5, 15)
+
+        Returns:
+            Estimated number of bars per year
+        """
+        trading_minutes_per_day = 390  # 9:30 AM - 4:00 PM
+        if trading_minutes_per_day % freq_minutes != 0:
+            raise ValueError(
+                f"freq_minutes={freq_minutes} does not divide evenly into "
+                f"trading_minutes_per_day={trading_minutes_per_day}"
+            )
+        bars_per_day = trading_minutes_per_day // freq_minutes
+        return bars_per_day * self.TRADING_DAYS_PER_YEAR

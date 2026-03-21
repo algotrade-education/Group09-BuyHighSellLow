@@ -1,6 +1,11 @@
 from config.schemas.base import BaseConfig, BaseStrategyConfig, RiskConfig
 from config.schemas.orb import ORBConfig, ORBStrategyConfig
-from config.schemas.session import Session, VN30SessionConfig
+from config.schemas.session import (
+    Session,
+    SessionConfig,
+    SPXSessionConfig,
+    VN30SessionConfig,
+)
 
 __all__ = [
     "BaseStrategyConfig",
@@ -9,5 +14,7 @@ __all__ = [
     "ORBConfig",
     "ORBStrategyConfig",
     "Session",
+    "SessionConfig",
     "VN30SessionConfig",
+    "SPXSessionConfig",
 ]
