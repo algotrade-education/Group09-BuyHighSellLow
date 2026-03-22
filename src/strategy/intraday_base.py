@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Any
 
 from config.schemas.session import Session, SessionConfig, VN30SessionConfig
-from strategy.base import StrategyBase
+from src.strategy.base import StrategyBase
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class InfraDayStrategy(StrategyBase, ABC):
         Hook for subclasses to reset any session-specific state.
         Called when a new day/session starts or a data gap is detected.
         """
-        ...
+        return None
 
     # --- State serialization ---
 

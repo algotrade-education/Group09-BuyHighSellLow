@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.data.indicators.registry import IndicatorRegistry
-from strategy.signal import TradeSignal
+from src.strategy.signal import TradeSignal
 
 # --- Position Snapshot ---
 # Engine pass object into strategy.generate_signal() with current position info.
@@ -82,14 +82,13 @@ class StrategyBase(ABC):
         """
         ...
 
-    @abstractmethod
     def reset(self) -> None:
         """
         Reset any internal state of the strategy.
         Called by engine before each backtest or paper trading session.
         Default no-op, override if your strategy has state to reset.
         """
-        ...
+        return None
 
     def save_state(self) -> dict[str, Any]:
         """
