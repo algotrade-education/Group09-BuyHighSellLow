@@ -121,7 +121,15 @@ class InfraDayStrategy(StrategyBase, ABC):
         self._set_strategy_state(state)
 
     def reset(self) -> None:
-        """Reset all state"""
+        """
+        Reset all session tracking state back to initial conditions.
+        Called by engine before each backtest or paper trading session.
+
+        Note: _on_session_reset(Session.CLOSED) is called at the end.
+        Subclasses implementing _on_session_reset MUST handle Session.CLOSED
+        gracefully and fully clear their own internal state, since no valid
+        session is active after reset.
+        """
         self._current_date = None
         self._current_session = None
         self._last_bar_dt = None

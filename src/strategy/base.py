@@ -4,6 +4,7 @@ Abstract base classes for all trading strategies.
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -90,7 +91,6 @@ class StrategyBase(ABC):
         """
         ...
 
-    @abstractmethod
     def save_state(self) -> dict[str, Any]:
         """
         Return a dict representing the current state of the strategy.
@@ -99,14 +99,13 @@ class StrategyBase(ABC):
         """
         return {}
 
-    @abstractmethod
     def load_state(self, state: dict[str, Any]) -> None:
         """
         Load strategy state from a dict.
         This can be used for checkpointing during backtests or paper trading.
         Default no-op, override if your strategy has state to load.
         """
-        ...
+        return None
 
     @staticmethod
     def validate_bar(
@@ -124,10 +123,11 @@ class StrategyBase(ABC):
             if val is None:
                 return False
 
-            # Check numeric fields are not NaN
+            # Check numeric fields are not NaN and are positive
             if field in ("open", "high", "low", "close", "volume"):
                 try:
-                    if float(val) <= 0:
+                    fval = float(val)
+                    if math.isnan(fval) or math.isinf(fval) or fval <= 0:
                         return False
                 except (ValueError, TypeError):
                     return False
