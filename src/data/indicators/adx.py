@@ -16,6 +16,10 @@ class WilderADX(IndicatorBase):
     def __init__(self, period: int = 14) -> None:
         super().__init__()
         self.period = period
+        # Two-phase seeding:
+        #   Phase 1 (bars 1..period+1): Seed smoothed DM+, DM-, TR via SMA.
+        #   Phase 2 (bars period+2..period*2): Accumulate DX values to seed ADX via SMA.
+        # Total warm-up = period * 2 bars before ADX output is reliable.
         self.warm_up_required = period * 2
 
         self._prev_high: float | None = None
