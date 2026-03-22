@@ -17,11 +17,12 @@ class TestSignal:
 
     def test_signal_membership(self):
         """Test Signal enum membership."""
-        assert "long" in Signal
-        assert "short" in Signal
-        assert "hold" in Signal
-        assert "exit" in Signal
-        assert "invalid" not in Signal
+        assert Signal("long") is Signal.LONG
+        assert Signal("short") is Signal.SHORT
+        assert Signal("hold") is Signal.HOLD
+        assert Signal("exit") is Signal.EXIT
+        with pytest.raises(ValueError):
+            Signal("invalid")
 
 
 class TestTradeSignal:
