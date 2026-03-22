@@ -80,6 +80,11 @@ class ORBStrategy(IntradayStrategy):
         self._p: ORBStrategyConfig = config.strategy
         self._risk = config.risk
 
+        # Cache indicator column names to avoid formatting per bar
+        self._atr_col = f"atr_{self._p.atr_period}"
+        self._adx_col = f"adx_{self._p.adx_period}"
+        self._vol_ma_col = f"volume_ma_{self._p.volume_ma_period}"
+
         # ── Opening range state ───────────────────────────────────
         self._range_high: float = 0.0
         self._range_low: float = float("inf")
@@ -339,8 +344,7 @@ class ORBStrategy(IntradayStrategy):
         """Volume and ADX filters. None = pass."""
         if self._p.use_volume_filter:
             volume = float(bar.get("volume", 0.0) or 0.0)
-            vol_ma_col = f"volume_ma_{self._p.volume_ma_period}"
-            volume_ma = float(bar.get(vol_ma_col, 0.0) or 0.0)
+            volume_ma = float(bar.get(self._vol_ma_col, 0.0) or 0.0)
             threshold = self._p.volume_filter_threshold
 
             if volume_ma > 0 and volume < threshold * volume_ma:
@@ -352,8 +356,7 @@ class ORBStrategy(IntradayStrategy):
                 )
 
         if self._p.use_adx_filter:
-            adx_col = f"adx_{self._p.adx_period}"
-            adx = float(bar.get(adx_col, 0.0) or 0.0)
+            adx = float(bar.get(self._adx_col, 0.0) or 0.0)
             if adx < self._p.adx_min:
                 return TradeSignal(
                     Signal.HOLD,
@@ -366,8 +369,7 @@ class ORBStrategy(IntradayStrategy):
 
     def _get_atr(self, bar: dict[str, Any]) -> float | None:
         """Get ATR value from bar. Returns None if missing or <= 0."""
-        atr_col = f"atr_{self._p.atr_period}"
-        val = bar.get(atr_col)
+        val = bar.get(self._atr_col)
         if val is None:
             return None
         try:
