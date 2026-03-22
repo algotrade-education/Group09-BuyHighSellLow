@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 
 class Signal(StrEnum):
@@ -37,9 +37,22 @@ class TradeSignal:
     entry_price: float = 0.0
     stop_loss: float = 0.0
     take_profit: float = 0.0
-    ord_type: str = "LIMIT"
+    ord_type: Literal["LIMIT", "MARKET"] = "LIMIT"
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate signal fields."""
+        if self.ord_type not in ("LIMIT", "MARKET"):
+            raise ValueError(f"ord_type must be 'LIMIT' or 'MARKET', got: {self.ord_type}")
+
+        # Validate prices are non-negative
+        if self.entry_price < 0:
+            raise ValueError(f"entry_price must be >= 0, got: {self.entry_price}")
+        if self.stop_loss < 0:
+            raise ValueError(f"stop_loss must be >= 0, got: {self.stop_loss}")
+        if self.take_profit < 0:
+            raise ValueError(f"take_profit must be >= 0, got: {self.take_profit}")
 
     # ── Convenience properties ───
 
