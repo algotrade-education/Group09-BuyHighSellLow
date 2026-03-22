@@ -103,7 +103,7 @@ class IntradayStrategy(StrategyBase, ABC):
     def save_state(self) -> dict[str, Any]:
         return {
             "current_date": self._current_date.isoformat() if self._current_date else None,
-            "current_session": self._current_session.name if self._current_session else None,
+            "current_session": self._current_session.value if self._current_session else None,
             "last_bar_dt": self._last_bar_dt.isoformat() if self._last_bar_dt else None,
             **self._get_strategy_state(),
         }
