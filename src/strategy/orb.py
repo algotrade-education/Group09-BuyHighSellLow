@@ -33,7 +33,7 @@ from config.schemas.orb import ORBConfig, ORBStrategyConfig
 from config.schemas.session import Session, SessionConfig
 from src.data.indicators.registry import IndicatorRegistry, IndicatorSpec
 from src.strategy.base import PositionSnapshot
-from src.strategy.intraday_base import InfraDayStrategy
+from src.strategy.intraday_base import IntradayStrategy
 from src.strategy.signal import Signal, TradeSignal
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class _ParsedBar:
     low: float
 
 
-class ORBStrategy(InfraDayStrategy):
+class ORBStrategy(IntradayStrategy):
     """
     Opening Range Breakout strategy.
 
@@ -233,20 +233,22 @@ class ORBStrategy(InfraDayStrategy):
 
     def _build_long_signal(
         self,
-        close: float,
+        entry_price: float,
         atr: float,
         range_size: float,
         session: Session,
         is_warmup: bool,
     ) -> TradeSignal:
         stop_loss = (
-            self._range_low if self._p.use_range_sl else close - self._p.atr_sl_multiplier * atr
+            self._range_low
+            if self._p.use_range_sl
+            else entry_price - self._p.atr_sl_multiplier * atr
         )
-        take_profit = close + self._p.atr_tp_multiplier * atr
+        take_profit = entry_price + self._p.atr_tp_multiplier * atr
 
-        if take_profit <= close:
+        if take_profit <= entry_price:
             return TradeSignal(Signal.HOLD, reason="Invalid Long: TP <= entry")
-        if stop_loss >= close:
+        if stop_loss >= entry_price:
             return TradeSignal(Signal.HOLD, reason="Invalid Long: SL >= entry")
 
         if not is_warmup:
@@ -254,7 +256,7 @@ class ORBStrategy(InfraDayStrategy):
 
         return TradeSignal(
             signal=Signal.LONG,
-            entry_price=0.0,
+            entry_price=entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
             ord_type=self._risk.entry_ord_type
@@ -274,20 +276,22 @@ class ORBStrategy(InfraDayStrategy):
 
     def _build_short_signal(
         self,
-        close: float,
+        entry_price: float,
         atr: float,
         range_size: float,
         session: Session,
         is_warmup: bool,
     ) -> TradeSignal:
         stop_loss = (
-            self._range_high if self._p.use_range_sl else close + self._p.atr_sl_multiplier * atr
+            self._range_high
+            if self._p.use_range_sl
+            else entry_price + self._p.atr_sl_multiplier * atr
         )
-        take_profit = close - self._p.atr_tp_multiplier * atr
+        take_profit = entry_price - self._p.atr_tp_multiplier * atr
 
-        if take_profit >= close:
+        if take_profit >= entry_price:
             return TradeSignal(Signal.HOLD, reason="Invalid Short: TP >= entry")
-        if stop_loss <= close:
+        if stop_loss <= entry_price:
             return TradeSignal(Signal.HOLD, reason="Invalid Short: SL <= entry")
 
         if not is_warmup:
@@ -295,7 +299,7 @@ class ORBStrategy(InfraDayStrategy):
 
         return TradeSignal(
             signal=Signal.SHORT,
-            entry_price=0.0,
+            entry_price=entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
             ord_type=self._risk.entry_ord_type

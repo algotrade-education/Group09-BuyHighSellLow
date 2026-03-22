@@ -15,7 +15,7 @@ from src.strategy.base import StrategyBase
 logger = logging.getLogger(__name__)
 
 
-class InfraDayStrategy(StrategyBase, ABC):
+class IntradayStrategy(StrategyBase, ABC):
     """
     Base class for intraday trading strategies.
     Inherits from StrategyBase.
