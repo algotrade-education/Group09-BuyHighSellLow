@@ -259,9 +259,7 @@ class ORBStrategy(IntradayStrategy):
             entry_price=entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            ord_type=self._risk.entry_ord_type
-            if hasattr(self._risk, "entry_ord_type")
-            else "LIMIT",
+            ord_type=self._risk.entry_ord_type,
             reason=f"ORB Long ({session.value}, range={range_size:.1f})",
             metadata={
                 "session": session.value,
@@ -302,9 +300,7 @@ class ORBStrategy(IntradayStrategy):
             entry_price=entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            ord_type=self._risk.entry_ord_type
-            if hasattr(self._risk, "entry_ord_type")
-            else "LIMIT",
+            ord_type=self._risk.entry_ord_type,
             reason=f"ORB Short ({session.value}, range={range_size:.1f})",
             metadata={
                 "session": session.value,
@@ -427,7 +423,12 @@ class ORBStrategy(IntradayStrategy):
     # ── Session reset ─────────────────────────────────────────────
 
     def _on_session_reset(self, session: Session) -> None:
-        """Reset opening range state when a new session starts."""
+        """
+        Reset opening range state when a new session starts.
+
+        Args:
+            session: The new session (or Session.CLOSED during full reset)
+        """
         self._range_high = 0.0
         self._range_low = float("inf")
         self._range_formed = False

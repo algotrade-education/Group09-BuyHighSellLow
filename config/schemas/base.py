@@ -85,6 +85,10 @@ class RiskConfig(BaseModel):
     )
 
     # --- Paper Trading / Live Execution ---
+    entry_ord_type: Literal["LIMIT", "MARKET"] = Field(
+        default="LIMIT",
+        description="Order type for entry orders. LIMIT = limit order at signal price, MARKET = market order at next bar open.",
+    )
     entry_cutoff_seconds: int = Field(
         default=60,
         ge=0,
