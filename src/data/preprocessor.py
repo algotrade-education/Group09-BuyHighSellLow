@@ -2,12 +2,6 @@
 data/preprocessor.py
 
 Clean, resample, filter trading hours.
-
-V2 fixes:
-    - filter_trading_hours dùng integer minutes-since-midnight thay vì
-      dt.time comparison (fully vectorized, ~5x faster)
-    - add_session_vwap dùng integer session_id thay vì string concatenation
-    - Không có bfill() hay forward-fill ẩn
 """
 
 from __future__ import annotations
@@ -211,7 +205,7 @@ class DataPreprocessor:
 
         df["session"] = np.select(conditions, choices, default=Session.CLOSED.value)
 
-        # Integer session_id cho groupby: yyyymmdd * 10 + session_num
+        # Integer session_id for groupby: yyyymmdd * 10 + session_num
         # morning=1, afternoon=2, atc=3, closed=0
         session_num_map = {
             Session.MORNING.value: 1,

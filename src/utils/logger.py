@@ -125,7 +125,7 @@ def setup_logging(
     """
     _fix_windows_encoding()
 
-    # Resolve defaults từ env
+    # Resolve defaults from environment variables
     if capture_all_loggers is None:
         capture_all_loggers = os.getenv("LOG_CAPTURE_ALL", "0").strip().lower() in {
             "1",

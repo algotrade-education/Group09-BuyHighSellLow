@@ -2,7 +2,7 @@
 Calculate indicators from IndicatorRegistry and cache results.
 
 Cache key = hash(data fingerprint + registry params)
--> 300 Optuna triasl with the same atr_period=14 will only compute ATR once, then load from cache for the rest.
+-> 300 Optuna trials with the same atr_period=14 will only compute ATR once, then load from cache for the rest.
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ from src.data.indicators.registry import IndicatorRegistry
 logger = logging.getLogger(__name__)
 
 DATETIME_COL = "datetime"
-_CACHE_VERSION = "v2"  # Tăng khi thay đổi indicator logic để invalidate cache cũ
+_CACHE_VERSION = "v2"  # Increase when indicator logic changes to invalidate old cache
 _CACHE_FILE_PREFIX = "ind"
 
 
 class DataPipeline:
     """
-    Build indicator columns từ IndicatorRegistry.
+    Build indicator columns from IndicatorRegistry.
 
     Usage:
         from src.strategy import ORBStrategy
@@ -34,12 +34,12 @@ class DataPipeline:
         pipeline = DataPipeline(registry, cache_dir="data/cache")
 
         df_with_indicators = pipeline.run(df)
-        # df giờ có thêm columns: atr_14, adx_14, volume_ma_20
+        # df now includes additional columns: atr_14, adx_14, volume_ma_20
 
     Cache:
-        Lần đầu chạy: tính indicators, save ra parquet.
-        Lần sau: load từ cache nếu data và params không đổi.
-        Invalidate: thay đổi registry params hoặc data -> cache miss tự động.
+        First run: compute indicators and save to parquet.
+        Later runs: load from cache if data and params are unchanged.
+        Invalidate: changing registry params or data triggers a cache miss automatically.
     """
 
     def __init__(

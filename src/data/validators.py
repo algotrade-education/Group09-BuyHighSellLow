@@ -12,7 +12,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Columns bắt buộc cho OHLCV data
+# Required columns for OHLCV data
 REQUIRED_OHLCV_COLS = {"open", "high", "low", "close", "volume"}
 REQUIRED_DATETIME_COL = "datetime"
 
@@ -64,7 +64,7 @@ class DataValidator:
         # ── Schema ────────────────────────────────────────────────
         errors.extend(self._check_columns(df))
 
-        # Nếu thiếu columns cơ bản thì không check tiếp được
+        # If required base columns are missing, further checks cannot run
         if errors:
             return ValidationResult(False, errors)
 
@@ -81,7 +81,7 @@ class DataValidator:
         # ── NaN ───────────────────────────────────────────────────
         errors.extend(self._check_nan(df))
 
-        # ── Warnings (không fail validation) ──────────────────────
+        # ── Warnings (do not fail validation) ─────────────────────
         warnings.extend(self._check_gaps(df))
         warnings.extend(self._check_volume_anomalies(df))
 
@@ -217,7 +217,7 @@ class DataValidator:
         return errors
 
     def _check_gaps(self, df: pd.DataFrame) -> list[str]:
-        """Warn nếu có time gaps lớn bất thường (potential missing data)."""
+        """Warn if unusually large time gaps are detected (potential missing data)."""
         warnings: list[str] = []
         if REQUIRED_DATETIME_COL not in df.columns:
             return warnings
@@ -243,7 +243,7 @@ class DataValidator:
         return warnings
 
     def _check_volume_anomalies(self, df: pd.DataFrame) -> list[str]:
-        """Warn nếu có volume = 0 trong trading hours."""
+        """Warn if volume = 0 appears during trading hours."""
         warnings: list[str] = []
         if "volume" not in df.columns:
             return warnings
