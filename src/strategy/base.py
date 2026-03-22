@@ -24,6 +24,11 @@ from src.strategy.signal import TradeSignal
 class PositionSnapshot:
     """
     Read-only snapshot of current position.
+
+    Invariants:
+        - Exactly one of is_flat, is_long, is_short must be True
+        - If is_flat, quantity must be 0
+        - If is_long or is_short, quantity must be > 0
     """
 
     is_flat: bool
@@ -33,6 +38,35 @@ class PositionSnapshot:
     entry_price: float
     stop_loss: float
     take_profit: float
+
+    def __post_init__(self) -> None:
+        """Validate position invariants."""
+        # Check exactly one direction flag is True
+        flags = [self.is_flat, self.is_long, self.is_short]
+        if sum(flags) != 1:
+            raise ValueError(
+                f"Exactly one of is_flat/is_long/is_short must be True, got: "
+                f"flat={self.is_flat}, long={self.is_long}, short={self.is_short}"
+            )
+
+        # Check quantity consistency
+        if self.is_flat and self.quantity != 0:
+            raise ValueError(f"Flat position must have quantity=0, got {self.quantity}")
+        if (self.is_long or self.is_short) and self.quantity <= 0:
+            raise ValueError(f"Non-flat position must have quantity>0, got {self.quantity}")
+
+    @classmethod
+    def flat(cls) -> PositionSnapshot:
+        """Create a flat (no position) snapshot."""
+        return cls(
+            is_flat=True,
+            is_long=False,
+            is_short=False,
+            quantity=0,
+            entry_price=0.0,
+            stop_loss=0.0,
+            take_profit=0.0,
+        )
 
 
 # --- Strategy Base Class ---
@@ -110,25 +144,49 @@ class StrategyBase(ABC):
     def validate_bar(
         bar: dict[str, Any],
         required_fields: list[str],
+        raise_on_error: bool = False,
     ) -> bool:
         """
-        Validate that the input bar has all required keys.
-        Raises ValueError if any key is missing.
+        Validate that the input bar has all required keys and valid values.
+
+        Args:
+            bar: Bar dictionary to validate
+            required_fields: List of required field names
+            raise_on_error: If True, raise ValueError on validation failure
+
+        Returns:
+            True if valid, False otherwise (when raise_on_error=False)
+
+        Raises:
+            ValueError: If validation fails and raise_on_error=True
         """
         for field in required_fields:
             if field not in bar:
-                return False
-            val = bar[field]
-            if val is None:
+                if raise_on_error:
+                    raise ValueError(f"Missing required field: {field}")
                 return False
 
-            # Check numeric fields are not NaN and are positive
+            val = bar[field]
+            if val is None:
+                if raise_on_error:
+                    raise ValueError(f"Field {field} is None")
+                return False
+
+            # Check numeric fields are not NaN/inf and are positive
             if field in ("open", "high", "low", "close", "volume"):
                 try:
                     fval = float(val)
-                    if math.isnan(fval) or math.isinf(fval) or fval <= 0:
+                    if math.isnan(fval) or math.isinf(fval):
+                        if raise_on_error:
+                            raise ValueError(f"Field {field} is NaN or Inf: {fval}")
                         return False
-                except (ValueError, TypeError):
+                    if fval <= 0:
+                        if raise_on_error:
+                            raise ValueError(f"Field {field} must be positive: {fval}")
+                        return False
+                except (ValueError, TypeError) as e:
+                    if raise_on_error:
+                        raise ValueError(f"Field {field} is not numeric: {val}") from e
                     return False
 
         return True
