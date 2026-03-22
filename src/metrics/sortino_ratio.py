@@ -70,12 +70,12 @@ class SortinoRatio(RiskAdjustedMetric):
         downside_returns = returns[returns < daily_mar] - daily_mar
 
         if len(downside_returns) == 0:
-            return float("inf")  # No downside risk
+            return 0.0
 
         downside_deviation = np.sqrt((downside_returns**2).mean())
 
         if downside_deviation == 0:
-            return float("inf")
+            return 0.0
 
         # Calculate Sortino
         excess_return = returns.mean() - daily_mar
