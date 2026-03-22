@@ -432,7 +432,7 @@ class TestIndicatorRegistry:
 
     def test_build_orb_registry(self):
         """Test that ORBStrategy.build_registry creates correct indicators."""
-        from src.strategy import ORBStrategy
+        from src.strategy.orb import ORBStrategy
 
         registry = ORBStrategy.build_registry(atr_period=14, adx_period=14)
 
