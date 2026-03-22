@@ -125,14 +125,14 @@ class IntradayStrategy(StrategyBase, ABC):
         Reset all session tracking state back to initial conditions.
         Called by engine before each backtest or paper trading session.
 
-        Note: _on_session_reset(Session.CLOSED) is called at the end.
-        Subclasses implementing _on_session_reset MUST handle Session.CLOSED
-        gracefully and fully clear their own internal state, since no valid
-        session is active after reset.
+        This clears all session tracking and calls _on_session_reset()
+        to allow subclasses to reset their own state.
         """
         self._current_date = None
         self._current_session = None
         self._last_bar_dt = None
+        # Call subclass hook to reset strategy-specific state
+        # Pass CLOSED to indicate we're in a reset state (no active session)
         self._on_session_reset(Session.CLOSED)
 
     def _get_strategy_state(self) -> dict[str, Any]:
