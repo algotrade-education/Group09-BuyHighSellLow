@@ -248,13 +248,25 @@ class TradeMarkersChart(ChartBase):
         ax.plot(dt, data.equity_series, color="black", linewidth=0.8, alpha=0.6, label="Equity")
 
         long_entries = [
-            (t.entry_time, t.entry_price) for t in data.trades if t.side.value == "long"
+            (t.entry_time, t.entry_price)
+            for t in data.trades
+            if t.side.value == "long" and t.entry_time is not None
         ]
         short_entries = [
-            (t.entry_time, t.entry_price) for t in data.trades if t.side.value == "short"
+            (t.entry_time, t.entry_price)
+            for t in data.trades
+            if t.side.value == "short" and t.entry_time is not None
         ]
-        exits_win = [(t.exit_time, t.exit_price) for t in data.trades if t.is_winner]
-        exits_loss = [(t.exit_time, t.exit_price) for t in data.trades if t.is_loser]
+        exits_win = [
+            (t.exit_time, t.exit_price)
+            for t in data.trades
+            if t.is_winner and t.is_closed and t.exit_time is not None
+        ]
+        exits_loss = [
+            (t.exit_time, t.exit_price)
+            for t in data.trades
+            if t.is_loser and t.is_closed and t.exit_time is not None
+        ]
 
         def scatter(
             points: list[tuple],
