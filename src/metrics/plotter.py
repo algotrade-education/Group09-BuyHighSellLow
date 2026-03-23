@@ -7,9 +7,10 @@ Supports:
     - HTML (plotly)    - interactive and easy to explore
 
 Usage:
-    plotter = BacktestPlotter(result, output_dir="results/plots")
-    plotter.plot_all(fmt="png")                      # All charts
-    plotter.plot(["equity", "drawdown"], fmt="html")  # Selected charts
+    data = PlotData(equity=equity_df, trades=trades, metrics=metrics, benchmark=benchmark)
+    plotter = BacktestPlotter(data, output_dir="results/plots")
+    plotter.plot_all(fmt="png")                                  # All charts
+    plotter.plot(["equity_curve", "drawdown"], fmt="html")        # Selected charts
 """
 
 from __future__ import annotations
@@ -415,7 +416,7 @@ class ExitReasonsChart(ChartBase):
         return True
 
 
-class RollingSharpChart(ChartBase):
+class RollingSharpeChart(ChartBase):
     name = "rolling_sharpe"
     description = "Rolling Sharpe ratio over time"
 
@@ -470,7 +471,7 @@ _CHARTS: dict[str, ChartBase] = {
         TradeMarkersChart(),
         PnLBarChart(),
         ExitReasonsChart(),
-        RollingSharpChart(),
+        RollingSharpeChart(),
     ]
 }
 
