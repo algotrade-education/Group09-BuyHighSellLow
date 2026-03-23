@@ -165,11 +165,12 @@ class EquityCurveChart(ChartBase):
         import plotly.graph_objects as go
 
         dt = self._get_datetime_index(data)
+        eq = data.equity_series
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
                 x=dt,
-                y=data.equity_series,
+                y=eq,
                 name="Equity",
                 line=dict(color="#2196F3", width=1.5),
             )
@@ -180,6 +181,17 @@ class EquityCurveChart(ChartBase):
                 line_dash="dash",
                 line_color="#F44336",
                 annotation_text=f"Initial ({data.initial_capital:,.0f})",
+            )
+        if data.benchmark is not None:
+            scale = eq.iloc[0] / data.benchmark.iloc[0] if data.benchmark.iloc[0] != 0 else 1
+            fig.add_trace(
+                go.Scatter(
+                    x=dt,
+                    y=data.benchmark * scale,
+                    name="Benchmark",
+                    line=dict(color="#9E9E9E", width=1, dash="dash"),
+                    opacity=0.7,
+                )
             )
         fig.update_layout(title="Equity Curve", xaxis_title="Date", yaxis_title="Equity")
         fig.write_html(str(output_path))
@@ -218,6 +230,7 @@ class DrawdownChart(ChartBase):
 
         dt = self._get_datetime_index(data)
         dd = data.rolling["rolling_drawdown"] * 100
+        m = data.metrics.max_drawdown
         fig = go.Figure(
             go.Scatter(
                 x=dt,
@@ -227,7 +240,11 @@ class DrawdownChart(ChartBase):
                 line=dict(color="#F44336"),
             )
         )
-        fig.update_layout(title="Drawdown", xaxis_title="Date", yaxis_title="Drawdown (%)")
+        fig.update_layout(
+            title=f"Drawdown (Max: {m:.2f}%)",
+            xaxis_title="Date",
+            yaxis_title="Drawdown (%)",
+        )
         fig.write_html(str(output_path))
         return True
 
@@ -298,6 +315,10 @@ class TradeMarkersChart(ChartBase):
     def render_html(self, data: PlotData, output_path: Path) -> bool:
         import plotly.graph_objects as go
 
+        if not data.trades:
+            logger.warning("TradeMarkersChart: no trades to plot.")
+            return False
+
         dt = pd.to_datetime(data.equity.get("datetime", data.equity.index))
         fig = go.Figure()
         fig.add_trace(
@@ -309,12 +330,55 @@ class TradeMarkersChart(ChartBase):
             )
         )
 
-        for trade in data.trades:
-            color = "#4CAF50" if trade.is_winner else "#F44336"
-            if trade.entry_time:
-                fig.add_vline(x=trade.entry_time, line_color=color, line_width=0.5, opacity=0.4)
+        long_entries = [
+            (t.entry_time, t.entry_price)
+            for t in data.trades
+            if t.side.value == "long" and t.entry_time is not None
+        ]
+        short_entries = [
+            (t.entry_time, t.entry_price)
+            for t in data.trades
+            if t.side.value == "short" and t.entry_time is not None
+        ]
+        exits_win = [
+            (t.exit_time, t.exit_price)
+            for t in data.trades
+            if t.is_winner and t.is_closed and t.exit_time is not None
+        ]
+        exits_loss = [
+            (t.exit_time, t.exit_price)
+            for t in data.trades
+            if t.is_loser and t.is_closed and t.exit_time is not None
+        ]
 
-        fig.update_layout(title="Trade Markers", xaxis_title="Date", yaxis_title="Equity")
+        def add_marker_trace(
+            points: list[tuple],
+            name: str,
+            color: str,
+            symbol: str,
+            size: int,
+        ) -> None:
+            if not points:
+                return
+            xs, ys = zip(*points, strict=False)
+            fig.add_trace(
+                go.Scatter(
+                    x=list(xs),
+                    y=list(ys),
+                    mode="markers",
+                    name=name,
+                    marker=dict(color=color, symbol=symbol, size=size),
+                )
+            )
+
+        add_marker_trace(long_entries, "Long Entry", "#4CAF50", "triangle-up", 9)
+        add_marker_trace(short_entries, "Short Entry", "#F44336", "triangle-down", 9)
+        add_marker_trace(exits_win, "Exit (Win)", "#2196F3", "x", 8)
+        add_marker_trace(exits_loss, "Exit (Loss)", "#FF5722", "x", 8)
+
+        fig.update_layout(
+            title="Equity with Trade Markers", xaxis_title="Date", yaxis_title="Equity"
+        )
         fig.write_html(str(output_path))
         return True
 
@@ -466,9 +530,40 @@ class RollingSharpeChart(ChartBase):
             logger.warning("RollingSharpChart: no rolling sharpe data to plot.")
             return False
         dt = self._get_datetime_index(data)
-        fig = go.Figure(go.Scatter(x=dt, y=rs, name="Rolling Sharpe", line=dict(color="#673AB7")))
-        fig.add_hline(y=0, line_dash="dash")
-        fig.update_layout(title="Rolling Sharpe", xaxis_title="Date", yaxis_title="Sharpe")
+        rs_positive = rs.where(rs >= 0, other=0)
+        rs_negative = rs.where(rs < 0, other=0)
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=dt,
+                y=rs_positive,
+                mode="lines",
+                line=dict(width=0),
+                fill="tozeroy",
+                fillcolor="rgba(76, 175, 80, 0.10)",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=dt,
+                y=rs_negative,
+                mode="lines",
+                line=dict(width=0),
+                fill="tozeroy",
+                fillcolor="rgba(244, 67, 54, 0.10)",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(x=dt, y=rs, name="Rolling Sharpe", line=dict(color="#673AB7", width=1.2))
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="black")
+        fig.add_hline(y=1, line_dash="dash", line_color="#4CAF50", opacity=0.7)
+        fig.update_layout(title="Rolling Sharpe Ratio", xaxis_title="Date", yaxis_title="Sharpe")
         fig.write_html(str(output_path))
         return True
 
