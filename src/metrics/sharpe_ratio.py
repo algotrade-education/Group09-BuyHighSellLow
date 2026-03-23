@@ -62,7 +62,7 @@ class SharpeRatio(RiskAdjustedMetric):
         if not self._validate_returns(returns):
             return 0.0
 
-        if returns.std() == 0:
+        if returns.std() == 0 or np.isnan(returns.std()):
             return 0.0
 
         # Daily risk-free rate
