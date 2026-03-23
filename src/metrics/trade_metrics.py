@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 
 class TradeSide(StrEnum):
@@ -63,7 +64,7 @@ class Trade:
     mfe: float | None = None  # Maximum Favorable Excursion (points)
 
     # ── Metadata ──────────────────────────────────────────────────
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
     # ── Computed properties ───────────────────────────────────────
 
@@ -127,7 +128,7 @@ class Trade:
 # ── Trade-level metrics ───────────────────────────────────────────
 
 
-def calculate_trade_metrics(trades: Sequence[Trade]) -> dict:
+def calculate_trade_metrics(trades: Sequence[Trade]) -> dict[str, Any]:
     """
     Calculate trade-level statistics from a list of closed trades.
 
