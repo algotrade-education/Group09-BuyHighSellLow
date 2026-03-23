@@ -20,7 +20,7 @@ class TestSharpeRatio:
 
     def test_basic_calculation_15m(self, intraday_15m_returns):
         """Test Sharpe with 15-minute intraday data."""
-        # 18 bars/day × 240 days = 4320 bars/year
+        # 18 bars/day * 240 days = 4320 bars/year
         metric = SharpeRatio(annualization_factor=4320, risk_free_rate=0.02)
         sharpe = metric.calculate(intraday_15m_returns, annualized=True)
 
@@ -137,7 +137,7 @@ class TestSharpeRatio:
 
     def test_intraday_5m_bars(self):
         """Test with 5-minute bars (more granular)."""
-        # 5-min bars: ~54 bars/day × 240 days = 12960 bars/year
+        # 5-min bars: ~54 bars/day * 240 days = 12960 bars/year
         np.random.seed(42)
         returns_5m = pd.Series(np.random.normal(0.00005, 0.003, 12960))
 
@@ -149,7 +149,7 @@ class TestSharpeRatio:
 
     def test_hourly_bars(self):
         """Test with hourly bars."""
-        # Hourly: ~6 bars/day × 240 days = 1440 bars/year
+        # Hourly: ~6 bars/day * 240 days = 1440 bars/year
         np.random.seed(42)
         returns_1h = pd.Series(np.random.normal(0.0005, 0.01, 1440))
 

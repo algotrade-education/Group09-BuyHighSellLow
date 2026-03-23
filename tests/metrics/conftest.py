@@ -19,7 +19,7 @@ def intraday_15m_returns():
     VN30 has 2 sessions:
     - Morning: 9:00-11:30 (10 bars of 15min)
     - Afternoon: 13:00-15:00 (8 bars of 15min)
-    Total: 18 bars/day × 240 days = 4320 bars/year
+    Total: 18 bars/day * 240 days = 4320 bars/year
     """
     np.random.seed(42)
     n_bars = 4320  # 1 year of 15-minute data

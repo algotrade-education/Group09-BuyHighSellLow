@@ -26,7 +26,7 @@ def rolling_sharpe(
         equity:           Equity curve Series.
         window:           Rolling window in bars.
         periods_per_year: Annualization factor.
-                          VN30 5min = 51 bars/day × 252 = 12,852.
+                          VN30 5min = 51 bars/day * 252 = 12,852.
         risk_free_rate:   Annual risk-free rate.
         min_periods:      Minimum bars required. Default = window // 2.
 

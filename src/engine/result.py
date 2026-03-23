@@ -166,7 +166,7 @@ class BacktestResult:
             if isinstance(obj, datetime):
                 return obj.isoformat()
             if isinstance(obj, float) and (obj != obj or obj == float("inf")):
-                return None  # NaN / inf → null
+                return None  # NaN / inf -> null
             return str(obj)
 
         data = {

@@ -56,7 +56,7 @@ class TestVN30SessionConfig:
 
     def test_bars_per_year_5min(self, session_config):
         """Test bars_per_year calculation for 5-minute frequency."""
-        # 255 minutes / 5 = 51 bars/day × 252 = 12,852
+        # 255 minutes / 5 = 51 bars/day * 252 = 12,852
         assert session_config.bars_per_year(5) == 12_852
 
     def test_bars_per_year_1min(self, session_config):

@@ -351,7 +351,7 @@ class ORBStrategy(IntradayStrategy):
                 return TradeSignal(
                     Signal.HOLD,
                     reason=(
-                        f"Volume below threshold: {volume:.0f} < {threshold:.1f} × {volume_ma:.0f}"
+                        f"Volume below threshold: {volume:.0f} < {threshold:.1f} * {volume_ma:.0f}"
                     ),
                 )
 

@@ -319,7 +319,7 @@ class AccountState:
                 logger.warning("No margin at execution price %.2f", exec_price)
                 return False
             if order.quantity > max_qty:
-                logger.info("Reducing order qty %d→%d (margin)", order.quantity, max_qty)
+                logger.info("Reducing order qty %d->%d (margin)", order.quantity, max_qty)
                 order.quantity = max_qty
 
             commission = self._calc_commission(exec_price, order.quantity)
