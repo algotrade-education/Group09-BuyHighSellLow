@@ -84,7 +84,7 @@ class LongestDrawdown(DrawdownMetric):
             Average underwater period length
         """
         periods = self.calculate_all_periods(equity)
-        return np.mean(periods) if periods else 0.0
+        return float(np.mean(periods)) if periods else 0.0
 
     def calculate_time_underwater(
         self,
