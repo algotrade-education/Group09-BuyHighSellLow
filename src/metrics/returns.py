@@ -130,6 +130,7 @@ def calculate_annualized_return(
         return 0.0
 
     if total_return <= 0.0:
+        # Portfolio lost all value - cannot compound properly
         return -100.0
 
     annualized = (total_return ** (1.0 / float(years))) - 1.0
