@@ -61,7 +61,7 @@ class TestDatabaseIntegration:
         svc2 = get_data_service()
 
         assert svc1 is svc2
-        assert mock_connect.call_count == 1
+        assert mock_connect.call_count == 0  # Connection should only establish after first query
 
     @patch("src.database.connection.psycopg2.connect")
     def test_connection_retry_and_recovery(self, mock_connect: MagicMock) -> None:

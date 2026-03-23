@@ -190,7 +190,7 @@ class TestDataServiceFactory:
             retry_delay=2.0,
             statement_timeout_ms=10000,
         )
-        mock_conn_instance.connect.assert_called_once()
+        mock_conn_instance.connect.assert_not_called()  # Connection should not establish until first query
 
     @patch("src.database.data_service.create_data_service")
     def test_get_data_service_singleton(self, mock_create: MagicMock) -> None:
