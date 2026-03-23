@@ -79,8 +79,8 @@ def rolling_sortino(
     returns = equity.pct_change().dropna()
     excess = returns - min_acceptable_return
 
-    # Calculate downside deviation properly
-    # Only consider returns below MAR for downside std
+    # Calculate downside deviation
+    # x is excess returns (returns - MAR), so x < 0 means returns < MAR
     def downside_std(x: pd.Series) -> float:
         downside_returns = x[x < 0]
         if len(downside_returns) == 0:
