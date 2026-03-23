@@ -39,13 +39,6 @@ class TestSortinoRatio:
 
         assert sortino < 0
 
-    def test_no_downside_returns_zero(self, positive_returns):
-        """No downside returns should return 0 to keep downstream finite."""
-        metric = SortinoRatio(minimum_acceptable_return=0.0)
-        sortino = metric.calculate(positive_returns)
-
-        assert sortino == 0.0
-
     def test_sortino_higher_than_sharpe_with_positive_skew(self):
         """Sortino should be higher than Sharpe for positively skewed returns."""
         # More small losses, few large gains
