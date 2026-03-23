@@ -16,7 +16,7 @@ class Signal(StrEnum):
     EXIT = "exit"  # Explicit exit request from strategy (Not SL/TP)
 
 
-@dataclass
+@dataclass(slots=True)
 class TradeSignal:
     """
     Output of strategy.generate_signal().

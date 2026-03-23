@@ -22,7 +22,7 @@ class TradeSide(StrEnum):
     SHORT = "short"
 
 
-@dataclass
+@dataclass(slots=True)
 class Trade:
     """
     Closed trade record.
