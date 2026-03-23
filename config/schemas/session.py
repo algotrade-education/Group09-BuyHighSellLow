@@ -75,17 +75,48 @@ class SessionConfig(ABC):
         pass
 
     @abstractmethod
-    def bars_per_year(self, freq_minutes: int) -> int:
+    def bars_per_year(self, freq_minutes: int | str) -> float:
         """
         Calculate the number of bars per year based on the given frequency.
 
         Args:
-            freq_minutes: The frequency in minutes (e.g., 1, 5, 15).
+            freq_minutes: The bar frequency as minutes (e.g., 1, 5, 15)
+                or timeframe text (e.g., "1H", "1D").
 
         Returns:
             The estimated number of bars per year.
         """
         pass
+
+    @staticmethod
+    def _bars_per_day_from_frequency(
+        trading_minutes_per_day: int, freq_minutes: int | str
+    ) -> float:
+        if isinstance(freq_minutes, int):
+            if freq_minutes <= 0:
+                raise ValueError(f"freq_minutes must be positive, got {freq_minutes}")
+            return trading_minutes_per_day / freq_minutes
+
+        freq_text = freq_minutes.strip().upper()
+        if not freq_text:
+            raise ValueError("freq_minutes string cannot be empty")
+
+        unit = freq_text[-1]
+        value_text = freq_text[:-1]
+
+        if unit not in {"M", "H", "D"} or not value_text.isdigit():
+            raise ValueError("freq_minutes must be int minutes or timeframe string like '1H'/'1D'")
+
+        value = int(value_text)
+        if value <= 0:
+            raise ValueError(f"frequency value must be positive, got {value}")
+
+        if unit == "M":
+            return trading_minutes_per_day / value
+        if unit == "H":
+            return trading_minutes_per_day / (value * 60)
+
+        return 1.0 / value
 
 
 class VN30SessionConfig(SessionConfig):
@@ -170,25 +201,19 @@ class VN30SessionConfig(SessionConfig):
         """
         return self.get_session(current_time) in {Session.MORNING, Session.AFTERNOON}
 
-    def bars_per_year(self, freq_minutes: int) -> int:
+    def bars_per_year(self, freq_minutes: int | str) -> float:
         """
         Calculate the number of bars per year based on the given frequency.
 
         Args:
-            freq_minutes (int): The frequency in minutes (e.g., 1, 5, 15).
+            freq_minutes (int | str): The frequency in minutes (e.g., 1, 5, 15)
+                or timeframe text (e.g., "1H", "1D").
 
         Returns:
-            int: The estimated number of bars per year.
-
-        Raises:
-            ValueError: If freq_minutes is not a valid divisor of trading minutes per day.
+            float: The estimated number of bars per year.
         """
         trading_minutes_per_day = 255  # Exclude ATC
-        if trading_minutes_per_day % freq_minutes != 0:
-            raise ValueError(
-                f"freq_minutes={freq_minutes} không chia đều vào trading_minutes_per_day={trading_minutes_per_day}"
-            )
-        bars_per_day = trading_minutes_per_day // freq_minutes
+        bars_per_day = self._bars_per_day_from_frequency(trading_minutes_per_day, freq_minutes)
         return bars_per_day * self.TRADING_DAYS_PER_YEAR
 
 
@@ -232,21 +257,17 @@ class SPXSessionConfig(SessionConfig):
         """Signal generation allowed during trading hours."""
         return self.is_trading_time(current_time)
 
-    def bars_per_year(self, freq_minutes: int) -> int:
+    def bars_per_year(self, freq_minutes: int | str) -> float:
         """
         Calculate bars per year for S&P 500.
 
         Args:
             freq_minutes: Frequency in minutes (e.g., 1, 5, 15)
+                or timeframe text (e.g., "1H", "1D").
 
         Returns:
             Estimated number of bars per year
         """
         trading_minutes_per_day = 390  # 9:30 AM - 4:00 PM
-        if trading_minutes_per_day % freq_minutes != 0:
-            raise ValueError(
-                f"freq_minutes={freq_minutes} does not divide evenly into "
-                f"trading_minutes_per_day={trading_minutes_per_day}"
-            )
-        bars_per_day = trading_minutes_per_day // freq_minutes
+        bars_per_day = self._bars_per_day_from_frequency(trading_minutes_per_day, freq_minutes)
         return bars_per_day * self.TRADING_DAYS_PER_YEAR
