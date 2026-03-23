@@ -4,6 +4,7 @@ Calculate performance metrics from equity curve and trades.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,14 +26,21 @@ from src.metrics.sharpe_ratio import SharpeRatio
 from src.metrics.sortino_ratio import SortinoRatio
 from src.metrics.trade_metrics import Trade, calculate_trade_metrics
 
+logger = logging.getLogger(__name__)
+
 # ── VN30 annualization constants ──────────────────────────────────
 # Hardcoded instead of inferred from data - avoids bias from gaps/holidays.
 # Based on VN30SessionConfig: 255 trading minutes/day (excluding ATC).
 _VN30_BARS_PER_YEAR = {
-    1: VN30SessionConfig().bars_per_year(freq_minutes=1),  # 64,260
-    5: VN30SessionConfig().bars_per_year(freq_minutes=5),  # 12,852
-    15: VN30SessionConfig().bars_per_year(freq_minutes=15),  # 4,284
-    30: VN30SessionConfig().bars_per_year(freq_minutes=30),  # 2,142
+    1: VN30SessionConfig().bars_per_year(1),  # 255 bars/day * 252 days
+    5: VN30SessionConfig().bars_per_year(5),  # 51
+    15: VN30SessionConfig().bars_per_year(15),  # 17
+    30: VN30SessionConfig().bars_per_year(
+        30
+    ),  # 9 (8.5 if we counted the 15min bar that includes the 14:30-14:45 ATC period)
+    60: VN30SessionConfig().bars_per_year(
+        60
+    ),  # 4 (3.5 if we counted the 30min bar that includes the 14:30-14:45 ATC period)
 }
 _VN30_DEFAULT_BARS_PER_YEAR = _VN30_BARS_PER_YEAR[5]  # 5min is the default
 
@@ -222,6 +230,11 @@ class MetricsCalculator:
         if custom_periods_per_year is not None:
             self.periods_per_year = custom_periods_per_year
         else:
+            if freq_minutes not in _VN30_BARS_PER_YEAR:
+                logger.warning(
+                    f"freq_minutes={freq_minutes} not in supported values {list(_VN30_BARS_PER_YEAR.keys())}. "
+                    f"Using default {_VN30_DEFAULT_BARS_PER_YEAR} periods/year."
+                )
             self.periods_per_year = _VN30_BARS_PER_YEAR.get(
                 freq_minutes, _VN30_DEFAULT_BARS_PER_YEAR
             )
@@ -368,5 +381,6 @@ class MetricsCalculator:
 
             return ir, alpha, beta
 
-        except Exception:
+        except (ValueError, KeyError, ZeroDivisionError) as e:
+            logger.debug(f"Benchmark metrics calculation failed: {e}")
             return None, None, None
