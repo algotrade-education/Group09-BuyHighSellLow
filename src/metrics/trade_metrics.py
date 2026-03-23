@@ -94,7 +94,13 @@ class Trade:
     def r_multiple(self) -> float | None:
         """
         R-multiple = pnl / initial_risk.
-        initial_risk = abs(entry_price - stop_loss) * quantity * multiplier.
+
+        Measures profit/loss in terms of initial risk units.
+        For example, R=2 means profit was 2x the initial risk.
+
+        Note: Assumes pnl and risk are in same units (currency).
+        For futures, both should include contract multiplier.
+
         Returns None if stop_loss is not available.
         """
         if self.stop_loss <= 0 or self.entry_price <= 0:
@@ -143,20 +149,20 @@ def calculate_trade_metrics(trades: Sequence[Trade]) -> dict:
     win_rate = n_win / total if total > 0 else 0.0
 
     # PnL stats - net (after commission)
-    net_profit = sum(t.pnl for t in winners)
-    net_loss = abs(sum(t.pnl for t in losers))
+    total_net_profit = sum(t.pnl for t in winners)
+    total_net_loss = abs(sum(t.pnl for t in losers))
 
     # Profit factor - net version (from pnl after commission)
-    net_profit_factor = net_profit / net_loss if net_loss > 0 else 0.0
+    net_profit_factor = total_net_profit / total_net_loss if total_net_loss > 0 else 0.0
 
     # Gross profit factor - from gross_pnl before commission
-    gross_profit = sum(t.gross_pnl for t in winners)
-    gross_loss = abs(sum(t.gross_pnl for t in losers))
-    gross_profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+    total_gross_profit = sum(t.gross_pnl for t in winners)
+    total_gross_loss = abs(sum(t.gross_pnl for t in losers))
+    gross_profit_factor = total_gross_profit / total_gross_loss if total_gross_loss > 0 else 0.0
 
     # Avg win/loss use net PnL (after commission)
-    avg_win = net_profit / n_win if n_win > 0 else 0.0
-    avg_loss = net_loss / n_loss if n_loss > 0 else 0.0
+    avg_win = total_net_profit / n_win if n_win > 0 else 0.0
+    avg_loss = total_net_loss / n_loss if n_loss > 0 else 0.0
 
     # Payoff ratio
     payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
@@ -196,8 +202,8 @@ def calculate_trade_metrics(trades: Sequence[Trade]) -> dict:
         # PnL
         "total_pnl": total_pnl,
         "total_commission": total_commission,
-        "gross_profit": net_profit,  # Net profit from winning trades
-        "gross_loss": net_loss,  # Net loss from losing trades
+        "total_net_profit": total_net_profit,  # Sum of winning trades (after commission)
+        "total_net_loss": total_net_loss,  # Sum of losing trades (after commission)
         "net_profit_factor": net_profit_factor,
         "gross_profit_factor": gross_profit_factor,
         # Per-trade
@@ -250,8 +256,8 @@ def _empty_trade_metrics() -> dict:
         "win_rate": 0.0,
         "total_pnl": 0.0,
         "total_commission": 0.0,
-        "gross_profit": 0.0,
-        "gross_loss": 0.0,
+        "total_net_profit": 0.0,
+        "total_net_loss": 0.0,
         "net_profit_factor": 0.0,
         "gross_profit_factor": 0.0,
         "avg_win": 0.0,
