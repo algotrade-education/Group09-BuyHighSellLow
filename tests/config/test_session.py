@@ -63,7 +63,19 @@ class TestVN30SessionConfig:
         """Test bars_per_year calculation for 1-minute frequency."""
         assert session_config.bars_per_year(1) == 64_260
 
+    def test_bars_per_year_non_divisible_minutes(self, session_config):
+        """Test non-divisible minute frequency uses fractional bars/day."""
+        assert session_config.bars_per_year(8) == pytest.approx(8_032.5)
+
+    def test_bars_per_year_1h(self, session_config):
+        """Test hourly timeframe string support."""
+        assert session_config.bars_per_year("1H") == pytest.approx(1_071.0)
+
+    def test_bars_per_year_1d(self, session_config):
+        """Test daily timeframe string support."""
+        assert session_config.bars_per_year("1D") == pytest.approx(252.0)
+
     def test_bars_per_year_invalid_freq(self, session_config):
-        """Test bars_per_year raises error for invalid frequency."""
-        with pytest.raises(ValueError, match="không chia đều"):
-            session_config.bars_per_year(7)
+        """Test bars_per_year raises error for invalid frequency format."""
+        with pytest.raises(ValueError, match="must be int minutes"):
+            session_config.bars_per_year("abc")
