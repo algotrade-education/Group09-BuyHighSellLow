@@ -319,7 +319,7 @@ class TradeMarkersChart(ChartBase):
             logger.warning("TradeMarkersChart: no trades to plot.")
             return False
 
-        dt = pd.to_datetime(data.equity.get("datetime", data.equity.index))
+        dt = self._get_datetime_index(data)
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
@@ -501,7 +501,7 @@ class RollingSharpeChart(ChartBase):
 
         rs = data.rolling.get("rolling_sharpe")
         if rs is None or rs.dropna().empty:
-            logger.warning("RollingSharpChart: no rolling sharpe data to plot.")
+            logger.warning("RollingSharpeChart: no rolling sharpe data to plot.")
             return False
 
         dt = self._get_datetime_index(data)
@@ -527,7 +527,7 @@ class RollingSharpeChart(ChartBase):
 
         rs = data.rolling.get("rolling_sharpe")
         if rs is None or rs.dropna().empty:
-            logger.warning("RollingSharpChart: no rolling sharpe data to plot.")
+            logger.warning("RollingSharpeChart: no rolling sharpe data to plot.")
             return False
         dt = self._get_datetime_index(data)
         rs_positive = rs.where(rs >= 0, other=0)
@@ -578,7 +578,7 @@ _CHARTS: dict[str, ChartBase] = {
         TradeMarkersChart(),
         PnLBarChart(),
         ExitReasonsChart(),
-        RollingSharpeChart(),
+        # RollingSharpeChart(), # Turn off for now due to some edge cases with short equity series
     ]
 }
 
