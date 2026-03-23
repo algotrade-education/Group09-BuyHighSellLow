@@ -180,7 +180,8 @@ def create_data_service(
         retry_delay=retry_delay,
         statement_timeout_ms=statement_timeout_ms,
     )
-    conn.connect()
+
+    # Lazy connection: conn.connect() will be called automatically by ensure_connected() upon first query
     return PostgresDataService(conn)
 
 
