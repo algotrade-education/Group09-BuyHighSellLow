@@ -495,8 +495,10 @@ class DataLoader:
             # Try to load existing cache for incremental update
             existing_df = self._read_month_cache(symbol, month_key, manifest)
             if existing_df is not None and not existing_df.empty:
-                # Extract date part from ISO timestamp for DB query
-                fetch_start = last_synced.split("T")[0]  # "2024-03-20T15:00:00" → "2024-03-20"
+                # Extract date part from ISO timestamp for DB query using robust parsing
+                fetch_start = pd.Timestamp(last_synced).strftime(
+                    "%Y-%m-%d"
+                )  # "2024-03-20T15:00:00" → "2024-03-20"
                 logger.info(
                     "Incremental fetch %s/%s from %s to %s...",
                     symbol,
@@ -721,7 +723,7 @@ def _month_key_from_path(path: str) -> str:
             return f"{m.group(1)}_{m.group(2)}"
 
     mtime = Path(path).stat().st_mtime
-    dt = datetime.fromtimestamp(mtime)
+    dt = datetime.fromtimestamp(mtime, tz=UTC)
     logger.warning("Cannot infer month from %r - using mtime %s.", stem, dt.strftime("%Y_%m"))
     return dt.strftime("%Y_%m")
 
@@ -814,4 +816,4 @@ def _is_current_month(month_key: str) -> bool:
         _is_current_month("2026_02") → False
         _is_current_month("2025_12") → False
     """
-    return month_key == datetime.now().strftime("%Y_%m")
+    return month_key == datetime.now(UTC).strftime("%Y_%m")
