@@ -34,9 +34,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 # Core Trading Handlers
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 
 
 class StrategyHandler:
@@ -76,7 +76,7 @@ class StrategyHandler:
             signal = self._strategy.generate_signal(
                 bar=event.bar,
                 position=self._account.position_snapshot,
-                is_warmup=False,
+                is_warmup=event.is_warmup,
             )
             if signal.is_hold:
                 return
@@ -85,6 +85,8 @@ class StrategyHandler:
                 SignalEvent(
                     timestamp=event.timestamp,
                     signal_type=signal.signal.value,
+                    ord_type=signal.ord_type.lower(),
+                    is_warmup=event.is_warmup,
                     entry_price=signal.entry_price,
                     stop_loss=signal.stop_loss,
                     take_profit=signal.take_profit,
@@ -139,6 +141,10 @@ class RiskHandler:
         if self._account.is_daily_loss_hit:
             return
 
+        # Warmup phase: allow strategy state updates, but do not create orders
+        if event.is_warmup:
+            return
+
         # EXIT signal: allow while position is open
         if event.signal_type == "exit":
             if not self._account.position.is_flat:
@@ -174,13 +180,22 @@ class RiskHandler:
 
         side = "buy" if event.signal_type == "long" else "sell"
 
+        requested_order_type = (event.ord_type or "limit").lower()
+        if requested_order_type not in ("limit", "market"):
+            logger.warning("Unknown ord_type '%s', fallback to market", event.ord_type)
+            requested_order_type = "market"
+
+        limit_price = (
+            event.entry_price if requested_order_type == "limit" and event.entry_price > 0 else None
+        )
+
         self._bus.emit(
             OrderEvent(
                 timestamp=event.timestamp,
-                order_type="limit" if event.entry_price > 0 else "market",
+                order_type=requested_order_type,
                 side=side,
                 quantity=quantity,
-                limit_price=event.entry_price if event.entry_price > 0 else None,
+                limit_price=limit_price,
                 stop_loss=event.stop_loss or None,
                 take_profit=event.take_profit or None,
                 symbol=event.symbol,

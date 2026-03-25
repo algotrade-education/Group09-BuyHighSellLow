@@ -6,11 +6,11 @@ providing better separation of concerns and easier extensibility compared
 to the procedural Backtester.
 
 Architecture:
-    DataFeed → MarketEvent
-    MarketEvent → StrategyHandler → SignalEvent
-    SignalEvent → RiskHandler → OrderEvent
-    OrderEvent → SimBrokerHandler → FillEvent
-    FillEvent → AccountHandler → (update AccountState)
+    DataFeed -> MarketEvent
+    MarketEvent -> StrategyHandler -> SignalEvent
+    SignalEvent -> RiskHandler -> OrderEvent
+    OrderEvent -> SimBrokerHandler -> FillEvent
+    FillEvent -> AccountHandler -> (update AccountState)
 
 Key Benefits:
     - Decoupled components (handlers don't know about each other)
@@ -38,6 +38,7 @@ from typing import Any
 
 import pandas as pd
 
+from engine.execution.broker import BaseBroker
 from src.engine.account.account import AccountState
 from src.engine.core.event_bus import EventBus
 from src.engine.core.events import EventType, MarketEvent
@@ -56,9 +57,9 @@ from src.strategy.base import StrategyBase
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 # Event-Driven Backtester
-# ──────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
 
 
 class EventDrivenBacktester:
@@ -72,11 +73,11 @@ class EventDrivenBacktester:
     identical on the same data and strategy.
 
     Architecture:
-        1. Market data arrives → emit MarketEvent
-        2. StrategyHandler receives MarketEvent → emit SignalEvent
-        3. RiskHandler receives SignalEvent → emit OrderEvent
-        4. SimBrokerHandler receives OrderEvent → emit FillEvent
-        5. AccountHandler receives FillEvent → update AccountState
+        1. Market data arrives -> emit MarketEvent
+        2. StrategyHandler receives MarketEvent -> emit SignalEvent
+        3. RiskHandler receives SignalEvent -> emit OrderEvent
+        4. SimBrokerHandler receives OrderEvent -> emit FillEvent
+        5. AccountHandler receives FillEvent -> update AccountState
 
     Benefits over procedural approach:
         - Handlers are decoupled and independently testable
@@ -116,6 +117,9 @@ class EventDrivenBacktester:
         account: AccountState,
         session_manager: SessionManager | None = None,
         freq_minutes: int = 5,
+        use_t1_execution: bool = True,
+        entry_cutoff_seconds: float = 0.0,
+        allow_late_entry: bool = False,
     ) -> None:
         """
         Initialize event-driven backtester.
@@ -125,12 +129,16 @@ class EventDrivenBacktester:
             account: Account state (manages cash, position, trades)
             session_manager: Session manager for market hours (default: VN30Session)
             freq_minutes: Bar frequency in minutes (for metrics calculation)
+            use_t1_execution: Use T+1 execution (order filled next bar) vs T+0 (same bar)
         """
         self._strategy = strategy
         self._account = account
         self._session_manager = session_manager or VN30Session()
         self._equity_tracker = SimpleEquityTracker()
         self._metrics_calc = MetricsCalculator(freq_minutes=freq_minutes)
+        self._use_t1 = use_t1_execution
+        self._entry_cutoff_seconds = entry_cutoff_seconds
+        self._allow_late_entry = allow_late_entry
 
         # Mutable dict - handlers hold reference, updated each bar
         self._current_bar: dict[str, Any] = {}
@@ -144,11 +152,20 @@ class EventDrivenBacktester:
         Connect all handlers to the event bus.
 
         This creates the event pipeline:
-            MARKET → Strategy → SIGNAL → Risk → ORDER → Broker → FILL → Account
+            MARKET -> Strategy -> SIGNAL -> Risk -> ORDER -> Broker -> FILL -> Account
         """
+        from src.engine.execution.sim_broker import SimBrokerT1
+
         strategy_h = StrategyHandler(self._strategy, self._account, self._bus)
         risk_h = RiskHandler(self._account, self._bus, self._current_bar)
-        broker = SimBroker(self._account, self._bus)
+
+        # Use T+1 broker if enabled (matches H2 behavior)
+        broker: BaseBroker
+        if self._use_t1:
+            broker = SimBrokerT1(self._account, self._bus)
+        else:
+            broker = SimBroker(self._account, self._bus)
+
         account_h = AccountHandler(self._account)
 
         self._bus.subscribe(EventType.MARKET, strategy_h.on_market)
@@ -166,6 +183,7 @@ class EventDrivenBacktester:
         data: pd.DataFrame,
         datetime_col: str = "datetime",
         progress_callback: Callable[[int, int], None] | None = None,
+        warmup_bars: int = 0,
     ) -> BacktestResult:
         """
         Run event-driven backtest on historical data.
@@ -174,6 +192,7 @@ class EventDrivenBacktester:
             data: OHLCV DataFrame with indicators
             datetime_col: Name of datetime column (default: "datetime")
             progress_callback: Optional callback(current, total) for progress tracking
+            warmup_bars: First N bars are warmup - signals generated but no trades executed
 
         Returns:
             BacktestResult with trades, equity curve, and metrics
@@ -182,14 +201,14 @@ class EventDrivenBacktester:
             1. Update daily tracking (reset on new trading day)
             2. Check SL/TP (direct call - not event-driven for simplicity)
             3. EOD close if needed (using next bar open)
-            4. Emit MarketEvent → triggers entire event pipeline
+            4. Emit MarketEvent -> triggers entire event pipeline
             5. Update equity and record
 
         Note:
             SL/TP and EOD close are handled directly (not via events) for simplicity.
             In a full event-driven implementation, these would be:
-                - bus.emit(BarCloseEvent) → SLTPHandler
-                - bus.emit(EODEvent) → EODHandler
+                - bus.emit(BarCloseEvent) -> SLTPHandler
+                - bus.emit(EODEvent) -> EODHandler
         """
         self._account.reset()
         self._equity_tracker.reset()
@@ -200,6 +219,8 @@ class EventDrivenBacktester:
         total = len(bars)
 
         for idx, (bar, timestamp) in enumerate(zip(bars, timestamps, strict=False)):
+            is_warmup = idx < warmup_bars
+
             # Update shared bar reference (handlers see this)
             self._current_bar.clear()
             self._current_bar.update(bar)
@@ -211,13 +232,15 @@ class EventDrivenBacktester:
             self._account.update_daily(timestamp)
 
             # SL/TP check - handled directly (not event-driven for simplicity)
-            # Could be: bus.emit(BarCloseEvent) → SLTPHandler
-            self._account.check_sl_tp(bar, timestamp)
+            # Could be: bus.emit(BarCloseEvent) -> SLTPHandler
+            if not is_warmup:
+                self._account.check_sl_tp(bar, timestamp)
 
             # EOD close
             if (
                 self._session_manager.should_close_eod(timestamp)
                 and not self._account.position.is_flat
+                and not is_warmup
             ):
                 next_open = float(bars[idx + 1]["open"]) if idx + 1 < total else float(bar["close"])
                 self._account.close_position(next_open, timestamp, "EOD Close")
@@ -228,12 +251,20 @@ class EventDrivenBacktester:
                 or self._account.is_daily_loss_hit
             )
 
-            # Emit MarketEvent → triggers entire pipeline
+            if not skip and self._entry_cutoff_seconds > 0:
+                skip = self._session_manager.is_entry_blocked(
+                    dt=timestamp,
+                    cutoff_seconds=self._entry_cutoff_seconds,
+                    allow_late=self._allow_late_entry,
+                )
+
+            # Emit MarketEvent -> triggers entire pipeline
             if not skip:
                 self._bus.emit(
                     MarketEvent(
                         timestamp=timestamp,
                         bar=bar,
+                        is_warmup=is_warmup,
                     )
                 )
 
