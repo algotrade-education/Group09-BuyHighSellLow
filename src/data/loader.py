@@ -23,7 +23,7 @@ _CACHE_VERSION = "v2"
 _REQUIRED_COLS = [DATETIME_COL, "open", "high", "low", "close", "volume"]
 
 
-# ── Manifest ──────────────────────────────────────────────────────
+# --- Manifest ---
 
 
 class CacheManifest:
@@ -182,7 +182,7 @@ class CacheManifest:
         return f"{self._symbol}: {complete}/{len(months)} months cached"
 
 
-# ── DataLoader ────────────────────────────────────────────────────
+# --- DataLoader ---
 
 
 class DataLoader:
@@ -230,7 +230,7 @@ class DataLoader:
         self._chunk_size = chunk_size_days
         self._max_age_days = cache_max_age_days
 
-    # ── Public API ────────────────────────────────────────────────
+    # --- Public API ---
 
     def load(
         self,
@@ -442,7 +442,7 @@ class DataLoader:
         """Return sorted list of cached month keys for a symbol."""
         return sorted(self._get_manifest(symbol).cached_months)
 
-    # ── Private: month cache ──────────────────────────────────────
+    # --- Private: month cache ---
 
     def _fetch_and_cache_month(
         self,
@@ -487,7 +487,7 @@ class DataLoader:
         month_start, month_end = _month_bounds(month_key)
         is_current = _is_current_month(month_key)
 
-        # ── Incremental Fetch Path (Current Month Only) ──────────────
+        # --- Incremental Fetch Path (Current Month Only) ---
         last_synced = manifest.get_last_synced_timestamp(month_key)
         existing_df = None
 
@@ -532,7 +532,7 @@ class DataLoader:
                     )
                     existing_df = None  # Clear flag to trigger full fetch below
 
-        # ── Full Fetch Path ───────────────────────────────────────────
+        # --- Full Fetch Path ---
         if existing_df is None:
             logger.info("Fetching %s/%s from DB...", symbol, month_key)
             try:
@@ -552,7 +552,7 @@ class DataLoader:
 
             df = _dedup_sort(df)
 
-        # ── Validation ────────────────────────────────────────────────
+        # --- Validation ---
         result = self._validator.validate_ohlcv(df)
 
         if not result.is_valid:
@@ -571,7 +571,7 @@ class DataLoader:
                 result.summary(),
             )
 
-        # ── Save and Return ───────────────────────────────────────────
+        # --- Save and Return ---
         self._save_month_parquet(df, symbol, month_key, manifest)
         return df
 
@@ -645,7 +645,7 @@ class DataLoader:
             # Write data to parquet
             df.to_parquet(path, index=False)
 
-            # ── Extract Last Timestamp for Incremental Updates ───────
+            # --- Extract Last Timestamp for Incremental Updates ---
             # This timestamp will be used as the starting point for the next
             # incremental fetch, avoiding re-downloading existing data
             last_timestamp = None
@@ -656,7 +656,7 @@ class DataLoader:
                     # Convert to ISO format: "2024-03-23T15:30:00+00:00"
                     last_timestamp = pd.Timestamp(last_ts).isoformat()
 
-            # ── Update Manifest ───────────────────────────────────────
+            # --- Update Manifest ---
             manifest.record(
                 month_key,
                 row_count=len(df),
@@ -667,7 +667,7 @@ class DataLoader:
         except Exception as e:
             logger.warning("Failed to save parquet %s: %s", path.name, e)
 
-    # ── Private: path helpers ─────────────────────────────────────
+    # --- Private: path helpers ---
 
     def _month_dir(self, symbol: str) -> Path:
         return self._cache_root / symbol / "1min"
@@ -679,7 +679,7 @@ class DataLoader:
         return CacheManifest(self._cache_root / symbol / "manifest.json", symbol)
 
 
-# ── Pure functions ────────────────────────────────────────────────
+# --- Pure functions ---
 
 
 def _months_in_range(start: str, end: str) -> list[str]:
@@ -758,7 +758,7 @@ def _aggregate_ticks_to_1min(
     df[datetime_col] = pd.to_datetime(df[datetime_col])
     df = df.sort_values(datetime_col)
 
-    # ── Compute volume diff (handle cumulative) ──────────────────
+    # --- Compute volume diff (handle cumulative) ---
     # Volume is cumulative within each day, resets at day boundaries
     if volume_col in df.columns:
         qty = pd.to_numeric(df[volume_col], errors="coerce").fillna(0)
@@ -778,7 +778,7 @@ def _aggregate_ticks_to_1min(
     else:
         df["_volume_diff"] = 0.0
 
-    # ── Aggregate to 1min bars ────────────────────────────────────
+    # --- Aggregate to 1min bars ---
     df["_bar"] = df[datetime_col].dt.floor("1min")
 
     ohlcv = (

@@ -40,7 +40,7 @@ class BacktestResult:
     signals: list[dict[str, Any]] = field(default_factory=list)
     parameters: dict[str, Any] = field(default_factory=dict)
 
-    # ── Quick access properties ───────────────────────────────────
+    # --- Quick access properties ---
 
     @property
     def total_trades(self) -> int:
@@ -105,7 +105,7 @@ class BacktestResult:
     def profit_factor(self) -> float:
         return self.net_profit_factor
 
-    # ── Conversion ────────────────────────────────────────────────
+    # --- Conversion ---
 
     def trades_to_dataframe(self) -> pd.DataFrame:
         """
@@ -149,7 +149,7 @@ class BacktestResult:
             return pd.DataFrame()
         return pd.DataFrame(self.signals)
 
-    # ── Serialization ─────────────────────────────────────────────
+    # --- Serialization ---
 
     def to_json(self, path: str | Path, indent: int = 2) -> None:
         """
@@ -218,21 +218,21 @@ class BacktestResult:
         # Trades
         trades_df = self.trades_to_dataframe()
         if not trades_df.empty:
-            trades_path = out / "trades.parquet"
-            trades_df.to_parquet(trades_path, index=False)
+            trades_path = out / "trades.csv"
+            trades_df.to_csv(trades_path, index=False)
             paths["trades"] = trades_path
 
         # Equity curve
         if not self.equity_curve.empty:
-            equity_path = out / "equity_curve.parquet"
-            self.equity_curve.to_parquet(equity_path, index=False)
+            equity_path = out / "equity_curve.csv"
+            self.equity_curve.to_csv(equity_path, index=False)
             paths["equity_curve"] = equity_path
 
         # Signals
         signals_df = self.signals_to_dataframe()
         if not signals_df.empty:
-            signals_path = out / "signals.parquet"
-            signals_df.to_parquet(signals_path, index=False)
+            signals_path = out / "signals.csv"
+            signals_df.to_csv(signals_path, index=False)
             paths["signals"] = signals_path
 
         return paths

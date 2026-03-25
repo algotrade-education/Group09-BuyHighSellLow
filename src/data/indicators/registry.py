@@ -200,7 +200,7 @@ class IndicatorRegistry:
         return f"IndicatorRegistry([{specs_str}])"
 
 
-# ── Helpers ───────────────────────────────────────────────────────
+# --- Helpers ---
 
 
 def _get_warm_up(spec: IndicatorSpec) -> int:

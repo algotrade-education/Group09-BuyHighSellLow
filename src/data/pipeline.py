@@ -52,7 +52,7 @@ class DataPipeline:
         self._cache_dir = Path(cache_dir)
         self._use_cache = use_cache
 
-    # ── Public API ────────────────────────────────────────────────
+    # --- Public API ---
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -99,7 +99,7 @@ class DataPipeline:
         """Maximum lookback bars needed across all indicators in the registry."""
         return self._registry.get_required_lookback()
 
-    # ── Compute ───────────────────────────────────────────────────
+    # --- Compute ---
 
     def _compute(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -166,7 +166,7 @@ class DataPipeline:
             )
             return None
 
-    # ── Cache ─────────────────────────────────────────────────────
+    # --- Cache ---
 
     def _build_cache_key(self, df: pd.DataFrame) -> str:
         """

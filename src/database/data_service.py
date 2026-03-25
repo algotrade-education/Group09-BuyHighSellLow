@@ -47,7 +47,7 @@ class PostgresDataService(DataServiceBase):
         """
         self._conn = connection
 
-    # ── Tick data ─────────────────────────────────────────────────
+    # --- Tick data ---
 
     def get_matched_data(
         self,
@@ -90,7 +90,7 @@ class PostgresDataService(DataServiceBase):
             label="last_matched_before",
         )
 
-    # ── Reference data ────────────────────────────────────────────
+    # --- Reference data ---
 
     def get_close_data(
         self,
@@ -120,12 +120,12 @@ class PostgresDataService(DataServiceBase):
             label="bid_ask",
         )
 
-    # ── Lifecycle ─────────────────────────────────────────────────
+    # --- Lifecycle ---
 
     def close(self) -> None:
         self._conn.close()
 
-    # ── Private ───────────────────────────────────────────────────
+    # --- Private ---
 
     def _query_to_df(
         self,
@@ -150,7 +150,7 @@ class PostgresDataService(DataServiceBase):
             return pd.DataFrame()
 
 
-# ── Factory ───────────────────────────────────────────────────────
+# --- Factory ---
 
 
 def create_data_service(

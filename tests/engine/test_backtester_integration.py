@@ -18,7 +18,7 @@ from src.engine.backtester import Backtester
 from src.strategy.base import PositionSnapshot, StrategyBase
 from src.strategy.signal import Signal, TradeSignal
 
-# ── Test Strategy ─────────────────────────────────────────────────
+# --- Test Strategy ---
 
 
 class SimpleMAStrategy(StrategyBase):
@@ -86,7 +86,7 @@ class SimpleMAStrategy(StrategyBase):
         return registry
 
 
-# ── Test Data Fixtures ────────────────────────────────────────────
+# --- Test Data Fixtures ---
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ def flat_data():
     return df
 
 
-# ── Integration Tests ─────────────────────────────────────────────
+# --- Integration Tests ---
 
 
 def test_backtester_basic_flow(sample_ohlc_data):

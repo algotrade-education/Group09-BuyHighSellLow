@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ── Result container ──────────────────────────────────────────────
+# --- Result container ---
 
 
 class PlotData:
@@ -74,7 +74,7 @@ class PlotData:
         return self._rolling
 
 
-# ── Abstract chart ────────────────────────────────────────────────
+# --- Abstract chart ---
 
 
 class ChartBase(ABC):
@@ -111,7 +111,7 @@ class ChartBase(ABC):
         return pd.to_datetime(data.equity.get("datetime", data.equity.index))
 
 
-# ── Chart implementations ─────────────────────────────────────────
+# --- Chart implementations ---
 
 
 class EquityCurveChart(ChartBase):
@@ -568,7 +568,7 @@ class RollingSharpeChart(ChartBase):
         return True
 
 
-# ── Registry ──────────────────────────────────────────────────────
+# --- Registry ---
 
 _CHARTS: dict[str, ChartBase] = {
     c.name: c
@@ -588,7 +588,7 @@ def register_chart(chart: ChartBase) -> None:
     _CHARTS[chart.name] = chart
 
 
-# ── Plotter ───────────────────────────────────────────────────────
+# --- Plotter ---
 
 
 class BacktestPlotter:
@@ -665,7 +665,7 @@ class BacktestPlotter:
         return created
 
 
-# ── Helpers ───────────────────────────────────────────────────────
+# --- Helpers ---
 
 
 def _categorize_exit_reasons(trades: list[Trade]) -> list[str]:

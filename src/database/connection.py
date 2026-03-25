@@ -18,7 +18,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 logger = logging.getLogger(__name__)
 
 # Default statement timeout -- query will be killed if it runs longer than this (in milliseconds)
-DEFAULT_STATEMENT_TIMEOUT_MS = 30_000  # 30 seconds
+DEFAULT_STATEMENT_TIMEOUT_MS = 120_000  # 120 seconds
 
 
 class DatabaseConnection:

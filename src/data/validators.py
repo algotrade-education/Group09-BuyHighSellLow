@@ -61,27 +61,27 @@ class DataValidator:
         if df.empty:
             return ValidationResult(False, ["DataFrame rỗng."])
 
-        # ── Schema ────────────────────────────────────────────────
+        # --- Schema ---
         errors.extend(self._check_columns(df))
 
         # If required base columns are missing, further checks cannot run
         if errors:
             return ValidationResult(False, errors)
 
-        # ── Datetime ──────────────────────────────────────────────
+        # --- Datetime ---
         errors.extend(self._check_datetime(df))
 
-        # ── Price relationships ───────────────────────────────────
+        # --- Price relationships ---
         errors.extend(self._check_price_relationships(df))
 
-        # ── Values ───────────────────────────────────────────────
+        # --- Values ---
         errors.extend(self._check_price_values(df))
         errors.extend(self._check_volume(df))
 
-        # ── NaN ───────────────────────────────────────────────────
+        # --- NaN ---
         errors.extend(self._check_nan(df))
 
-        # ── Warnings (do not fail validation) ─────────────────────
+        # --- Warnings (do not fail validation) ---
         warnings.extend(self._check_gaps(df))
         warnings.extend(self._check_volume_anomalies(df))
 
@@ -107,7 +107,7 @@ class DataValidator:
         errors = self._check_columns(df, required_cols)
         return ValidationResult(len(errors) == 0, errors)
 
-    # ── Private checks ────────────────────────────────────────────
+    # --- Private checks ---
 
     def _check_columns(
         self,

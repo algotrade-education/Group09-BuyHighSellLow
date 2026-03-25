@@ -54,7 +54,7 @@ class TradeSignal:
         if self.take_profit < 0:
             raise ValueError(f"take_profit must be >= 0, got: {self.take_profit}")
 
-    # ── Convenience properties ───
+    # --- Convenience properties ---
 
     @property
     def is_entry(self) -> bool:

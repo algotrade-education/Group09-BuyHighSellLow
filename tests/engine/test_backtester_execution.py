@@ -17,7 +17,7 @@ from src.engine.backtester import Backtester
 from src.strategy.base import PositionSnapshot, StrategyBase
 from src.strategy.signal import Signal, TradeSignal
 
-# ── Test Strategies ───────────────────────────────────────────────
+# --- Test Strategies ---
 
 
 class AlwaysLongStrategy(StrategyBase):
@@ -136,7 +136,7 @@ class TakeProfitTestStrategy(StrategyBase):
         return IndicatorRegistry()
 
 
-# ── Test Data Fixtures ────────────────────────────────────────────
+# --- Test Data Fixtures ---
 
 
 @pytest.fixture
@@ -202,7 +202,7 @@ def volatile_data():
     )
 
 
-# ── Execution Tests ───────────────────────────────────────────────
+# --- Execution Tests ---
 
 
 def test_order_execution_at_open(uptrend_data):

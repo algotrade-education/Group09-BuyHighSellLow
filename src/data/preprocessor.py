@@ -39,7 +39,7 @@ class DataPreprocessor:
         self._session = session if session is not None else VN30SessionConfig()
         self._dt_col = datetime_col
 
-    # ── Public API ────────────────────────────────────────────────
+    # --- Public API ---
 
     def prepare(self, df: pd.DataFrame, freq: ResampleFreq = "5min") -> pd.DataFrame:
         """
@@ -219,7 +219,7 @@ class DataPreprocessor:
 
         return df
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers ---
 
     @staticmethod
     def _to_pandas_freq(freq: str) -> str:

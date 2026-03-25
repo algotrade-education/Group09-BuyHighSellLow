@@ -161,7 +161,7 @@ class TestStrategyBase:
         strategy = DummyStrategy(name="TestStrategy")
         strategy.load_state({"key": "value"})  # Should not raise
 
-    # ── validate_bar tests ───
+    # --- validate_bar tests ---
 
     def test_validate_bar_valid(self):
         """Test validate_bar with valid bar."""

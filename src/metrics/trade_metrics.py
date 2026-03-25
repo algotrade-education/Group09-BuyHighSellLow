@@ -35,38 +35,38 @@ class Trade:
         None if intrabar tracking is unavailable (e.g. daily data).
     """
 
-    # ── Identity ──────────────────────────────────────────────────
+    # --- Identity ---
     trade_id: str
     symbol: str = "VN30F1M"
     side: TradeSide = TradeSide.LONG
 
-    # ── Entry ─────────────────────────────────────────────────────
+    # --- Entry ---
     entry_time: datetime | None = None
     entry_price: float = 0.0
     quantity: int = 0
 
-    # ── Exit ──────────────────────────────────────────────────────
+    # --- Exit ---
     exit_time: datetime | None = None
     exit_price: float = 0.0
     exit_reason: str = ""
 
-    # ── PnL ───────────────────────────────────────────────────────
+    # --- PnL ---
     gross_pnl: float = 0.0  # Before commission
     commission: float = 0.0
     pnl: float = 0.0  # Net: gross_pnl - commission
 
-    # ── Risk params at entry time ─────────────────────────────────
+    # --- Risk params at entry time ---
     stop_loss: float = 0.0
     take_profit: float = 0.0
 
-    # ── MAE/MFE (optional - requires intrabar tracking) ───────────
+    # --- MAE/MFE (optional - requires intrabar tracking) ---
     mae: float | None = None  # Maximum Adverse Excursion (points)
     mfe: float | None = None  # Maximum Favorable Excursion (points)
 
-    # ── Metadata ──────────────────────────────────────────────────
+    # --- Metadata ---
     metadata: dict[str, Any] = field(default_factory=dict[str, Any])
 
-    # ── Computed properties ───────────────────────────────────────
+    # --- Computed properties ---
 
     @property
     def is_closed(self) -> bool:
@@ -125,7 +125,7 @@ class Trade:
         return f"Trade({self.trade_id}, {self.side}, entry={self.entry_price}, {status})"
 
 
-# ── Trade-level metrics ───────────────────────────────────────────
+# --- Trade-level metrics ---
 
 
 def calculate_trade_metrics(trades: Sequence[Trade]) -> dict[str, Any]:
