@@ -55,13 +55,13 @@ class Order:
     slippage: float = 0.0
     reason: str = ""
 
-    # ── Class methods ─────────────────────────────────────────────
+    # --- Class methods ---
 
     @classmethod
     def reset_id_counter(cls) -> None:
         cls._id_counter = itertools.count(1)
 
-    # ── Properties ────────────────────────────────────────────────
+    # --- Properties ---
 
     @property
     def is_buy(self) -> bool:
@@ -79,7 +79,7 @@ class Order:
     def is_pending(self) -> bool:
         return self.status == OrderStatus.PENDING
 
-    # ── Lifecycle ─────────────────────────────────────────────────
+    # --- Lifecycle ---
 
     def fill(
         self,

@@ -44,7 +44,7 @@ class IntradayStrategy(StrategyBase, ABC):
         self._current_session: Session | None = None
         self._last_bar_dt: datetime | None = None
 
-    # ---- Session Helpers ---
+    # --- Session Helpers ---
 
     def _get_session(self, dt: datetime) -> Session:
         """Determine session based on datetime."""
@@ -98,7 +98,7 @@ class IntradayStrategy(StrategyBase, ABC):
         """
         return None
 
-    # ---- State serialization ---
+    # --- State serialization ---
 
     def save_state(self) -> dict[str, Any]:
         return {

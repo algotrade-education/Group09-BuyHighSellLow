@@ -12,7 +12,7 @@ from typing import Any
 from src.data.indicators.registry import IndicatorRegistry
 from src.strategy.signal import TradeSignal
 
-# ---- Position Snapshot ---
+# --- Position Snapshot ---
 # Engine pass object into strategy.generate_signal() with current position info.
 # This allows strategy to make informed decisions based on current position, e.g.:
 # - If already long, maybe only look for exit signals, not new long entries.
@@ -69,7 +69,7 @@ class PositionSnapshot:
         )
 
 
-# ---- Strategy Base Class ---
+# --- Strategy Base Class ---
 
 
 class StrategyBase(ABC):
