@@ -190,10 +190,10 @@ class Backtester:
             timestamp = timestamps[idx]
             is_warmup = idx < warmup_bars
 
-            # ── 0. Daily reset ────────────────────────────────────
+            # --- 0. Daily reset ---
             self.account.update_daily(timestamp)
 
-            # ── 1. Execute pending order ──────────────────────────
+            # --- 1. Execute pending order ---
             if pending_order is not None and not is_warmup:
                 if self.order_ttl_bars > 0 and pending_order_age >= self.order_ttl_bars:
                     pending_order.expire()
@@ -206,10 +206,10 @@ class Backtester:
                 else:
                     pending_order_age += 1
 
-            # ── 2. SL/TP check ────────────────────────────────────
+            # --- 2. SL/TP check ---
             self.account.check_sl_tp(bar, timestamp)
 
-            # ── 3. EOD close ──────────────────────────────────────
+            # --- 3. EOD close ---
             # V2 fix: Use next bar open to avoid look-ahead bias
             if (
                 self.session_manager.should_close_eod(timestamp)
@@ -226,7 +226,7 @@ class Backtester:
                 pending_order = None
                 pending_order_age = 0
 
-            # ── 4. Signal generation ──────────────────────────────
+            # --- 4. Signal generation ---
             skip = self.session_manager.should_skip_signal(timestamp)
             skip = skip or self.account.is_daily_loss_hit
 
@@ -253,7 +253,7 @@ class Backtester:
                         exc_info=True,
                     )
 
-            # ── 5. Equity update ──────────────────────────────────
+            # --- 5. Equity update ---
             self.account.update_equity(float(bar["close"]))
             self.equity_tracker.record(
                 timestamp=timestamp,
@@ -268,7 +268,7 @@ class Backtester:
             if progress_callback is not None:
                 progress_callback(idx + 1, total_bars)
 
-        # ── End of backtest: close remaining position ─────────────
+        # --- End of backtest: close remaining position ---
         if not self.account.position.is_flat and total_bars > 0:
             last_ts = timestamps[-1]
             last_close = float(bars[-1]["close"])
@@ -283,7 +283,7 @@ class Backtester:
                 close_price=last_close,
             )
 
-        # ── Build result ──────────────────────────────────────────
+        # --- Build result ---
         equity_df = self.equity_tracker.to_dataframe()
         metrics = self.metrics_calc.calculate(
             equity=equity_df,
@@ -298,7 +298,7 @@ class Backtester:
             parameters=getattr(self.strategy, "_params", {}),
         )
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers ---
 
     def _validate_data(self, data: pd.DataFrame, datetime_col: str) -> None:
         if data.empty:

@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# ── JSON Formatter ───
+# --- JSON Formatter ---
 
 
 class JsonFormatter(logging.Formatter):
@@ -75,7 +75,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-# ── Setup ───
+# --- Setup ---
 
 # Tag used to track handlers created by setup_logging
 # Avoid removing handlers from third-party libraries
@@ -168,7 +168,7 @@ def setup_logging(
     return logger
 
 
-# ── Private helpers ───
+# --- Private helpers ---
 
 
 def _setup_root_logger(

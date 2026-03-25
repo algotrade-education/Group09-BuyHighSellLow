@@ -32,7 +32,7 @@ class Position:
 
     multiplier: float = 1.0
 
-    # ── State ─────────────────────────────────────────────────────
+    # --- State ---
     side: PositionSide = PositionSide.FLAT
     entry_time: datetime | None = None
     entry_price: float = 0.0
@@ -41,11 +41,11 @@ class Position:
     take_profit: float | None = None
     unrealized_pnl: float = 0.0
 
-    # ── MAE/MFE tracking ─────────────────────────────────────────
+    # --- MAE/MFE tracking ---
     _best_price: float | None = field(default=None, repr=False)
     _worst_price: float | None = field(default=None, repr=False)
 
-    # ── Properties ────────────────────────────────────────────────
+    # --- Properties ---
 
     @property
     def is_flat(self) -> bool:
@@ -81,7 +81,7 @@ class Position:
             return max(0.0, self.entry_price - self._best_price)
         return None
 
-    # ── Lifecycle ─────────────────────────────────────────────────
+    # --- Lifecycle ---
 
     def open(self, order: Order, timestamp: datetime) -> None:
         """
@@ -126,7 +126,7 @@ class Position:
         """Alias for close() - use between backtests."""
         self.close()
 
-    # ── Updates ───────────────────────────────────────────────────
+    # --- Updates ---
 
     def update_unrealized_pnl(
         self,
@@ -173,7 +173,7 @@ class Position:
 
         return self.unrealized_pnl
 
-    # ── SL/TP checks ─────────────────────────────────────────────
+    # --- SL/TP checks ---
 
     def check_stop_loss(self, price: float) -> bool:
         if self.stop_loss is None or self.is_flat:

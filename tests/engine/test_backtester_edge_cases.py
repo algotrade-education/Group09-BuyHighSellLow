@@ -18,7 +18,7 @@ from src.engine.backtester import Backtester
 from src.strategy.base import PositionSnapshot, StrategyBase
 from src.strategy.signal import Signal, TradeSignal
 
-# ── Test Strategies ───────────────────────────────────────────────
+# --- Test Strategies ---
 
 
 class FlipFlopStrategy(StrategyBase):
@@ -126,7 +126,7 @@ class MultipleEntryStrategy(StrategyBase):
         return IndicatorRegistry()
 
 
-# ── Test Data Fixtures ────────────────────────────────────────────
+# --- Test Data Fixtures ---
 
 
 @pytest.fixture
@@ -207,7 +207,7 @@ def session_boundary_data():
     )
 
 
-# ── Edge Case Tests ───────────────────────────────────────────────
+# --- Edge Case Tests ---
 
 
 def test_rapid_signal_changes(extreme_volatility_data):

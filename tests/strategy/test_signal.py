@@ -103,7 +103,7 @@ class TestTradeSignal:
         assert signal.metadata == metadata
         assert signal.metadata["atr"] == 2.5
 
-    # ── Property tests ───
+    # --- Property tests ---
 
     def test_is_entry_property(self):
         """Test is_entry property."""
@@ -136,7 +136,7 @@ class TestTradeSignal:
         assert not TradeSignal(signal=Signal.LONG).is_exit
         assert not TradeSignal(signal=Signal.HOLD).is_exit
 
-    # ── Repr tests ───
+    # --- Repr tests ---
 
     def test_repr_hold(self):
         """Test __repr__ for HOLD signal."""

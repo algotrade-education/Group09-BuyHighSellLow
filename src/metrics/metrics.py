@@ -28,7 +28,7 @@ from src.metrics.trade_metrics import Trade, calculate_trade_metrics
 
 logger = logging.getLogger(__name__)
 
-# ── VN30 annualization constants ──────────────────────────────────
+# --- VN30 annualization constants ---
 # Hardcoded instead of inferred from data - avoids bias from gaps/holidays.
 # Based on VN30SessionConfig: 255 trading minutes/day (excluding ATC).
 _VN30_BARS_PER_YEAR = {
@@ -49,21 +49,21 @@ _VN30_DEFAULT_BARS_PER_YEAR = _VN30_BARS_PER_YEAR[5]  # 5min is the default
 class PerformanceMetrics:
     """Container for all performance metrics."""
 
-    # ── Returns ───────────────────────────────────────────────────
+    # --- Returns ---
     total_return: float = 0.0  # %
     annualized_return: float = 0.0  # %
     cagr: float = 0.0  # %
     volatility: float = 0.0  # % annualized
 
-    # ── Risk-adjusted ─────────────────────────────────────────────
+    # --- Risk-adjusted ---
     sharpe_ratio: float = 0.0
     sortino_ratio: float = 0.0
 
-    # ── Drawdown ──────────────────────────────────────────────────
+    # --- Drawdown ---
     max_drawdown: float = 0.0  # %
     longest_drawdown: int = 0  # bars
 
-    # ── Trade statistics ──────────────────────────────────────────
+    # --- Trade statistics ---
     total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0
@@ -84,25 +84,25 @@ class PerformanceMetrics:
     payoff_ratio: float = 0.0
     expectancy: float = 0.0
 
-    # ── Streaks ───────────────────────────────────────────────────
+    # --- Streaks ---
     max_consecutive_wins: int = 0
     max_consecutive_losses: int = 0
 
-    # ── Duration ──────────────────────────────────────────────────
+    # --- Duration ---
     avg_duration_minutes: float = 0.0
     total_commission: float = 0.0
 
-    # ── MAE/MFE ───────────────────────────────────────────────────
+    # --- MAE/MFE ---
     avg_mae: float | None = None
     avg_mfe: float | None = None
     avg_edge_ratio: float | None = None
 
-    # ── Benchmark ─────────────────────────────────────────────────
+    # --- Benchmark ---
     information_ratio: float | None = None
     alpha: float | None = None
     beta: float | None = None
 
-    # ── Extra ─────────────────────────────────────────────────────
+    # --- Extra ---
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -264,13 +264,13 @@ class MetricsCalculator:
 
         returns = calculate_returns(equity_series).dropna()
 
-        # ── Return metrics ────────────────────────────────────────
+        # --- Return metrics ---
         total_return = calculate_total_return(equity_series)
         annualized_return = calculate_annualized_return(returns, self.periods_per_year)
         cagr = calculate_cagr(equity_series, self.periods_per_year)
         volatility = calculate_volatility(returns, True, self.periods_per_year)
 
-        # ── Risk-adjusted ─────────────────────────────────────────
+        # --- Risk-adjusted ---
         sharpe_metric = SharpeRatio(
             annualization_factor=self.periods_per_year,
             risk_free_rate=self.risk_free_rate,
@@ -282,16 +282,16 @@ class MetricsCalculator:
         sharpe_ratio = sharpe_metric.calculate(returns)
         sortino_ratio = sortino_metric.calculate(returns)
 
-        # ── Drawdown ──────────────────────────────────────────────
+        # --- Drawdown ---
         max_drawdown = MaximumDrawdown().calculate(equity_series)
         longest_drawdown = LongestDrawdown().calculate(equity_series)
 
-        # ── Trade metrics ─────────────────────────────────────────
+        # --- Trade metrics ---
         trade_stats: dict[str, Any] = {}
         if trades:
             trade_stats = calculate_trade_metrics(trades)
 
-        # ── Benchmark ─────────────────────────────────────────────
+        # --- Benchmark ---
         ir = alpha = beta = None
         if benchmark is not None:
             ir, alpha, beta = self._calculate_benchmark_metrics(returns, benchmark)
@@ -330,7 +330,7 @@ class MetricsCalculator:
             beta=beta,
         )
 
-    # ── Private helpers ───────────────────────────────────────────
+    # --- Private helpers ---
 
     @staticmethod
     def _extract_equity_series(equity: pd.Series | pd.DataFrame) -> pd.Series:
