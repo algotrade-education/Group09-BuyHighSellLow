@@ -48,6 +48,7 @@ class MarketEvent(BaseEvent):
 
     bar: dict[str, Any]
     symbol: str = "VN30F1M"
+    is_warmup: bool = False
     event_type: EventType = field(default=EventType.MARKET, init=False)
 
 
@@ -70,6 +71,8 @@ class SignalEvent(BaseEvent):
     """
 
     signal_type: str
+    ord_type: str = "limit"
+    is_warmup: bool = False
     entry_price: float = 0.0
     stop_loss: float = 0.0
     take_profit: float = 0.0
