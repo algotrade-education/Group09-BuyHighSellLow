@@ -181,6 +181,11 @@ class RiskHandler:
         side = "buy" if event.signal_type == "long" else "sell"
 
         requested_order_type = (event.ord_type or "limit").lower()
+
+        # Auto-convert to market order when entry_price is 0
+        if event.entry_price == 0.0 and event.signal_type in ("long", "short"):
+            requested_order_type = "market"
+
         if requested_order_type not in ("limit", "market"):
             logger.warning("Unknown ord_type '%s', fallback to market", event.ord_type)
             requested_order_type = "market"
