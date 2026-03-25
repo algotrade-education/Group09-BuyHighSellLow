@@ -178,7 +178,8 @@ class Backtester:
         timestamps = pd.to_datetime(data[datetime_col]).tolist()
 
         # Convert to list of dicts for fast access
-        # Trade-off: Uses more RAM but faster than DataFrame row access
+        # Note: This uses ~2x memory vs DataFrame but provides O(1) access
+        # For large datasets (>1M bars), consider chunked processing
         bars: list[dict[str, Any]] = data.to_dict("records")
 
         pending_order: Order | None = None
@@ -221,6 +222,7 @@ class Backtester:
                     timestamp=timestamp,
                     exit_reason="EOD Close",
                 )
+                # Note: _record_trade_pnl is now called inside close_position
                 pending_order = None
                 pending_order_age = 0
 
