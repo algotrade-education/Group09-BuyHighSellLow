@@ -288,7 +288,7 @@ class DataLoader:
                 chunks.append(month_df)
 
         if not chunks:
-            raise ValueError(f"No data found for {symbol} [{start} → {end}].")
+            raise ValueError(f"No data found for {symbol} [{start} -> {end}].")
 
         df = pd.concat(chunks, ignore_index=True)
         df = _dedup_sort(df)
@@ -301,9 +301,9 @@ class DataLoader:
         df = df.loc[mask].reset_index(drop=True)
 
         if df.empty:
-            raise ValueError(f"No data in [{start} → {end}] after slicing.")
+            raise ValueError(f"No data in [{start} -> {end}] after slicing.")
 
-        logger.info("Loaded %d bars for %s [%s → %s].", len(df), symbol, start, end)
+        logger.info("Loaded %d bars for %s [%s -> %s].", len(df), symbol, start, end)
         return df
 
     def load_tick_csv(
@@ -327,8 +327,8 @@ class DataLoader:
         a price column, and a volume/quantity column.
 
         File naming convention for correct month detection:
-            ticks_YYYY_MM.csv  →  "2023_01"
-            VN30F1M_YYYYMM.csv →  "2023_01"
+            ticks_YYYY_MM.csv  ->  "2023_01"
+            VN30F1M_YYYYMM.csv ->  "2023_01"
 
         Args:
             path_pattern: Path or glob, e.g. "data/ticks/ticks_2023_*.csv".
@@ -350,7 +350,7 @@ class DataLoader:
         if not raw_paths:
             raise FileNotFoundError(f"No files match: {path_pattern!r}")
 
-        logger.info("Aggregating %d tick CSV file(s) → 1min...", len(raw_paths))
+        logger.info("Aggregating %d tick CSV file(s) -> 1min...", len(raw_paths))
         manifest = self._get_manifest(symbol)
         all_chunks: list[pd.DataFrame] = []
 
@@ -366,7 +366,7 @@ class DataLoader:
                     all_chunks.append(cached)
                     continue
 
-            # Aggregate ticks → 1min
+            # Aggregate ticks -> 1min
             logger.info("Aggregating: %s", csv_path)
             try:
                 tick_df = pd.read_csv(csv_path, parse_dates=[datetime_col])
@@ -481,8 +481,8 @@ class DataLoader:
 
         Example:
             Current month is 2024-03, cache has data up to 2024-03-20T15:00:00
-            → Incremental fetch: 2024-03-20 to 2024-03-31
-            → Merge with existing data, deduplicate, save
+            -> Incremental fetch: 2024-03-20 to 2024-03-31
+            -> Merge with existing data, deduplicate, save
         """
         month_start, month_end = _month_bounds(month_key)
         is_current = _is_current_month(month_key)
@@ -498,7 +498,7 @@ class DataLoader:
                 # Extract date part from ISO timestamp for DB query using robust parsing
                 fetch_start = pd.Timestamp(last_synced).strftime(
                     "%Y-%m-%d"
-                )  # "2024-03-20T15:00:00" → "2024-03-20"
+                )  # "2024-03-20T15:00:00" -> "2024-03-20"
                 logger.info(
                     "Incremental fetch %s/%s from %s to %s...",
                     symbol,
@@ -635,7 +635,7 @@ class DataLoader:
             - source: Where data came from
             - complete: Auto-detected (past=true, current=false)
             - last_synced_timestamp: Latest datetime from the data (ISO format)
-              → Used for next incremental fetch
+              -> Used for next incremental fetch
         """
         path = self._month_path(symbol, month_key)
         try:
@@ -663,7 +663,7 @@ class DataLoader:
                 source=source,
                 last_synced_timestamp=last_timestamp,
             )
-            logger.debug("Cached %d bars → %s", len(df), path.name)
+            logger.debug("Cached %d bars -> %s", len(df), path.name)
         except Exception as e:
             logger.warning("Failed to save parquet %s: %s", path.name, e)
 
@@ -808,12 +808,12 @@ def _is_current_month(month_key: str) -> bool:
     Return True if month_key matches the current calendar month.
 
     Used to decide whether a cached month is "complete":
-    - Past months:    complete=True  → cache hit forever, never refetch
-    - Current month:  complete=False → always refetch to get today's bars
+    - Past months:    complete=True  -> cache hit forever, never refetch
+    - Current month:  complete=False -> always refetch to get today's bars
 
     Examples (if today is 2026-03-23):
-        _is_current_month("2026_03") → True
-        _is_current_month("2026_02") → False
-        _is_current_month("2025_12") → False
+        _is_current_month("2026_03") -> True
+        _is_current_month("2026_02") -> False
+        _is_current_month("2025_12") -> False
     """
     return month_key == datetime.now(UTC).strftime("%Y_%m")

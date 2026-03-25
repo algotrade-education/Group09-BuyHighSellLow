@@ -85,7 +85,7 @@ class ORBStrategy(IntradayStrategy):
         self._adx_col = f"adx_{self._p.adx_period}"
         self._vol_ma_col = f"volume_ma_{self._p.volume_ma_period}"
 
-        # ── Opening range state ───────────────────────────────────
+        # --- Opening range state ---
         self._range_high: float = 0.0
         self._range_low: float = float("inf")
         self._range_formed: bool = False
@@ -99,7 +99,7 @@ class ORBStrategy(IntradayStrategy):
             self._p.atr_sl_multiplier,
         )
 
-    # ── Registry ─────────────────────────────────────────────────
+    # --- Registry ---
 
     @classmethod
     def build_registry(
@@ -124,7 +124,7 @@ class ORBStrategy(IntradayStrategy):
             )
         )
 
-    # ── Core interface ────────────────────────────────────────────
+    # --- Core interface ---
 
     def generate_signal(
         self,
@@ -144,7 +144,7 @@ class ORBStrategy(IntradayStrategy):
             6. Formation phase: update range
             7. Breakout phase: check filters + generate signal
         """
-        # ── 1. Validate ───────────────────────────────────────────
+        # --- 1. Validate ---
         if not self.validate_bar(bar, self.REQUIRED_FIELDS):
             return TradeSignal(Signal.HOLD, reason="Invalid bar fields")
 
@@ -152,26 +152,26 @@ class ORBStrategy(IntradayStrategy):
         if parsed is None:
             return TradeSignal(Signal.HOLD, reason="Failed to parse bar")
 
-        # ── 2. Session check ──────────────────────────────────────
+        # --- 2. Session check ---
         session = self._get_session(parsed.dt)
         if session not in (Session.MORNING, Session.AFTERNOON):
             return TradeSignal(Signal.HOLD, reason=f"Outside trading session ({session})")
 
-        # ── 3. Session state update ───────────────────────────────
+        # --- 3. Session state update ---
         self._update_session_state(parsed.dt, session)
 
-        # ── 4. Position check ─────────────────────────────────────
+        # --- 4. Position check ---
         if position is not None and not position.is_flat:
             return TradeSignal(Signal.HOLD)
 
-        # ── 5. Trade limit ────────────────────────────────────────
+        # --- 5. Trade limit ---
         if self._trades_this_session >= self._p.max_trades_per_session:
             return TradeSignal(
                 Signal.HOLD,
                 reason=f"Session trade limit ({self._trades_this_session}/{self._p.max_trades_per_session})",
             )
 
-        # ── 6. Formation phase ────────────────────────────────────
+        # --- 6. Formation phase ---
         if self._is_in_formation_window(parsed.dt, session):
             self._update_formation(parsed.high, parsed.low)
             return TradeSignal(
@@ -190,7 +190,7 @@ class ORBStrategy(IntradayStrategy):
                 self._range_high - self._range_low,
             )
 
-        # ── 7. Breakout phase ─────────────────────────────────────
+        # --- 7. Breakout phase ---
         atr = self._get_atr(bar)
         if atr is None:
             return TradeSignal(Signal.HOLD, reason="ATR not available")
@@ -224,17 +224,27 @@ class ORBStrategy(IntradayStrategy):
 
         # Long breakout
         if is_long_breakout:
-            entry_price = parsed.close if self._p.require_close_confirmation else breakout_high
+            # For LIMIT orders: use breakout level (more conservative, may miss some trades)
+            # For MARKET orders: use close (will fill at next bar open)
+            if self._risk.entry_ord_type == "LIMIT":
+                entry_price = breakout_high
+            else:
+                entry_price = parsed.close if self._p.require_close_confirmation else breakout_high
             return self._build_long_signal(entry_price, atr, range_size, session, is_warmup)
 
         # Short breakout
         if not self._p.long_only and is_short_breakout:
-            entry_price = parsed.close if self._p.require_close_confirmation else breakout_low
+            # For LIMIT orders: use breakout level (more conservative, may miss some trades)
+            # For MARKET orders: use close (will fill at next bar open)
+            if self._risk.entry_ord_type == "LIMIT":
+                entry_price = breakout_low
+            else:
+                entry_price = parsed.close if self._p.require_close_confirmation else breakout_low
             return self._build_short_signal(entry_price, atr, range_size, session, is_warmup)
 
         return TradeSignal(Signal.HOLD)
 
-    # ── Signal builders ───────────────────────────────────────────
+    # --- Signal builders ---
 
     def _build_long_signal(
         self,
@@ -318,7 +328,7 @@ class ORBStrategy(IntradayStrategy):
             },
         )
 
-    # ── Filters ───────────────────────────────────────────────────
+    # --- Filters ---
 
     def _check_range_filters(self, atr: float) -> TradeSignal | None:
         """None = pass, TradeSignal(HOLD) = filtered out."""
@@ -365,7 +375,7 @@ class ORBStrategy(IntradayStrategy):
 
         return None
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers ---
 
     def _get_atr(self, bar: dict[str, Any]) -> float | None:
         """Get ATR value from bar. Returns None if missing or <= 0."""
@@ -422,7 +432,7 @@ class ORBStrategy(IntradayStrategy):
         except (KeyError, TypeError, ValueError):
             return None
 
-    # ── Session reset ─────────────────────────────────────────────
+    # --- Session reset ---
 
     def _on_session_reset(self, session: Session) -> None:
         """
@@ -436,7 +446,7 @@ class ORBStrategy(IntradayStrategy):
         self._range_formed = False
         self._trades_this_session = 0
 
-    # ── State serialization ───────────────────────────────────────
+    # --- State serialization ---
 
     def _get_strategy_state(self) -> dict[str, Any]:
         return {
@@ -452,7 +462,7 @@ class ORBStrategy(IntradayStrategy):
         self._range_formed = bool(state.get("range_formed", False))
         self._trades_this_session = int(state.get("trades_this_session", 0))
 
-    # ── Properties (read-only access for engine/debug) ────────────
+    # --- Properties (read-only access for engine/debug) ---
 
     @property
     def range_high(self) -> float:

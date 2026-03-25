@@ -2,7 +2,7 @@
 Integration tests for event-driven pipeline flow.
 
 Tests the complete event flow:
-    MarketEvent → Strategy → SignalEvent → Risk → OrderEvent → Broker → FillEvent → Account
+    MarketEvent -> Strategy -> SignalEvent -> Risk -> OrderEvent -> Broker -> FillEvent -> Account
 """
 
 from datetime import datetime, timedelta
