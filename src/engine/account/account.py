@@ -104,7 +104,7 @@ class AccountState:
         self.max_daily_loss_pct = max_daily_loss_pct
         self.enable_async_safety = enable_async_safety
 
-        # ── State - reset() initializes all ──────────────────────
+        # --- State - reset() initializes all ---
         self.position = Position(multiplier=contract_multiplier)
         self.cash: float = initial_capital
         self.equity: float = initial_capital
@@ -122,7 +122,7 @@ class AccountState:
         self._current_date: date | None = None
         self._daily_loss_hit: bool = False
 
-    # ── Reset ─────────────────────────────────────────────────────
+    # --- Reset ---
 
     def reset(self) -> None:
         """
@@ -147,7 +147,7 @@ class AccountState:
         self._daily_loss_hit = False
         Order.reset_id_counter()  # Reset order IDs for new backtest
 
-    # ── Properties ────────────────────────────────────────────────
+    # --- Properties ---
 
     @property
     def trades(self) -> list[Trade]:
@@ -203,7 +203,7 @@ class AccountState:
             take_profit=self.position.take_profit or 0.0,
         )
 
-    # ── Daily tracking ────────────────────────────────────────────
+    # --- Daily tracking ---
 
     def update_daily(self, timestamp: datetime) -> None:
         """
@@ -236,7 +236,7 @@ class AccountState:
                     limit,
                 )
 
-    # ── Order creation ────────────────────────────────────────────
+    # --- Order creation ---
 
     def create_order(
         self,
@@ -262,6 +262,7 @@ class AccountState:
             {
                 "datetime": timestamp,
                 "signal": signal.signal.value,
+                "ord_type": signal.ord_type,
                 "entry_price": signal.entry_price,
                 "stop_loss": signal.stop_loss,
                 "take_profit": signal.take_profit,
@@ -308,18 +309,24 @@ class AccountState:
         quantity = min(quantity, max_qty)
 
         side = OrderSide.BUY if signal.is_long else OrderSide.SELL
+        requested_ord_type = signal.ord_type.upper()
 
-        if signal.entry_price > 0:
+        if requested_ord_type == "LIMIT":
+            limit_price = signal.entry_price if signal.entry_price > 0 else check_price
             return Order(
                 order_type=OrderType.LIMIT,
                 side=side,
                 quantity=quantity,
-                limit_price=signal.entry_price,
+                limit_price=limit_price,
                 stop_loss=signal.stop_loss or None,
                 take_profit=signal.take_profit or None,
                 created_at=timestamp,
                 symbol=bar.get("symbol", "VN30F1M"),
             )
+
+        if requested_ord_type != "MARKET":
+            logger.warning("Unknown ord_type '%s', fallback to MARKET", signal.ord_type)
+
         return Order(
             order_type=OrderType.MARKET,
             side=side,
@@ -330,7 +337,7 @@ class AccountState:
             symbol=bar.get("symbol", "VN30F1M"),
         )
 
-    # ── Order execution ───────────────────────────────────────────
+    # --- Order execution ---
 
     def execute_order(
         self,
@@ -417,7 +424,7 @@ class AccountState:
             return None
         return bar["open"] if bar["open"] >= order.limit_price else order.limit_price
 
-    # ── Position management ───────────────────────────────────────
+    # --- Position management ---
 
     def _open_position(self, order: Order, timestamp: datetime) -> Trade:
         self.position.open(order, timestamp)
@@ -611,7 +618,7 @@ class AccountState:
             if self.position.stop_loss is None or new_sl < self.position.stop_loss:
                 self.position.stop_loss = new_sl
 
-    # ── Equity ────────────────────────────────────────────────────
+    # --- Equity ---
 
     def update_equity(self, current_price: float) -> None:
         """
@@ -626,7 +633,7 @@ class AccountState:
             self.position.update_unrealized_pnl(current_price)
         self.equity = self.cash + self.position.unrealized_pnl
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers ---
 
     def _calc_commission(self, price: float, quantity: int) -> float:
         return price * quantity * self.contract_multiplier * self.commission_rate
