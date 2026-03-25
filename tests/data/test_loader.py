@@ -127,9 +127,11 @@ class TestDataLoaderTickCSV:
         # Create tick CSV
         tick_data = pd.DataFrame(
             {
-                "timestamp": pd.date_range("2024-01-01 09:00", periods=100, freq="10s"),
+                "datetime": pd.date_range("2024-01-01 09:00", periods=100, freq="10s"),
+                "tickersymbol": ["VN30F2106" for i in range(100)],
                 "price": [1000.0 + i * 0.1 for i in range(100)],
                 "quantity": [100 + i for i in range(100)],
+                "close": [1000.0 + i * 0.1 for i in range(100)],
             }
         )
         csv_path = tmp_path / "ticks_2024_01.csv"
