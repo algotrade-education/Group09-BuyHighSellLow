@@ -157,8 +157,15 @@ def _build_backtester(
     freq: str,
 ) -> Backtester:
     """Instantiate Backtester from config and CLI args."""
+    from src.engine.account.sizer import PercentRiskSizer
     from src.engine.backtester import Backtester
     from src.engine.execution.slippage import FixedSlippage
+
+    sizer = PercentRiskSizer(
+        risk_per_trade_pct=config.risk.risk_per_trade_pct,
+        min_size=config.risk.min_position_size,
+        max_size=config.risk.max_position_size,
+    )
 
     return Backtester(
         strategy=strategy,
@@ -166,7 +173,7 @@ def _build_backtester(
         commission_rate=args.commission_rate,
         contract_multiplier=args.contract_multiplier,
         margin_rate=args.margin_rate,
-        position_size=config.risk.min_position_size,
+        position_sizer=sizer,
         slippage_model=FixedSlippage(args.slippage_points),
         use_trailing_stop=config.risk.use_trailing_stop,
         trailing_atr_multiplier=config.risk.trailing_atr_multiplier,
@@ -304,12 +311,19 @@ def _compare_engines(
 
     # H1 - same AccountState settings + T+1 execution
     strategy.reset()
+    from src.engine.account.sizer import PercentRiskSizer
+
+    sizer = PercentRiskSizer(
+        risk_per_trade_pct=config.risk.risk_per_trade_pct,
+        min_size=config.risk.min_position_size,
+        max_size=config.risk.max_position_size,
+    )
     account = AccountState(
         initial_capital=args.capital,
         commission_rate=args.commission_rate,
         contract_multiplier=args.contract_multiplier,
         margin_rate=args.margin_rate,
-        position_size=config.risk.min_position_size,
+        position_sizer=sizer,
         slippage_model=FixedSlippage(args.slippage_points),
         use_trailing_stop=config.risk.use_trailing_stop,
         trailing_atr_multiplier=config.risk.trailing_atr_multiplier,
@@ -419,7 +433,7 @@ def run(args: argparse.Namespace) -> int:
             "Capital": f"{args.capital:,.0f}",
             "Freq": freq,
         },
-        label_width=12,
+        label_width=8,
     )
     print()
 
