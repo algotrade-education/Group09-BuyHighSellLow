@@ -67,8 +67,6 @@ logger = setup_logging(
 
 _STRATEGY_CONFIGS: dict[str, str] = {
     "orb": "config/strategy_params/orb_default.json",
-    "ksb": "config/strategy_params/ksb_default.json",
-    "vwap": "config/strategy_params/vwap_default.json",
 }
 
 
@@ -516,6 +514,24 @@ def run(args: argparse.Namespace) -> int:
     args.output = f"results/{args.strategy}_{current_time}"
     _save_and_plot(result, args)
 
+    # --- 8. Monte Carlo (optional) ---
+    if args.monte_carlo and result.trades:
+        try:
+            from src.optimization.monte_carlo import MonteCarlo
+
+            print_status(f"Running Monte Carlo ({args.mc_simulations:,} simulations)...", "info")
+            mc = MonteCarlo(
+                trades=result.trades,
+                initial_capital=args.capital,
+                ruin_threshold_pct=args.mc_ruin_pct,
+            )
+            mc_result = mc.run(n_simulations=args.mc_simulations)
+            mc_result.print_summary()
+            mc_result.save(Path(args.output) / "monte_carlo")
+        except Exception as e:
+            logger.warning("Monte Carlo failed: %s", e)
+            print_exception("Monte Carlo", e)
+
     print_status(f"Backtest complete -> {args.output}", "success")
     return 0
 
@@ -553,12 +569,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bypass cache, fetch fresh data and recompute indicators",
     )
 
-    # Capital / costs
-    parser.add_argument("--capital", type=float, default=500_000_000)
-    parser.add_argument("--commission-rate", type=float, default=0.00015)
-    parser.add_argument("--slippage-points", type=float, default=0.5)
-    parser.add_argument("--contract-multiplier", type=float, default=100_000.0)
-    parser.add_argument("--margin-rate", type=float, default=0.18)
+    # Capital / costs — grouped via ExecutionConfig
+    from config.constants import ExecutionConfig
+
+    ExecutionConfig.add_args(parser)
 
     # Output
     parser.add_argument("--no-plot", action="store_true")
@@ -571,6 +585,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show-trades-n", type=int, default=30)
     parser.add_argument(
         "--compare-engines", action="store_true", help="Run H2 and H1 engines, compare results"
+    )
+    parser.add_argument(
+        "--monte-carlo", action="store_true", help="Run Monte Carlo simulation on trade list"
+    )
+    parser.add_argument("--mc-simulations", type=int, default=1000)
+    parser.add_argument(
+        "--mc-ruin-pct", type=float, default=20.0, help="Drawdown %% considered ruin"
     )
 
     return parser

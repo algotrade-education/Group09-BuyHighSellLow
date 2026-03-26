@@ -156,6 +156,26 @@ class EquityCurveChart(ChartBase):
         ax.grid(True, alpha=0.3)
         _format_y_axis_millions(ax)
 
+        # Metrics summary in top-left corner
+        m = data.metrics
+        summary = (
+            f"Sharpe: {m.sharpe_ratio:.2f}  |  "
+            f"Return: {m.total_return:.2f}%  |  "
+            f"MaxDD: {abs(m.max_drawdown):.2f}%  |  "
+            f"Trades: {m.total_trades}  |  "
+            f"WR: {m.win_rate:.1f}%"
+        )
+        ax.text(
+            0.01,
+            0.02,
+            summary,
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="bottom",
+            color="#555555",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7),
+        )
+
         fig.tight_layout()
         fig.savefig(output_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
@@ -207,14 +227,15 @@ class DrawdownChart(ChartBase):
 
         fig, ax = plt.subplots(figsize=(16, 4))
         dt = self._get_datetime_index(data)
-        dd = data.rolling["rolling_drawdown"] * 100
+        dd = data.rolling["rolling_drawdown"] * 100  # negative %
 
         ax.fill_between(dt, dd, 0, color="#F44336", alpha=0.4, label="Drawdown")
         ax.plot(dt, dd, color="#F44336", linewidth=0.8)
         ax.axhline(0, color="black", linewidth=0.5)
 
-        m = data.metrics.max_drawdown
-        ax.set_title(f"Drawdown (Max: {m:.2f}%)", fontsize=14, fontweight="bold")
+        # max_drawdown is stored as negative — abs() for display
+        m = abs(data.metrics.max_drawdown)
+        ax.set_title(f"Drawdown (Max: -{m:.2f}%)", fontsize=14, fontweight="bold")
         ax.set_xlabel("Date")
         ax.set_ylabel("Drawdown (%)")
         ax.legend()
@@ -230,7 +251,7 @@ class DrawdownChart(ChartBase):
 
         dt = self._get_datetime_index(data)
         dd = data.rolling["rolling_drawdown"] * 100
-        m = data.metrics.max_drawdown
+        m = abs(data.metrics.max_drawdown)
         fig = go.Figure(
             go.Scatter(
                 x=dt,
@@ -241,7 +262,7 @@ class DrawdownChart(ChartBase):
             )
         )
         fig.update_layout(
-            title=f"Drawdown (Max: {m:.2f}%)",
+            title=f"Drawdown (Max: -{m:.2f}%)",
             xaxis_title="Date",
             yaxis_title="Drawdown (%)",
         )
@@ -251,7 +272,7 @@ class DrawdownChart(ChartBase):
 
 class TradeMarkersChart(ChartBase):
     name = "trade_markers"
-    description = "Price chart with entry/exit markers"
+    description = "Price chart with entry/exit trade markers"
 
     def render_png(self, data: PlotData, output_path: Path) -> bool:
         import matplotlib.pyplot as plt
@@ -260,10 +281,22 @@ class TradeMarkersChart(ChartBase):
             logger.warning("TradeMarkersChart: no trades to plot.")
             return False
 
+        if "close_price" not in data.equity.columns:
+            logger.warning("TradeMarkersChart: 'close_price' column missing from equity DataFrame.")
+            return False
+
         fig, ax = plt.subplots(figsize=(20, 8))
         dt = self._get_datetime_index(data)
-        ax.plot(dt, data.equity_series, color="black", linewidth=0.8, alpha=0.6, label="Equity")
+        ax.plot(
+            dt,
+            data.equity["close_price"],
+            color="black",
+            linewidth=0.8,
+            alpha=0.6,
+            label="Close Price",
+        )
 
+        # Markers at actual price level (entry_price / exit_price)
         long_entries = [
             (t.entry_time, t.entry_price)
             for t in data.trades
@@ -290,20 +323,31 @@ class TradeMarkersChart(ChartBase):
             marker: str,
             color: str,
             label: str,
-            size: int = 80,
+            size: int = 40,
+            alpha: float = 0.8,
         ) -> None:
             if points:
                 xs, ys = zip(*points, strict=False)
-                ax.scatter(xs, ys, marker=marker, color=color, s=size, label=label, zorder=5)
+                ax.scatter(
+                    xs,
+                    ys,
+                    marker=marker,
+                    color=color,
+                    s=size,
+                    label=label,
+                    zorder=5,
+                    alpha=alpha,
+                    linewidths=0.5,
+                )
 
         scatter(long_entries, "^", "#4CAF50", "Long Entry")
         scatter(short_entries, "v", "#F44336", "Short Entry")
-        scatter(exits_win, "x", "#2196F3", "Exit (Win)", size=60)
-        scatter(exits_loss, "x", "#FF5722", "Exit (Loss)", size=60)
+        scatter(exits_win, "x", "#2196F3", "Exit (Win)", size=30)
+        scatter(exits_loss, "x", "#FF5722", "Exit (Loss)", size=30)
 
-        ax.set_title("Equity with Trade Markers", fontsize=14, fontweight="bold")
+        ax.set_title("Price with Trade Markers", fontsize=14, fontweight="bold")
         ax.set_xlabel("Date")
-        ax.set_ylabel("Equity")
+        ax.set_ylabel("Price")
         ax.legend(loc="best", fontsize=8)
         ax.grid(True, alpha=0.3)
 
@@ -319,13 +363,17 @@ class TradeMarkersChart(ChartBase):
             logger.warning("TradeMarkersChart: no trades to plot.")
             return False
 
+        if "close_price" not in data.equity.columns:
+            logger.warning("TradeMarkersChart: 'close_price' column missing from equity DataFrame.")
+            return False
+
         dt = self._get_datetime_index(data)
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
                 x=dt,
-                y=data.equity_series,
-                name="Equity",
+                y=data.equity["close_price"],
+                name="Close Price",
                 line=dict(color="black", width=1),
             )
         )
@@ -351,13 +399,7 @@ class TradeMarkersChart(ChartBase):
             if t.is_loser and t.is_closed and t.exit_time is not None
         ]
 
-        def add_marker_trace(
-            points: list[tuple],
-            name: str,
-            color: str,
-            symbol: str,
-            size: int,
-        ) -> None:
+        def add_trace(points: list[tuple], name: str, color: str, symbol: str, size: int) -> None:
             if not points:
                 return
             xs, ys = zip(*points, strict=False)
@@ -367,17 +409,19 @@ class TradeMarkersChart(ChartBase):
                     y=list(ys),
                     mode="markers",
                     name=name,
-                    marker=dict(color=color, symbol=symbol, size=size),
+                    marker=dict(color=color, symbol=symbol, size=size, opacity=0.8),
                 )
             )
 
-        add_marker_trace(long_entries, "Long Entry", "#4CAF50", "triangle-up", 9)
-        add_marker_trace(short_entries, "Short Entry", "#F44336", "triangle-down", 9)
-        add_marker_trace(exits_win, "Exit (Win)", "#2196F3", "x", 8)
-        add_marker_trace(exits_loss, "Exit (Loss)", "#FF5722", "x", 8)
+        add_trace(long_entries, "Long Entry", "#4CAF50", "triangle-up", 9)
+        add_trace(short_entries, "Short Entry", "#F44336", "triangle-down", 9)
+        add_trace(exits_win, "Exit (Win)", "#2196F3", "x", 8)
+        add_trace(exits_loss, "Exit (Loss)", "#FF5722", "x", 8)
 
         fig.update_layout(
-            title="Equity with Trade Markers", xaxis_title="Date", yaxis_title="Equity"
+            title="Price with Trade Markers",
+            xaxis_title="Date",
+            yaxis_title="Price",
         )
         fig.write_html(str(output_path))
         return True
@@ -404,6 +448,22 @@ class PnLBarChart(ChartBase):
         fig, ax = plt.subplots(figsize=(max(12, len(pnls) * 0.15), 5))
         ax.bar(range(1, len(pnls) + 1), pnls, color=colors, alpha=0.8)
         ax.axhline(0, color="black", linewidth=0.8)
+
+        # Cumulative PnL overlay on secondary axis
+        cumulative = pd.Series(pnls).cumsum()
+        ax2 = ax.twinx()
+        ax2.plot(
+            range(1, len(pnls) + 1),
+            cumulative,
+            color="#2196F3",
+            linewidth=1.5,
+            label="Cumulative PnL",
+            alpha=0.8,
+        )
+        ax2.set_ylabel("Cumulative PnL", color="#2196F3")
+        ax2.tick_params(axis="y", labelcolor="#2196F3")
+        _format_y_axis_millions(ax2)
+
         ax.set_title("PnL per Trade", fontsize=14, fontweight="bold")
         ax.set_xlabel("Trade #")
         ax.set_ylabel("PnL")
@@ -568,6 +628,123 @@ class RollingSharpeChart(ChartBase):
         return True
 
 
+class MonthlyReturnsChart(ChartBase):
+    name = "monthly_returns"
+    description = "Monthly returns heatmap"
+
+    @staticmethod
+    def _build_monthly_returns(data: PlotData) -> pd.DataFrame | None:
+        """Build month x year pivot of monthly returns (%)."""
+        eq = data.equity_series.copy()
+        dt = pd.to_datetime(
+            data.equity["datetime"] if "datetime" in data.equity.columns else data.equity.index
+        )
+        eq.index = dt
+
+        # Resample to month-end equity, then compute monthly return
+        monthly = eq.resample("ME").last().dropna()
+        if len(monthly) < 2:
+            return None
+
+        ret = monthly.pct_change().dropna() * 100
+        ret.index = pd.to_datetime(ret.index)
+
+        pivot = ret.groupby([ret.index.year, ret.index.month]).first().unstack(level=1)
+        pivot.columns = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ][: len(pivot.columns)]
+        return pivot
+
+    def render_png(self, data: PlotData, output_path: Path) -> bool:
+        import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
+
+        pivot = self._build_monthly_returns(data)
+        if pivot is None or pivot.empty:
+            logger.warning("MonthlyReturnsChart: not enough data for monthly heatmap.")
+            return False
+
+        fig, ax = plt.subplots(
+            figsize=(max(10, len(pivot.columns) * 0.9), max(4, len(pivot) * 0.6))
+        )
+
+        vmax = max(
+            abs(pivot.values[~pd.isna(pivot.values)].max()),
+            abs(pivot.values[~pd.isna(pivot.values)].min()),
+            1,
+        )
+        cmap = mcolors.LinearSegmentedColormap.from_list("rg", ["#F44336", "#FFFFFF", "#4CAF50"])
+
+        im = ax.imshow(pivot.values, cmap=cmap, vmin=-vmax, vmax=vmax, aspect="auto")
+        plt.colorbar(im, ax=ax, label="Return (%)", shrink=0.8)
+
+        ax.set_xticks(range(len(pivot.columns)))
+        ax.set_xticklabels(pivot.columns, fontsize=9)
+        ax.set_yticks(range(len(pivot.index)))
+        ax.set_yticklabels(pivot.index, fontsize=9)
+
+        # Annotate cells
+        for i in range(len(pivot.index)):
+            for j in range(len(pivot.columns)):
+                val = pivot.values[i, j]
+                if not pd.isna(val):
+                    ax.text(
+                        j,
+                        i,
+                        f"{val:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=7,
+                        color="black" if abs(val) < vmax * 0.6 else "white",
+                    )
+
+        ax.set_title("Monthly Returns (%)", fontsize=14, fontweight="bold")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        return True
+
+    def render_html(self, data: PlotData, output_path: Path) -> bool:
+        import plotly.graph_objects as go
+
+        pivot = self._build_monthly_returns(data)
+        if pivot is None or pivot.empty:
+            logger.warning("MonthlyReturnsChart: not enough data for monthly heatmap.")
+            return False
+
+        text = [[f"{v:.1f}%" if not pd.isna(v) else "" for v in row] for row in pivot.values]
+        fig = go.Figure(
+            go.Heatmap(
+                z=pivot.values.tolist(),
+                x=pivot.columns.tolist(),
+                y=[str(y) for y in pivot.index],
+                text=text,
+                texttemplate="%{text}",
+                colorscale=[[0, "#F44336"], [0.5, "#FFFFFF"], [1, "#4CAF50"]],
+                zmid=0,
+                colorbar=dict(title="Return (%)"),
+            )
+        )
+        fig.update_layout(
+            title="Monthly Returns (%)",
+            xaxis_title="Month",
+            yaxis_title="Year",
+        )
+        fig.write_html(str(output_path))
+        return True
+
+
 # --- Registry ---
 
 _CHARTS: dict[str, ChartBase] = {
@@ -578,7 +755,8 @@ _CHARTS: dict[str, ChartBase] = {
         TradeMarkersChart(),
         PnLBarChart(),
         ExitReasonsChart(),
-        # RollingSharpeChart(), # Turn off for now due to some edge cases with short equity series
+        RollingSharpeChart(),
+        MonthlyReturnsChart(),
     ]
 }
 
@@ -607,6 +785,8 @@ class BacktestPlotter:
         "trade_markers",
         "pnl_per_trade",
         "exit_reasons",
+        "rolling_sharpe",
+        "monthly_returns",
     ]
 
     def __init__(
