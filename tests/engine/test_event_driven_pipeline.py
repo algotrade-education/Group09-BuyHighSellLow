@@ -103,7 +103,8 @@ class TestEventDrivenPipeline:
         assert len(result.trades) == 1
         trade = result.trades[0]
         assert trade.side == "long"
-        assert trade.entry_price == pytest.approx(data.iloc[0]["open"], abs=1.0)
+        # Market order fills at next bar open (bar 1) with slippage
+        assert trade.entry_price == pytest.approx(data.iloc[1]["open"], abs=1.0)
         assert trade.exit_price == pytest.approx(data.iloc[5]["close"], abs=2.0)
 
     def test_simple_short_trade(self):
