@@ -20,32 +20,60 @@ def rolling_sharpe(
     min_periods: int | None = None,
 ) -> pd.Series:
     """
-    Rolling Sharpe Ratio.
+    Rolling Sharpe Ratio — computed on daily returns to avoid noise.
+
+    Bar-level returns (5min) are too noisy for rolling Sharpe: a 30-bar
+    window covers only ~30 minutes of trading, and multiplying by
+    sqrt(12852) amplifies noise to ±20. Resampling to daily returns
+    first gives a stable, interpretable rolling Sharpe.
 
     Args:
-        equity:           Equity curve Series.
-        window:           Rolling window in bars.
-        periods_per_year: Annualization factor.
-                          VN30 5min = 51 bars/day * 252 = 12,852.
+        equity:           Equity curve Series. If it has a DatetimeIndex,
+                          returns are resampled to daily before computing.
+        window:           Rolling window in *trading days* (default 30 ≈ 1.5 months).
+        periods_per_year: Annualization factor. When resampling to daily,
+                          pass 252 (default). The bar-level value (12852) is
+                          only used as fallback when no DatetimeIndex is present.
         risk_free_rate:   Annual risk-free rate.
-        min_periods:      Minimum bars required. Default = window // 2.
+        min_periods:      Minimum days required. Default = window // 2.
 
     Returns:
-        Series with the same index as equity, NaN when data is insufficient.
+        Series aligned to the original equity index, NaN when insufficient data.
     """
     if min_periods is None:
         min_periods = window // 2
 
-    returns = equity.pct_change().dropna()
-    daily_rf = risk_free_rate / periods_per_year
-    excess = returns - daily_rf
+    if isinstance(equity.index, pd.DatetimeIndex):
+        # Resample to daily — much more stable than bar-level
+        daily = equity.resample("B").last().dropna()
+        ann = 252.0
+    else:
+        daily = equity
+        ann = periods_per_year  # bar-level fallback
+
+    daily_returns = daily.pct_change().dropna()
+    daily_rf = risk_free_rate / ann
+    excess = daily_returns - daily_rf
 
     roll_mean = excess.rolling(window=window, min_periods=min_periods).mean()
     roll_std = excess.rolling(window=window, min_periods=min_periods).std()
+    sharpe_daily = roll_mean / roll_std.replace(0, np.nan) * np.sqrt(ann)
 
-    # Avoid division by zero
-    sharpe = roll_mean / roll_std.replace(0, np.nan) * np.sqrt(periods_per_year)
-    return sharpe.rename("rolling_sharpe")
+    if not isinstance(equity.index, pd.DatetimeIndex):
+        return sharpe_daily.reindex(equity.index).rename("rolling_sharpe")
+
+    # Map daily Sharpe back to bar-level index using merge_asof
+    sharpe_df = sharpe_daily.reset_index()
+    sharpe_df.columns = ["date", "sharpe"]
+    equity_df = pd.DataFrame({"date": equity.index})
+    merged = pd.merge_asof(
+        equity_df.sort_values("date"),
+        sharpe_df.sort_values("date"),
+        on="date",
+        direction="backward",
+    )
+    result = pd.Series(merged["sharpe"].values, index=equity.index)
+    return result.rename("rolling_sharpe")
 
 
 def rolling_drawdown(equity: pd.Series) -> pd.Series:
@@ -119,10 +147,13 @@ def rolling_win_rate(
 def calculate_rolling_metrics(
     equity: pd.Series,
     sharpe_window: int = 30,
-    periods_per_year: float = 12_852.0,
+    periods_per_year: float = 252.0,  # daily after resampling
 ) -> pd.DataFrame:
     """
     Convenience function - calculates all rolling metrics at once.
+
+    rolling_sharpe is computed on daily-resampled returns (window = trading days).
+    rolling_drawdown and rolling_sortino remain bar-level.
 
     Returns:
         DataFrame with columns: rolling_sharpe, rolling_drawdown, rolling_sortino.

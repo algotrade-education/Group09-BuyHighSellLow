@@ -64,7 +64,12 @@ class PlotData:
     def equity_series(self) -> pd.Series:
         if self._equity_series is None:
             col = "equity" if "equity" in self.equity.columns else self.equity.columns[0]
-            self._equity_series = self.equity[col]
+            s = self.equity[col]
+            # Attach DatetimeIndex so rolling_sharpe can resample to daily
+            if "datetime" in self.equity.columns:
+                s = s.copy()
+                s.index = pd.to_datetime(self.equity["datetime"])
+            self._equity_series = s
         return self._equity_series
 
     @property
