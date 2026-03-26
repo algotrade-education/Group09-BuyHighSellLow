@@ -38,7 +38,6 @@ from typing import Any
 
 import pandas as pd
 
-from engine.execution.broker import BaseBroker
 from src.engine.account.account import AccountState
 from src.engine.core.event_bus import EventBus
 from src.engine.core.events import EventType, MarketEvent
@@ -48,6 +47,7 @@ from src.engine.core.handlers import (
     StrategyHandler,
 )
 from src.engine.equity_tracker import SimpleEquityTracker
+from src.engine.execution.broker import BaseBroker
 from src.engine.execution.sim_broker import SimBroker
 from src.engine.result import BacktestResult
 from src.engine.session import SessionManager, VN30Session
