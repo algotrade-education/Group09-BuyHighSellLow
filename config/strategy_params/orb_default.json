@@ -5,12 +5,12 @@
         "resample_freq": "5min",
         "orb_minutes": 20,
         "atr_period": 14,
-        "atr_tp_multiplier": 2,
+        "atr_tp_multiplier": 2.0,
         "atr_sl_multiplier": 1.5,
         "breakout_buffer": 0.1,
         "use_range_sl": true,
         "min_range_atr": 0.5,
-        "max_range_atr": 3,
+        "max_range_atr": 3.0,
         "long_only": false,
         "use_volume_filter": false,
         "volume_filter_threshold": 0.5,
@@ -19,18 +19,19 @@
         "adx_period": 14,
         "adx_min": 20,
         "require_close_confirmation": false,
-        "max_trades_per_session": 2
+        "max_trades_per_session": 1
     },
     "risk": {
         "min_position_size": 1,
         "max_position_size": 10,
-        "risk_per_trade_pct": 1,
+        "risk_per_trade_pct": 1.0,
         "max_daily_loss": 0.02,
         "use_trailing_stop": true,
-        "trailing_atr_multiplier": 2,
-        "entry_cutoff_seconds": 60,
+        "trailing_atr_multiplier": 2.0,
+        "entry_cutoff_seconds": 300,
         "allow_late_entry": false,
-        "force_flat_on_session_close": false,
-        "defer_exit_outside_session": true
+        "force_flat_on_session_close": true,
+        "defer_exit_outside_session": true,
+        "entry_ord_type": "MARKET"
     }
 }

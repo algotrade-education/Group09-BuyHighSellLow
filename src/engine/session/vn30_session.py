@@ -78,24 +78,23 @@ class VN30Session(SessionManager):
         """
         Check if positions should be closed at end of day.
 
+        Triggers on the ATC bar (14:30) and beyond, so that the backtester
+        closes positions using the next bar open (which is the next day's open).
+        Using ATC_END (14:45) would never trigger because no 14:45 bar exists
+        in 5min/15min resampled data.
+
         Args:
             dt: Current datetime
 
         Returns:
-            True if after ATC end and close_at_eod is enabled
+            True if at or after ATC start and close_at_eod is enabled
         """
         if not self.close_at_eod:
             return False
-        if self._cfg.ATC_END is None:
+        if self._cfg.ATC_START is None:
             return False
 
-        t = dt.time()
-        should_close = t >= self._cfg.ATC_END
-
-        if should_close:
-            logger.debug("EOD close triggered at %s", dt)
-
-        return should_close
+        return dt.time() >= self._cfg.ATC_START
 
     def should_skip_signal(self, dt: datetime) -> bool:
         """

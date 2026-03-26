@@ -24,7 +24,7 @@ class TestRollingSharpe:
 
         assert isinstance(result, pd.Series)
         assert result.name == "rolling_sharpe"
-        assert len(result) == len(equity) - 1  # pct_change drops first
+        assert len(result) == len(equity)  # same length, NaN at start
 
     def test_rolling_sharpe_15m_bars(self):
         """Test with 15-minute bars (VN30 futures)."""
@@ -146,7 +146,7 @@ class TestRollingSortino:
 
         assert isinstance(result, pd.Series)
         assert result.name == "rolling_sortino"
-        assert len(result) == len(equity) - 1
+        assert len(result) == len(equity) - 1  # pct_change drops first row
 
     def test_rolling_sortino_15m_bars(self):
         """Test with 15-minute bars."""

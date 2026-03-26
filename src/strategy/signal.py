@@ -47,7 +47,7 @@ class TradeSignal:
             raise ValueError(f"ord_type must be 'LIMIT' or 'MARKET', got: {self.ord_type}")
 
         # Auto-set ord_type to MARKET when entry_price is 0
-        if self.entry_price == 0.0 and self.is_entry:
+        if self.entry_price == 0.0 and self.signal in (Signal.LONG, Signal.SHORT):
             object.__setattr__(self, "ord_type", "MARKET")
 
         # Validate prices are non-negative

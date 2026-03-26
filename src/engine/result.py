@@ -195,9 +195,9 @@ class BacktestResult:
 
         Saves:
         - result.json: Metrics and summary
-        - trades.parquet: Trade history
-        - equity_curve.parquet: Equity curve
-        - signals.parquet: Signal history (if available)
+        - trades.csv: Trade history
+        - equity_curve.csv: Equity curve
+        - signals.csv: Signal history (if available)
 
         Args:
             output_dir: Output directory path (created if doesn't exist)
