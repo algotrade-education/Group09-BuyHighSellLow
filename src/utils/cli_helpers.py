@@ -46,7 +46,7 @@ def print_rule(title: str | None = None, width: int = 40, border: str = "-") -> 
 def print_status(message: str, status: str = "info") -> None:
     """Print status line with emoji prefix."""
     prefix = _STATUS_PREFIX.get(status, _STATUS_PREFIX["info"])
-    print(f"{prefix}\t{message}")
+    print(f"{prefix}  {message}")
 
 
 def print_exception(context: str, error: Exception) -> None:
