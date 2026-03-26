@@ -46,7 +46,7 @@ class ExecutionConfig:
     Shared execution parameters used by run_backtest, run_optimize, run_walk_forward.
 
     Groups the 5 args that are identical across all run scripts and rarely change.
-    Loaded from constants by default — override only when needed.
+    Loaded from constants by default - override only when needed.
 
     Usage in argparse:
         from config.constants import ExecutionConfig

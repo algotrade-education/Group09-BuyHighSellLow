@@ -238,7 +238,7 @@ class DrawdownChart(ChartBase):
         ax.plot(dt, dd, color="#F44336", linewidth=0.8)
         ax.axhline(0, color="black", linewidth=0.5)
 
-        # max_drawdown is stored as negative — abs() for display
+        # max_drawdown is stored as negative - abs() for display
         m = abs(data.metrics.max_drawdown)
         ax.set_title(f"Drawdown (Max: -{m:.2f}%)", fontsize=14, fontweight="bold")
         ax.set_xlabel("Date")

@@ -6,7 +6,7 @@ Monte Carlo simulation on a completed backtest's trade list.
 What it does:
     Takes the list of trades from a backtest, shuffles their order N times,
     and rebuilds the equity curve each time. This gives a distribution of
-    possible outcomes — answering "what if these trades happened in a
+    possible outcomes - answering "what if these trades happened in a
     different order?"
 
 Why it's useful:
@@ -55,10 +55,10 @@ class MonteCarloResult:
     final_equities: np.ndarray  # shape: (n_simulations,)
 
     # Distribution of max drawdown across all simulations
-    max_drawdowns: np.ndarray  # shape: (n_simulations,) — positive %
+    max_drawdowns: np.ndarray  # shape: (n_simulations,) - positive %
 
     # Distribution of total return across all simulations
-    total_returns: np.ndarray  # shape: (n_simulations,) — %
+    total_returns: np.ndarray  # shape: (n_simulations,) - %
 
     # Percentile equity curves (5th, 25th, 50th, 75th, 95th)
     percentile_curves: dict[int, np.ndarray] = field(default_factory=dict)
@@ -77,12 +77,12 @@ class MonteCarloResult:
 
     @property
     def return_p5(self) -> float:
-        """5th percentile return — pessimistic scenario."""
+        """5th percentile return - pessimistic scenario."""
         return float(np.percentile(self.total_returns, 5))
 
     @property
     def return_p95(self) -> float:
-        """95th percentile return — optimistic scenario."""
+        """95th percentile return - optimistic scenario."""
         return float(np.percentile(self.total_returns, 95))
 
     @property
@@ -91,7 +91,7 @@ class MonteCarloResult:
 
     @property
     def drawdown_p95(self) -> float:
-        """95th percentile max drawdown — near worst-case."""
+        """95th percentile max drawdown - near worst-case."""
         return float(np.percentile(self.max_drawdowns, 95))
 
     def print_summary(self) -> None:
@@ -171,7 +171,7 @@ class MonteCarlo:
         2. Rebuild equity curve: equity[i] = equity[i-1] + trade[i].pnl
         3. Calculate max drawdown and total return
 
-    This is NOT price simulation — it uses actual historical trade PnLs.
+    This is NOT price simulation - it uses actual historical trade PnLs.
     The assumption is that trade PnLs are roughly independent (no serial
     correlation), which holds reasonably well for intraday strategies.
     """
@@ -192,7 +192,7 @@ class MonteCarlo:
             seed:                Random seed for reproducibility. None = random.
         """
         if not trades:
-            raise ValueError("trades list is empty — run a backtest first.")
+            raise ValueError("trades list is empty - run a backtest first.")
 
         self._pnls = np.array([t.pnl for t in trades], dtype=np.float64)
         self._initial_capital = initial_capital

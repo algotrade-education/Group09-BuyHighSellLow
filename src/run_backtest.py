@@ -569,7 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bypass cache, fetch fresh data and recompute indicators",
     )
 
-    # Capital / costs — grouped via ExecutionConfig
+    # Capital / costs - grouped via ExecutionConfig
     from config.constants import ExecutionConfig
 
     ExecutionConfig.add_args(parser)

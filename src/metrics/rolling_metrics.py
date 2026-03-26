@@ -20,7 +20,7 @@ def rolling_sharpe(
     min_periods: int | None = None,
 ) -> pd.Series:
     """
-    Rolling Sharpe Ratio — computed on daily returns to avoid noise.
+    Rolling Sharpe Ratio - computed on daily returns to avoid noise.
 
     Bar-level returns (5min) are too noisy for rolling Sharpe: a 30-bar
     window covers only ~30 minutes of trading, and multiplying by
@@ -44,7 +44,7 @@ def rolling_sharpe(
         min_periods = window // 2
 
     if isinstance(equity.index, pd.DatetimeIndex):
-        # Resample to daily — much more stable than bar-level
+        # Resample to daily - much more stable than bar-level
         daily = equity.resample("B").last().dropna()
         ann = 252.0
     else:
