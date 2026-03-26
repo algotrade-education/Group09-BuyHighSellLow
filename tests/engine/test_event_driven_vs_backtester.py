@@ -85,8 +85,6 @@ class TestEventDrivenVsBacktester:
         """Test both engines produce identical results for single trade."""
         # Use fixed data where TP is clearly hit within holding period
         # so both engines exit via same mechanism (TP), not EXIT signal
-        from datetime import datetime, timedelta
-
         base_time = datetime(2024, 1, 1, 9, 0)
         n_bars = 30
         timestamps = [base_time + timedelta(minutes=5 * i) for i in range(n_bars)]
