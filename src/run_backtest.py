@@ -40,8 +40,10 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from config.constants import ExecutionConfig
 from src.data.indicators.registry import IndicatorRegistry
 from src.strategy.base import StrategyBase
+from src.strategy.strategy_registry import get_strategy_plugin, list_strategy_names
 from src.utils.cli_helpers import (
     print_exception,
     print_kv,
@@ -61,38 +63,6 @@ logger = setup_logging(
     log_file="logs/backtest.log",
     capture_all_loggers=False,
 )
-
-# --- Strategy registry ---
-# Add new strategies here as they are implemented.
-
-_STRATEGY_CONFIGS: dict[str, str] = {
-    "orb": "config/strategy_params/orb_default.json",
-}
-
-
-# --- Strategy loader ---
-
-
-def _load_strategy(name: str, config_path: str) -> tuple[StrategyBase, IndicatorRegistry, Any]:
-    """
-    Load strategy, config, and indicator registry by name.
-
-    Returns (strategy, registry, config).
-    """
-    if name == "orb":
-        from config.schemas.orb import ORBConfig
-        from src.strategy.orb import ORBStrategy
-
-        config = ORBConfig.from_json(config_path)
-        strategy = ORBStrategy(config)
-        registry = ORBStrategy.build_registry(
-            atr_period=config.strategy.atr_period,
-            adx_period=config.strategy.adx_period,
-            volume_ma_period=config.strategy.volume_ma_period,
-        )
-        return strategy, registry, config
-
-    raise ValueError(f"Unknown strategy: {name!r}. Available: {list(_STRATEGY_CONFIGS)}")
 
 
 # --- Pipeline helpers ---
@@ -408,14 +378,17 @@ def _save_and_plot(result: BacktestResult, args: argparse.Namespace) -> None:
 
 def run(args: argparse.Namespace) -> int:
     # --- 1. Load strategy ---
-    config_path = args.config or _STRATEGY_CONFIGS.get(args.strategy)
-    if config_path is None:
-        print_status(f"Unknown strategy: {args.strategy!r}", "error")
+    try:
+        plugin = get_strategy_plugin(args.strategy)
+    except KeyError as e:
+        print_status(str(e), "error")
         return 1
+
+    config_path = args.config or plugin.default_config
 
     logger.info("Strategy: %s | Config: %s", args.strategy, config_path)
     try:
-        strategy, registry, config = _load_strategy(args.strategy, config_path)
+        strategy, registry, config = plugin.load_fn(config_path)
     except Exception as e:
         logger.error("Failed to load strategy: %s", e, exc_info=True)
         print_exception("Strategy load", e)
@@ -424,7 +397,7 @@ def run(args: argparse.Namespace) -> int:
     # Use freq from config if not overridden by CLI
     freq = args.freq if args.freq else config.strategy.resample_freq
 
-    print_section(f"BACKTEST: {args.strategy.upper()}", width=60)
+    print_section(f"BACKTEST: {plugin.display_name}", width=60)
     print_kv_rows(
         {
             "Period": f"{args.start} -> {args.end}",
@@ -540,14 +513,16 @@ def run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    strategies = list_strategy_names()
+
     parser = argparse.ArgumentParser(
         prog="run_backtest",
-        description="Run a VN30 strategy backtest end-to-end",
+        description="Run a strategy backtest end-to-end",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Strategy
-    parser.add_argument("--strategy", "-s", choices=list(_STRATEGY_CONFIGS), default="orb")
+    parser.add_argument("--strategy", "-s", choices=strategies, default="orb")
     parser.add_argument(
         "--config", "-c", default=None, help="Path to strategy JSON config (overrides default)"
     )
@@ -569,9 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bypass cache, fetch fresh data and recompute indicators",
     )
 
-    # Capital / costs - grouped via ExecutionConfig
-    from config.constants import ExecutionConfig
-
+    # Capital / costs
     ExecutionConfig.add_args(parser)
 
     # Output
