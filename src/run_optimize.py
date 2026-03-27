@@ -87,7 +87,6 @@ def run(args: argparse.Namespace) -> int:
             "Period": f"{args.start} → {args.end}",
             "Trials": args.n_trials,
             "Sampler": args.sampler,
-            "Freq": freq,
             "Param space": args.param_space,
             "Session": plugin.session_name,
             "Capital": f"{args.capital:,.0f}",
@@ -131,8 +130,8 @@ def run(args: argparse.Namespace) -> int:
     scorer = ScorerConfig(
         min_trades=args.min_trades,
         min_return_pct=args.min_return,
-        drawdown_penalty=0.2,
-        trade_count_bonus=0.2,
+        drawdown_penalty=0.3,
+        trade_count_bonus=0.1,
     )
     search = OptunaSearch(
         trial_fn=trial_fn,
@@ -144,6 +143,39 @@ def run(args: argparse.Namespace) -> int:
         storage_path=args.storage,
         seed=args.seed or 42,
     )
+
+    # --- 4b. Handle storage conflict ---
+    if args.storage:
+        conflict = search.check_storage_conflict()
+        if conflict is not None:
+            print_status("Param space conflict detected!", "error")
+            print(f"  {conflict.describe()}")
+            print()
+
+            on_conflict = args.on_conflict
+            if on_conflict == "prompt":
+                print("  Options:")
+                print("    [r] Resume anyway  (mix old + new param space trials)")
+                print("    [o] Overwrite      (delete existing study, start fresh)")
+                print("    [a] Abort          (exit, rename --storage manually)")
+                print()
+                choice = input("  Choice [r/o/a]: ").strip().lower()
+                if choice == "o":
+                    on_conflict = "overwrite"
+                elif choice == "r":
+                    on_conflict = "resume"
+                else:
+                    print_status("Aborted.", "info")
+                    return 1
+
+            if on_conflict == "overwrite":
+                search.delete_study()
+                print_status("Existing study deleted. Starting fresh.", "info")
+            elif on_conflict == "resume":
+                print_status("Resuming with mismatched param space.", "info")
+            else:  # abort
+                print_status("Aborted. Use --on-conflict=overwrite or rename --storage.", "info")
+                return 1
 
     print_status(f"Starting {args.n_trials} trials...", "info")
     t0 = time.perf_counter()
@@ -241,6 +273,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--storage",
         default=None,
         help="SQLite path for crash-safe persistence. Run same command again to resume.",
+    )
+    parser.add_argument(
+        "--on-conflict",
+        default="prompt",
+        choices=["prompt", "resume", "overwrite", "abort"],
+        help=(
+            "What to do when --storage has an existing study with a different param space. "
+            "'prompt' asks interactively (default), 'resume' continues anyway, "
+            "'overwrite' deletes the old study and starts fresh, 'abort' exits."
+        ),
     )
     parser.add_argument("--min-trades", type=int, default=50)
     parser.add_argument("--min-return", type=float, default=-999.0)

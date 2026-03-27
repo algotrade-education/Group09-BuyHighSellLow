@@ -17,6 +17,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from src.optimization.scoring import ERROR_SCORE, INVALID_SCORE, ScorerConfig, calculate_score
+from src.utils.hashing import hash_dict
 
 try:
     import optuna
@@ -50,6 +51,51 @@ class OptunaResult:
         result.update(self.params)
         result.update(self.metrics)
         return result
+
+
+# ---------------------------------------------------------------------------
+# Param space fingerprinting
+# ---------------------------------------------------------------------------
+
+_FINGERPRINT_ATTR = "_param_space_fingerprint"
+
+
+def fingerprint_param_space(param_space: dict[str, dict[str, Any]]) -> str:
+    """
+    Compute a stable SHA-256 fingerprint of a param space.
+
+    Single-choice categoricals are excluded — they're constants, not search
+    dimensions, so changing them doesn't constitute a different study.
+    """
+    meaningful = {
+        name: spec
+        for name, spec in param_space.items()
+        if not (spec.get("type") == "categorical" and len(spec.get("choices", [])) == 1)
+    }
+    return hash_dict(meaningful, length=16)
+
+
+@dataclass
+class StorageConflict:
+    """Describes a param space mismatch between an existing study and the current run."""
+
+    study_name: str
+    storage_path: str
+    existing_fingerprint: str
+    incoming_fingerprint: str
+    existing_trials: int
+
+    @property
+    def has_conflict(self) -> bool:
+        return self.existing_fingerprint != self.incoming_fingerprint
+
+    def describe(self) -> str:
+        return (
+            f"Study '{self.study_name}' in '{self.storage_path}' has {self.existing_trials} "
+            f"existing trials with a different param space.\n"
+            f"  Existing fingerprint : {self.existing_fingerprint}\n"
+            f"  Incoming fingerprint : {self.incoming_fingerprint}"
+        )
 
 
 class OptunaSearch:
@@ -196,6 +242,10 @@ class OptunaSearch:
             storage=self._storage,
             load_if_exists=True,
         )
+
+        # Stamp fingerprint on new studies so future runs can detect param space changes
+        if _FINGERPRINT_ATTR not in self.study.user_attrs:
+            self.study.set_user_attr(_FINGERPRINT_ATTR, fingerprint_param_space(self._param_space))
 
         already_done = len(self.study.trials)
         remaining = max(0, self._n_trials - already_done)
@@ -424,6 +474,53 @@ class OptunaSearch:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{p}"
+
+    def check_storage_conflict(self) -> StorageConflict | None:
+        """
+        Check if an existing study in storage has a different param space fingerprint.
+
+        Returns a StorageConflict if a mismatch is detected, None if safe to proceed
+        (no existing study, or fingerprints match, or no storage configured).
+        """
+        if not OPTUNA_AVAILABLE or self._storage is None:
+            return None
+
+        try:
+            summaries = optuna.get_all_study_summaries(storage=self._storage)
+        except Exception:
+            return None  # Storage doesn't exist yet
+
+        existing = next((s for s in summaries if s.study_name == self._study_name), None)
+        if existing is None or existing.n_trials == 0:
+            return None
+
+        # Load the study to read its stored fingerprint
+        try:
+            study = optuna.load_study(study_name=self._study_name, storage=self._storage)
+        except Exception:
+            return None
+
+        stored_fp = study.user_attrs.get(_FINGERPRINT_ATTR, "")
+        incoming_fp = fingerprint_param_space(self._param_space)
+
+        conflict = StorageConflict(
+            study_name=self._study_name,
+            storage_path=self._storage,
+            existing_fingerprint=stored_fp,
+            incoming_fingerprint=incoming_fp,
+            existing_trials=existing.n_trials,
+        )
+        return conflict if conflict.has_conflict else None
+
+    def delete_study(self) -> None:
+        """Delete the study from storage so a fresh run can start."""
+        if not OPTUNA_AVAILABLE or self._storage is None:
+            return
+        try:
+            optuna.delete_study(study_name=self._study_name, storage=self._storage)
+            logger.info("Deleted study '%s' from storage.", self._study_name)
+        except Exception as e:
+            logger.warning("Could not delete study '%s': %s", self._study_name, e)
 
     # ── Export ────────────────────────────────────────────────────
 
