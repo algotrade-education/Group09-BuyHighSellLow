@@ -331,6 +331,9 @@ class OptunaSearch:
                 ),
             )
 
+            # Store full params (including single-choice constants not in t.params)
+            trial.set_user_attr("_params_json", json.dumps(params))
+
             return score
 
         except Exception as e:
@@ -398,10 +401,16 @@ class OptunaSearch:
                 metrics = json.loads(t.user_attrs.get("_metrics_json", "{}"))
             except (json.JSONDecodeError, ValueError):
                 metrics = {}
+
+            # Prefer _params_json (includes single-choice constants skipped by Optuna)
+            try:
+                params = json.loads(t.user_attrs.get("_params_json", "{}")) or dict(t.params)
+            except (json.JSONDecodeError, ValueError):
+                params = dict(t.params)
             results.append(
                 OptunaResult(
                     trial_number=t.number,
-                    params=dict(t.params),
+                    params=params,
                     score=t.value,
                     metrics=metrics,
                 )
