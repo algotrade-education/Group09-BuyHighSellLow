@@ -1,18 +1,14 @@
 """
-src/optimization/scoring.py
-
 Pluggable scoring functions for optimization.
-
-Separating scoring from OptunaSearch / GridSearch means:
-- Easy to swap scoring logic without changing optimizer code
-- Scoring can be unit-tested independently
-- Walk-forward and Optuna can share the same scorer
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+INVALID_SCORE: float = -10.0
+ERROR_SCORE: float = -100.0
 
 
 @dataclass
@@ -59,10 +55,6 @@ class ScorerConfig:
     trade_count_bonus: float = 0.0
     trade_bonus_cap: float = 1.0  # cap bonus at this many "thousands of trades"
 
-    # Sentinel values - class-level constants, not configurable via __init__
-    INVALID_SCORE: float = field(default=-10.0, init=False, repr=False, compare=False)
-    ERROR_SCORE: float = field(default=-100.0, init=False, repr=False, compare=False)
-
     def __post_init__(self) -> None:
         if self.min_trades < 0:
             raise ValueError(f"min_trades must be >= 0, got {self.min_trades}")
@@ -91,9 +83,10 @@ def calculate_score(
 
     Returns:
         Float score. Higher is better.
-        cfg.INVALID_SCORE (-10) = failed hard gate.
-        cfg.ERROR_SCORE (-100)  = exception during trial.
+        INVALID_SCORE (-10) = failed hard gate.
+        ERROR_SCORE (-100)  = exception during trial.
     """
+
     total_trades = int(metrics.get("total_trades", 0))
     sharpe = float(metrics.get("sharpe_ratio", 0.0))
     sortino = float(metrics.get("sortino_ratio", 0.0))
@@ -104,13 +97,13 @@ def calculate_score(
 
     # Hard gates - return INVALID immediately
     if total_trades < cfg.min_trades:
-        return cfg.INVALID_SCORE
+        return INVALID_SCORE
     if total_return < cfg.min_return_pct:
-        return cfg.INVALID_SCORE
+        return INVALID_SCORE
     if profit_factor < cfg.min_profit_factor:
-        return cfg.INVALID_SCORE
+        return INVALID_SCORE
     if win_rate < cfg.min_win_rate_pct:
-        return cfg.INVALID_SCORE
+        return INVALID_SCORE
 
     # Base score - consistent scale across all three paths
     # Sharpe and Sortino are already dimensionless risk-adjusted ratios.
