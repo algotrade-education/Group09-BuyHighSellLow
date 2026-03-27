@@ -210,7 +210,7 @@ class OptunaSearch:
         self.results: list[OptunaResult] = []
         self.study: optuna.Study | None = None
 
-    # ── Optimize ──────────────────────────────────────────────────
+    # --- Optimize -------------------------------------------------
 
     def optimize(self, show_progress: bool = True) -> list[OptunaResult]:
         """
@@ -273,7 +273,7 @@ class OptunaSearch:
         self.results.sort(key=lambda r: r.score, reverse=True)
         return self.results
 
-    # ── Sampler / Pruner builders ─────────────────────────────────
+    # --- Sampler / Pruner builders --------------------------------
 
     def _build_sampler(self) -> Any:
         """
@@ -351,7 +351,7 @@ class OptunaSearch:
                 patience=self._patience,
             )
 
-    # ── Objective ─────────────────────────────────────────────────
+    # --- Objective ------------------------------------------------
 
     def _objective(self, trial: Trial) -> float:
         """Optuna objective function for a single trial."""
@@ -391,7 +391,7 @@ class OptunaSearch:
             trial.set_user_attr("error", str(e))
             return ERROR_SCORE
 
-    # ── Param sampling ────────────────────────────────────────────
+    # --- Param sampling -------------------------------------------
 
     def _sample_params(self, trial: Trial) -> dict[str, Any]:
         """Sample parameters from param_space using Optuna's trial API.
@@ -436,7 +436,7 @@ class OptunaSearch:
 
         return params
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers --------------------------------------------------
 
     def _collect_results(self) -> list[OptunaResult]:
         """Reconstruct OptunaResult list from completed study trials."""
@@ -524,7 +524,7 @@ class OptunaSearch:
         except Exception as e:
             logger.warning("Could not delete study '%s': %s", self._study_name, e)
 
-    # ── Export ────────────────────────────────────────────────────
+    # --- Export ---------------------------------------------------
 
     @property
     def best_params(self) -> dict[str, Any] | None:
@@ -554,9 +554,9 @@ class OptunaSearch:
         if not self.results:
             print("No results.")
             return
-        print(f"\n{'─' * 70}")
+        print(f"\n{'-' * 70}")
         print(f"  TOP {n} OPTUNA RESULTS  [{self._sampler_type.upper()}]")
-        print(f"{'─' * 70}")
+        print(f"{'-' * 70}")
         for i, r in enumerate(self.results[:n], 1):
             sharpe = r.metrics.get("sharpe_ratio", 0)
             pf = r.metrics.get("net_profit_factor", 0)
@@ -581,9 +581,9 @@ class OptunaSearch:
         valid = sum(1 for t in self.study.trials if t.value is not None and t.value > INVALID_SCORE)
         invalid = len(self.study.trials) - valid
 
-        print(f"\n{'─' * 70}")
+        print(f"\n{'-' * 70}")
         print("  OPTUNA STUDY SUMMARY")
-        print(f"{'─' * 70}")
+        print(f"{'-' * 70}")
         print(f"  Study name:        {self._study_name}")
         print(f"  Sampler:           {self._sampler_type}")
         print(f"  Startup trials:    {self._n_startup_trials}  (QMC warmup)")
@@ -595,4 +595,4 @@ class OptunaSearch:
             print(f"  Best trial:        #{self.study.best_trial.number}")
             print(f"  Best score:        {self.study.best_value:.4f}")
             print(f"  Best params:       {self.study.best_params}")
-        print(f"{'─' * 70}\n")
+        print(f"{'-' * 70}\n")

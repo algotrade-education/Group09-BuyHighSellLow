@@ -96,7 +96,7 @@ class GridSearch:
         self.results: list[GridResult] = []
         self.failed_params: list[dict[str, Any]] = []
 
-    # ── Properties ────────────────────────────────────────────────
+    # --- Properties -----------------------------------------------
 
     @property
     def total_combinations(self) -> int:
@@ -110,7 +110,7 @@ class GridSearch:
     def best_result(self) -> GridResult | None:
         return self.results[0] if self.results else None
 
-    # ── Optimize ──────────────────────────────────────────────────
+    # --- Optimize -------------------------------------------------
 
     def optimize(
         self,
@@ -154,7 +154,7 @@ class GridSearch:
 
         return self.results
 
-    # ── Serial ────────────────────────────────────────────────────
+    # --- Serial ---------------------------------------------------
 
     def _run_serial(
         self,
@@ -173,7 +173,7 @@ class GridSearch:
         if show_progress:
             print()
 
-    # ── Parallel ──────────────────────────────────────────────────
+    # --- Parallel -------------------------------------------------
 
     def _run_parallel(
         self,
@@ -222,7 +222,7 @@ class GridSearch:
         if show_progress:
             print()
 
-    # ── Single trial ──────────────────────────────────────────────
+    # --- Single trial ---------------------------------------------
 
     def _run_trial(self, params: dict[str, Any]) -> GridResult | None:
         """Run one trial in the current process."""
@@ -251,7 +251,7 @@ class GridSearch:
             logger.error("Failed to build GridResult: %s", e)
             return None
 
-    # ── Helpers ───────────────────────────────────────────────────
+    # --- Helpers --------------------------------------------------
 
     def _dedup_combinations(self) -> list[dict[str, Any]]:
         """
@@ -282,7 +282,7 @@ class GridSearch:
             reverse=not self._minimize,
         )
 
-    # ── Export ────────────────────────────────────────────────────
+    # --- Export ---------------------------------------------------
 
     def to_dataframe(self) -> pd.DataFrame:
         if not self.results:
@@ -304,9 +304,9 @@ class GridSearch:
         if not self.results:
             print("No results.")
             return
-        print(f"\n{'─' * 60}")
+        print(f"\n{'-' * 60}")
         print(f"  TOP {n} GRID SEARCH RESULTS")
-        print(f"{'─' * 60}")
+        print(f"{'-' * 60}")
         for i, r in enumerate(self.results[:n], 1):
             print(f"\n  Rank {i}:")
             print(f"    Score:   {r.score:.4f}")

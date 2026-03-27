@@ -147,9 +147,9 @@ class WalkForwardResult:
         return paths
 
     def print_summary(self) -> None:
-        print(f"\n{'─' * 60}")
+        print(f"\n{'-' * 60}")
         print("  WALK-FORWARD SUMMARY")
-        print(f"{'─' * 60}")
+        print(f"{'-' * 60}")
         print(f"  Mode:              {self.mode}")
         print(f"  Optimizer:         {self.optimizer}")
         print(f"  Windows:           {len(self.windows)}")
@@ -170,7 +170,7 @@ class WalkForwardResult:
                 f"Degradation: {w.sharpe_degradation:.1f}%  "
                 f"Params: {w.best_params}"
             )
-        print(f"{'─' * 60}\n")
+        print(f"{'-' * 60}\n")
 
 
 class WalkForwardOptimizer:
@@ -278,7 +278,7 @@ class WalkForwardOptimizer:
 
         self.result: WalkForwardResult | None = None
 
-    # ── Optimize ──────────────────────────────────────────────────
+    # --- Optimize -------------------------------------------------
 
     def optimize(
         self,
@@ -405,7 +405,7 @@ class WalkForwardOptimizer:
         )
         return self.result
 
-    # ── Inner optimizer ───────────────────────────────────────────
+    # --- Inner optimizer ------------------------------------------
 
     def _run_inner_optimizer(
         self,
@@ -460,7 +460,7 @@ class WalkForwardOptimizer:
         else:
             raise ValueError(f"Unknown optimizer: {self._optimizer!r}. Use 'grid' or 'optuna'.")
 
-    # ── Window creation ───────────────────────────────────────────
+    # --- Window creation ------------------------------------------
 
     def _create_windows(
         self,
@@ -547,7 +547,7 @@ class WalkForwardOptimizer:
 
         return windows
 
-    # ── Aggregate ─────────────────────────────────────────────────
+    # --- Aggregate ------------------------------------------------
 
     def _build_aggregate(
         self,

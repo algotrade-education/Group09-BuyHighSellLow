@@ -93,9 +93,9 @@ class MonteCarloResult:
         return float(np.percentile(self.max_drawdowns, 95))
 
     def print_summary(self) -> None:
-        print(f"\n{'─' * 60}")
+        print(f"\n{'-' * 60}")
         print("  MONTE CARLO SUMMARY")
-        print(f"{'─' * 60}")
+        print(f"{'-' * 60}")
         print(f"  Simulations:        {self.n_simulations:,}")
         print(f"  Initial Capital:    {self.initial_capital:,.0f}")
         print()
@@ -110,7 +110,7 @@ class MonteCarloResult:
         print()
         print(f"  Ruin Probability:   {self.ruin_probability:>8.2f}%")
         print(f"  (drawdown > {self.ruin_threshold_pct:.0f}%)")
-        print(f"{'─' * 60}\n")
+        print(f"{'-' * 60}\n")
 
     def save(self, output_dir: str | Path) -> dict[str, Path]:
         """Save simulation results to CSV files."""
