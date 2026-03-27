@@ -18,8 +18,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from optimization.grid_search import GridResult
-from optimization.optuna_search import OptunaResult
+from src.optimization.grid_search import GridResult
+from src.optimization.optuna_search import OptunaResult
 from src.optimization.scoring import ScorerConfig
 
 logger = logging.getLogger(__name__)
@@ -557,18 +557,8 @@ class WalkForwardOptimizer:
         if not windows:
             return {}
 
-        n = len(windows)
-        avg_train = sum(w.train_sharpe for w in windows) / n
-        avg_test = sum(w.test_sharpe for w in windows) / n
-        avg_deg = sum(w.sharpe_degradation for w in windows) / n
-        robustness = avg_test / avg_train if avg_train != 0 else 0.0
-
         agg: dict[str, Any] = {
-            "windows_completed": n,
-            "avg_train_sharpe": avg_train,
-            "avg_test_sharpe": avg_test,
-            "avg_degradation_pct": avg_deg,
-            "robustness_ratio": robustness,
+            "windows_completed": len(windows),
             "total_test_trades": len(all_trades),
         }
 
