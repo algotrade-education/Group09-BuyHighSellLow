@@ -56,18 +56,58 @@ logger = setup_logging(
 # --- Default param spaces per strategy ---
 # These are sensible ranges based on the default config values.
 # Adjust low/high to narrow or widen the search.
+#
+# Param groups:
+#   freq   - resample_freq (bar timeframe)
+#   core   - opening range + ATR params
+#   filter - optional signal filters (volume, ADX, direction)
+#   risk   - trailing stop, position sizing
 
 _ORB_PARAM_SPACE: dict[str, dict[str, Any]] = {
-    "orb_minutes": {"type": "int", "low": 10, "high": 45, "step": 5},
-    "atr_period": {"type": "int", "low": 10, "high": 20},
-    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.5},
+    # --- Frequency ---
+    "resample_freq": {"type": "categorical", "choices": ["1min", "5min", "15min"]},
+    # --- Core strategy ---
+    "orb_minutes": {"type": "int", "low": 10, "high": 60, "step": 5},
+    "atr_period": {"type": "int", "low": 5, "high": 30},
+    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
+    "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.25},
     "breakout_buffer": {"type": "float", "low": 0.0, "high": 1.0, "step": 0.1},
-    "min_range_atr": {"type": "float", "low": 0.3, "high": 1.5, "step": 0.1},
-    "max_range_atr": {"type": "float", "low": 2.0, "high": 5.0, "step": 0.5},
+    "use_range_sl": {"type": "categorical", "choices": [True, False]},
+    "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
+    "max_range_atr": {"type": "float", "low": 2.0, "high": 6.0, "step": 0.5},
+    # --- Direction / trade limits ---
+    "long_only": {"type": "categorical", "choices": [True, False]},
+    "max_trades_per_session": {"type": "int", "low": 1, "high": 3},
+    # --- Optional filters ---
+    "use_volume_filter": {"type": "categorical", "choices": [True, False]},
+    "use_adx_filter": {"type": "categorical", "choices": [True, False]},
+    "adx_min": {"type": "float", "low": 15.0, "high": 35.0, "step": 1.0},
+    # --- Risk ---
+    "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
+    "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
+    "risk_per_trade_pct": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.25},
+}
+
+# Subset spaces for faster / focused runs
+_ORB_PARAM_SPACE_CORE: dict[str, dict[str, Any]] = {
+    k: v
+    for k, v in _ORB_PARAM_SPACE.items()
+    if k
+    in {
+        "orb_minutes",
+        "atr_period",
+        "atr_tp_multiplier",
+        "atr_sl_multiplier",
+        "breakout_buffer",
+        "use_range_sl",
+        "min_range_atr",
+        "max_range_atr",
+    }
 }
 
 _PARAM_SPACES: dict[str, dict[str, dict[str, Any]]] = {
     "orb": _ORB_PARAM_SPACE,
+    "orb_core": _ORB_PARAM_SPACE_CORE,
 }
 
 
@@ -90,24 +130,45 @@ def _build_orb_trial_fn(
 
     The returned function accepts a params dict and returns a BacktestResult.
     Data is loaded once outside and reused across all trials.
+
+    Param routing:
+        - "resample_freq"         → overrides freq for DataPreprocessor (if present)
+        - _RISK_KEYS              → routed into config["risk"]
+        - everything else         → routed into config["strategy"]
     """
-    # Load base config once - trials only override strategy params
+    # Keys that belong to RiskConfig, not ORBStrategyConfig
+    _RISK_KEYS = {"use_trailing_stop", "trailing_atr_multiplier", "risk_per_trade_pct"}
+
+    # Load base config once - trials only override strategy/risk params
     base_raw = json.loads(Path(base_config_path).read_text(encoding="utf-8"))
-    freq_minutes = int(freq.replace("min", ""))
 
     def trial_fn(params: dict[str, Any]) -> Any:
-        # Merge trial params into base config
+        # Split params by destination
+        trial_freq = params.get("resample_freq", freq)
+        strategy_params = {
+            k: v for k, v in params.items() if k not in _RISK_KEYS and k != "resample_freq"
+        }
+        risk_params = {k: v for k, v in params.items() if k in _RISK_KEYS}
+
         trial_raw = {
             **base_raw,
-            "strategy": {**base_raw["strategy"], **params},
+            "strategy": {**base_raw["strategy"], "resample_freq": trial_freq, **strategy_params},
+            "risk": {**base_raw["risk"], **risk_params},
         }
 
         try:
             config = ORBConfig.from_dict(trial_raw)
         except Exception:
-            # Pydantic validation failed (e.g. min_range_atr >= max_range_atr)
-            # Return a dummy result with 0 trades so scorer returns INVALID_SCORE
+            # Pydantic validation failed (e.g. min_range_atr >= max_range_atr,
+            # or atr_tp_multiplier <= atr_sl_multiplier when use_range_sl=False)
             return _invalid_result()
+
+        # Re-preprocess if freq changed from the base
+        if trial_freq != freq:
+            preprocessor = DataPreprocessor()
+            data = preprocessor.prepare(preprocessed_data, freq=trial_freq)
+        else:
+            data = preprocessed_data
 
         strategy = ORBStrategy(config)
         registry = ORBStrategy.build_registry(
@@ -116,8 +177,9 @@ def _build_orb_trial_fn(
             volume_ma_period=config.strategy.volume_ma_period,
         )
 
-        pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=True)
-        data = pipeline.run(preprocessed_data)
+        freq_minutes = int(trial_freq.replace("min", ""))
+        pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=trial_freq == freq)
+        data = pipeline.run(data)
         warmup = pipeline.get_required_lookback()
 
         sizer = PercentRiskSizer(
@@ -171,9 +233,10 @@ def run(args: argparse.Namespace) -> int:
             "Trials": args.n_trials,
             "Sampler": args.sampler,
             "Freq": freq,
+            "Param space": args.param_space,
             "Capital": f"{args.capital:,.0f}",
         },
-        label_width=10,
+        label_width=12,
     )
     print()
 
@@ -203,7 +266,17 @@ def run(args: argparse.Namespace) -> int:
         print_status(f"No param space defined for strategy: {args.strategy!r}", "error")
         return 1
 
-    param_space = _PARAM_SPACES[args.strategy]
+    space_key = (
+        f"{args.strategy}_{args.param_space}" if args.param_space != "full" else args.strategy
+    )
+    if space_key not in _PARAM_SPACES:
+        print_status(
+            f"Unknown param space {args.param_space!r} for strategy {args.strategy!r}. "
+            f"Available: full, core",
+            "error",
+        )
+        return 1
+    param_space = _PARAM_SPACES[space_key]
 
     if args.strategy == "orb":
         trial_fn = _build_orb_trial_fn(
@@ -298,8 +371,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("--strategy", "-s", default="orb", choices=list(_PARAM_SPACES))
+    parser.add_argument("--strategy", "-s", default="orb", choices=["orb", "orb_core"])
     parser.add_argument("--config", "-c", default=None, help="Base config JSON (overrides default)")
+    parser.add_argument(
+        "--param-space",
+        default="full",
+        choices=["full", "core"],
+        help="full=all params incl. freq+risk, core=strategy params only (faster)",
+    )
 
     # Data
     parser.add_argument("--symbol", default="VN30F1M")
