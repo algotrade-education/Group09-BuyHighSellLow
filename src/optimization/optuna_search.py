@@ -382,7 +382,7 @@ class OptunaSearch:
             )
 
             # Store full params (including single-choice constants not in t.params)
-            trial.set_user_attr("_params_json", json.dumps(params))
+            trial.set_user_attr("_params_json", json.dumps(params, default=str))
 
             return score
 
@@ -454,7 +454,9 @@ class OptunaSearch:
 
             # Prefer _params_json (includes single-choice constants skipped by Optuna)
             try:
-                params = json.loads(t.user_attrs.get("_params_json", "{}")) or dict(t.params)
+                params = json.loads(t.user_attrs.get("_params_json", "{}"))
+                if not params:
+                    params = dict(t.params)
             except (json.JSONDecodeError, ValueError):
                 params = dict(t.params)
             results.append(
