@@ -30,7 +30,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from pathlib import Path as _Path
 from typing import Any
 
 from config.constants import ExecutionConfig
@@ -93,7 +92,7 @@ def _build_orb_trial_fn(
     Data is loaded once outside and reused across all trials.
     """
     # Load base config once - trials only override strategy params
-    base_raw = json.loads(_Path(base_config_path).read_text(encoding="utf-8"))
+    base_raw = json.loads(Path(base_config_path).read_text(encoding="utf-8"))
     freq_minutes = int(freq.replace("min", ""))
 
     def trial_fn(params: dict[str, Any]) -> Any:
@@ -162,8 +161,6 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     # Load config to get freq
-    import json
-
     base_raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
     freq = args.freq or base_raw.get("strategy", {}).get("resample_freq", "5min")
 
@@ -269,15 +266,13 @@ def run(args: argparse.Namespace) -> int:
     # --- 7. Save best config ---
     if args.save_best and results:
         best = results[0]
-        import json as _json
-
         best_raw = {
             **base_raw,
             "strategy": {**base_raw["strategy"], **best.params},
         }
         save_path = Path(args.save_best)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        save_path.write_text(_json.dumps(best_raw, indent=2), encoding="utf-8")
+        save_path.write_text(json.dumps(best_raw, indent=2), encoding="utf-8")
         print_status(f"Best config saved → {save_path}", "success")
         print_kv_rows(
             {
