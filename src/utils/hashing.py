@@ -19,8 +19,10 @@ def hash_str(value: str, length: int = 64) -> str:
 
     Args:
         value:  The string to hash.
-        length: Number of hex characters to return (max 64). Default: full digest.
+        length: Number of hex characters to return (1–64). Default: full digest.
     """
+    if not 1 <= length <= 64:
+        raise ValueError(f"length must be between 1 and 64, got {length}")
     digest = hashlib.sha256(value.encode()).hexdigest()
     return digest[:length]
 
