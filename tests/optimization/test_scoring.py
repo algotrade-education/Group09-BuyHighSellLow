@@ -53,7 +53,7 @@ def _metrics(
 
 
 def test_constants_values():
-    assert INVALID_SCORE == -10.0
+    assert INVALID_SCORE == -20.0
     assert ERROR_SCORE == -100.0
 
 

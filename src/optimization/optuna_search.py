@@ -16,10 +16,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from src.optimization.scoring import ScorerConfig, calculate_score
-
-INVALID_SCORE: float = -10.0
-ERROR_SCORE: float = -100.0
+from src.optimization.scoring import ERROR_SCORE, INVALID_SCORE, ScorerConfig, calculate_score
 
 try:
     import optuna
@@ -344,7 +341,12 @@ class OptunaSearch:
     # ── Param sampling ────────────────────────────────────────────
 
     def _sample_params(self, trial: Trial) -> dict[str, Any]:
-        """Sample parameters from param_space using Optuna's trial API."""
+        """Sample parameters from param_space using Optuna's trial API.
+
+        Categorical params with a single choice are injected as constants
+        rather than sampled — this avoids Optuna's distribution compatibility
+        error when resuming a study that previously had a wider choice set.
+        """
         params: dict[str, Any] = {}
 
         for name, spec in self._param_space.items():
@@ -359,7 +361,7 @@ class OptunaSearch:
                 )
             elif ptype == "float":
                 step = spec.get("step")
-                log = spec.get("log", False)  # log scale for e.g. learning rates
+                log = spec.get("log", False)
                 params[name] = trial.suggest_float(
                     name,
                     spec["low"],
@@ -368,7 +370,14 @@ class OptunaSearch:
                     **({"log": log} if log else {}),
                 )
             elif ptype == "categorical":
-                params[name] = trial.suggest_categorical(name, spec["choices"])
+                choices = spec["choices"]
+                if len(choices) == 1:
+                    # Single-choice: inject as constant, don't register with Optuna.
+                    # This avoids CategoricalDistribution compatibility errors when
+                    # resuming a study that previously had a different choice set.
+                    params[name] = choices[0]
+                else:
+                    params[name] = trial.suggest_categorical(name, choices)
             else:
                 raise ValueError(f"Unknown param type {ptype!r} for {name!r}")
 
@@ -460,8 +469,10 @@ class OptunaSearch:
         if self.study is None:
             print("No study available.")
             return
+
         valid = sum(1 for t in self.study.trials if t.value is not None and t.value > INVALID_SCORE)
         invalid = len(self.study.trials) - valid
+
         print(f"\n{'─' * 70}")
         print("  OPTUNA STUDY SUMMARY")
         print(f"{'─' * 70}")

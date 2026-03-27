@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-INVALID_SCORE: float = -10.0
+INVALID_SCORE: float = -20.0
 ERROR_SCORE: float = -100.0
 
 
