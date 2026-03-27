@@ -1,6 +1,4 @@
 """
-src/optimization/monte_carlo.py
-
 Monte Carlo simulation on a completed backtest's trade list.
 
 What it does:

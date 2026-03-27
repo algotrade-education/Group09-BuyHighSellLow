@@ -1,18 +1,6 @@
 """
-src/optimization/optuna_search.py
-
 Bayesian optimization using Optuna (TPE sampler).
 
-Key improvements over basic TPE:
-    - QMC warmup: Sobol sequence covers param space more uniformly than random
-      during the first n_startup_trials, giving TPE better data to learn from.
-    - Multivariate TPE: models correlations between params (e.g. orb_minutes
-      and atr_period often interact). Requires more trials to converge but
-      finds better regions in correlated spaces.
-    - constant_liar: for parallel runs, assumes in-flight trials return worst
-      score so TPE doesn't sample the same region multiple times.
-    - Study persistence via SQLite: crash-safe, resumable.
-    - Pluggable ScorerConfig shared with GridSearch and WalkForward.
 """
 
 from __future__ import annotations
@@ -29,6 +17,9 @@ from typing import Any, Literal
 import pandas as pd
 
 from src.optimization.scoring import ScorerConfig, calculate_score
+
+INVALID_SCORE: float = -10.0
+ERROR_SCORE: float = -100.0
 
 try:
     import optuna
@@ -337,7 +328,7 @@ class OptunaSearch:
                     {
                         k: v
                         for k, v in metrics.items()
-                        if isinstance(v, (int, float, str, bool))
+                        if isinstance(v, int | float | str | bool)
                         and not (isinstance(v, float) and math.isnan(v))
                     }
                 ),
@@ -348,7 +339,7 @@ class OptunaSearch:
         except Exception as e:
             logger.exception("Trial %d failed", trial.number)
             trial.set_user_attr("error", str(e))
-            return self._scorer.ERROR_SCORE
+            return ERROR_SCORE
 
     # ── Param sampling ────────────────────────────────────────────
 
@@ -469,11 +460,7 @@ class OptunaSearch:
         if self.study is None:
             print("No study available.")
             return
-        valid = sum(
-            1
-            for t in self.study.trials
-            if t.value is not None and t.value > self._scorer.INVALID_SCORE
-        )
+        valid = sum(1 for t in self.study.trials if t.value is not None and t.value > INVALID_SCORE)
         invalid = len(self.study.trials) - valid
         print(f"\n{'─' * 70}")
         print("  OPTUNA STUDY SUMMARY")
