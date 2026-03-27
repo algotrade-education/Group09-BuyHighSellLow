@@ -7,6 +7,7 @@ from __future__ import annotations
 import concurrent.futures
 import itertools
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -99,10 +100,7 @@ class GridSearch:
 
     @property
     def total_combinations(self) -> int:
-        total = 1
-        for v in self._param_grid.values():
-            total *= len(v)
-        return total
+        return math.prod(len(v) for v in self._param_grid.values())
 
     @property
     def best_params(self) -> dict[str, Any] | None:
