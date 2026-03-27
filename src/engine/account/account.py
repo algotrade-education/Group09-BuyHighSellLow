@@ -304,7 +304,6 @@ class AccountState:
         # Note: Slippage will be applied later in execute_order
         max_qty = self._max_affordable_quantity(check_price)
         if max_qty <= 0:
-            logger.warning("Insufficient margin at price %.2f", check_price)
             return None
         quantity = min(quantity, max_qty)
 
@@ -369,8 +368,8 @@ class AccountState:
             # Slippage makes entry more expensive, so we need to verify margin again
             max_qty = self._max_affordable_quantity(exec_price)
             if max_qty <= 0:
-                logger.warning("No margin at execution price %.2f (after slippage)", exec_price)
                 return False
+
             if order.quantity > max_qty:
                 logger.info("Reducing order qty %d->%d (margin)", order.quantity, max_qty)
                 order.quantity = max_qty
