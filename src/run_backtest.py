@@ -402,7 +402,6 @@ def run(args: argparse.Namespace) -> int:
         {
             "Period": f"{args.start} -> {args.end}",
             "Capital": f"{args.capital:,.0f}",
-            "Freq": freq,
         },
         label_width=8,
     )
