@@ -7,7 +7,6 @@ Cache key = hash(data fingerprint + registry params)
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import pandas as pd
 
 from src.data.indicators.base import IndicatorBase
 from src.data.indicators.registry import IndicatorRegistry
+from src.utils.hashing import hash_str
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +195,7 @@ class DataPipeline:
         )
 
         combined = f"{_CACHE_VERSION}|{data_sig}|{registry_sig}"
-        return hashlib.sha256(combined.encode()).hexdigest()
+        return hash_str(combined)
 
     def _load_cache(self, cache_key: str) -> pd.DataFrame | None:
         path = self._cache_path(cache_key)
