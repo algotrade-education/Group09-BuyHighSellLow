@@ -203,10 +203,10 @@ def run(args: argparse.Namespace) -> int:
     # --- 7. Save best config ---
     if results:
         best = results[0]
-        # Split optimized params: risk keys go to "risk", rest go to "strategy"
-        base_risk_keys = set(base_raw.get("risk", {}).keys())
-        best_strategy_params = {k: v for k, v in best.params.items() if k not in base_risk_keys}
-        best_risk_params = {k: v for k, v in best.params.items() if k in base_risk_keys}
+        # Split optimized params: use plugin's declared risk_keys as the authority
+        risk_keys = plugin.risk_keys
+        best_strategy_params = {k: v for k, v in best.params.items() if k not in risk_keys}
+        best_risk_params = {k: v for k, v in best.params.items() if k in risk_keys}
         best_raw = {
             **base_raw,
             "strategy": {**base_raw["strategy"], **best_strategy_params},
