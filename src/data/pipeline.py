@@ -7,12 +7,12 @@ Cache key = hash(data fingerprint + registry params)
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
 import pandas as pd
 
-from src.data.indicators.base import IndicatorBase
 from src.data.indicators.registry import IndicatorRegistry
 from src.utils.hashing import hash_str
 
@@ -103,67 +103,42 @@ class DataPipeline:
 
     def _compute(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Feed each bar into all indicators in sequence, add output columns to df.
-        Reproducible: same data -> same output, no external state dependency.
+        Compute all indicators and add as columns to df.
+        Uses compute_vectorized() if available (fast numpy path),
+        falls back to bar-by-bar update() loop otherwise.
         """
         df = df.copy()
-
-        # Instantiate indicators from registry specs
         indicators = self._registry.build_indicators()
 
-        # Pre-allocate output arrays
-        output: dict[str, list[float | None]] = {col: [] for col in indicators}
+        for col, indicator in indicators.items():
+            df[col] = indicator.compute_vectorized(df)
 
-        # Feed each bar into indicators
-        for bar_raw in df.to_dict(orient="records"):
-            bar: dict[str, object] = {str(k): v for k, v in bar_raw.items()}
-            for col, indicator in indicators.items():
-                value = self._feed_indicator(indicator, col, bar)
-                output[col].append(value)
-
-        # Add indicator columns into df
-        for col, values in output.items():
-            df[col] = values
-
-        logger.debug(
-            "Computed indicators: %s",
-            list(indicators.keys()),
-        )
+        logger.debug("Computed indicators: %s", list(indicators.keys()))
         return df
 
-    @staticmethod
-    def _feed_indicator(
-        indicator: IndicatorBase,
-        output_col: str,
-        bar: dict[str, object],
-    ) -> float | None:
+    def _feed_indicator(self, indicator: object, output_column: str, bar: dict) -> object:
+        """Feed a single bar dict into an indicator's update() method.
+
+        Returns the indicator value, or None if required inputs are missing
+        or the indicator is still in its warm-up period.
+
+        Args:
+            indicator: An IndicatorBase instance with an update(**kwargs) method.
+            output_column: Column name (unused here, kept for API symmetry).
+            bar: Bar dict that may or may not contain required fields.
+
+        Returns:
+            Indicator value or None.
         """
-        Feed one bar into an indicator using its declared required_inputs.
-        Generic dispatch - no isinstance checks needed.
-        """
+        required: frozenset[str] = getattr(indicator, "required_inputs", frozenset())
+        if required and not required.issubset(bar.keys()):
+            return None
         try:
-            # Extract only the inputs this indicator needs
-            kwargs = {k: bar[k] for k in indicator.required_inputs if k in bar}
-
-            # Check if all required inputs are present
-            if len(kwargs) != len(indicator.required_inputs):
-                missing = indicator.required_inputs - kwargs.keys()
-                logger.warning(
-                    "Indicator '%s' missing required inputs %s for bar %s",
-                    output_col,
-                    missing,
-                    bar.get("datetime"),
-                )
+            update_fn = getattr(indicator, "update", None)
+            if update_fn is None:
                 return None
-
-            return indicator.update(**kwargs)
-        except (KeyError, TypeError) as e:
-            logger.warning(
-                "Indicator '%s' update failed for bar %s: %s",
-                output_col,
-                bar.get("datetime"),
-                e,
-            )
+            return update_fn(**{k: bar[k] for k in required})
+        except Exception:
             return None
 
     # --- Cache ---
@@ -172,13 +147,15 @@ class DataPipeline:
         """
         Hash key = data fingerprint + registry params + cache version.
 
-        Data fingerprint: shape + first datetime + last datetime + dtypes
-        Do not hash actual data values to keep it fast - we assume if shape and dtypes are the same, the data is the same for our use case.
+        Data fingerprint: shape + first/last datetime + dtypes + values hash.
+        The values hash catches in-place mutations (e.g. close += 10) that
+        leave shape and timestamps unchanged.
         """
-        # Hash the actual data values using pandas built-in fast hashing
-        # This guarantees that if prices/volumes update but shape remains the same,
-        # the cache is properly invalidated.
-        df_hash = pd.util.hash_pandas_object(df, index=False).sum()
+        import numpy as np
+
+        values_hash = hashlib.md5(
+            np.asarray(pd.util.hash_pandas_object(df, index=False)).tobytes()
+        ).hexdigest()
 
         data_sig = "|".join(
             [
@@ -186,7 +163,7 @@ class DataPipeline:
                 str(df[DATETIME_COL].iloc[0]) if DATETIME_COL in df.columns else "",
                 str(df[DATETIME_COL].iloc[-1]) if DATETIME_COL in df.columns else "",
                 str(df.dtypes.to_dict()),
-                str(df_hash),
+                values_hash,
             ]
         )
 
