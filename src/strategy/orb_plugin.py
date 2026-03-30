@@ -1,7 +1,7 @@
 """
 src/strategy/orb_plugin.py
 
-ORB strategy plugin — registers ORB with the global strategy registry.
+ORB strategy plugin - registers ORB with the global strategy registry.
 
 Single source of truth for:
   - ORB param spaces (full, core, wfo_grid, wfo_optuna)
@@ -42,8 +42,8 @@ _FULL: dict[str, dict[str, Any]] = {
     "resample_freq": {"type": "categorical", "choices": ["15min"]},
     # Core strategy
     "orb_minutes": {"type": "int", "low": 10, "high": 60, "step": 5},
-    "atr_period": {"type": "int", "low": 5, "high": 30},
-    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 6.0, "step": 0.1},
+    "atr_period": {"type": "int", "low": 14, "high": 30},
+    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.1},
     "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.1},
     "breakout_buffer": {"type": "float", "low": 0.0, "high": 1.0, "step": 0.05},
     "use_range_sl": {"type": "categorical", "choices": [True, False]},
@@ -93,7 +93,7 @@ _WFO_GRID: dict[str, list[Any]] = {
     "use_adx_filter": [False],
 }
 
-# WFO Optuna: no resample_freq — data is pre-sliced per window
+# WFO Optuna: no resample_freq - data is pre-sliced per window
 _WFO_OPTUNA: dict[str, dict[str, Any]] = {k: v for k, v in _FULL.items() if k != "resample_freq"}
 
 # ---------------------------------------------------------------------------
@@ -143,8 +143,17 @@ def _run_backtest(
     cache_dir: str,
     freq_minutes: int,
     use_cache: bool = True,
+    processed_data: Any = None,
+    bars_list: list[dict[str, Any]] | None = None,
 ) -> Any:
-    """Build pipeline + backtester from a validated config and run it."""
+    """
+    Build pipeline + backtester from a validated config and run it.
+
+    Args:
+        processed_data: Pre-computed DataFrame with indicators (optional)
+        bars_list: Pre-converted list of dicts from processed_data (optional)
+                  If provided along with processed_data, skips expensive to_dict("records")
+    """
     from src.data.pipeline import DataPipeline
     from src.engine.account.sizer import PercentRiskSizer
     from src.engine.backtester import Backtester
@@ -157,9 +166,14 @@ def _run_backtest(
         adx_period=config.strategy.adx_period,
         volume_ma_period=config.strategy.volume_ma_period,
     )
-    pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=use_cache)
-    processed = pipeline.run(data)
-    warmup = pipeline.get_required_lookback()
+
+    if processed_data is not None:
+        processed = processed_data
+        warmup = registry.get_required_lookback()
+    else:
+        pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=use_cache)
+        processed = pipeline.run(data)
+        warmup = pipeline.get_required_lookback()
 
     sizer = PercentRiskSizer(
         risk_per_trade_pct=config.risk.risk_per_trade_pct,
@@ -181,7 +195,7 @@ def _run_backtest(
         allow_late_entry=config.risk.allow_late_entry,
         freq_minutes=freq_minutes,
     )
-    return bt.run(processed, warmup_bars=warmup)
+    return bt.run(processed, warmup_bars=warmup, bars_list=bars_list)
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +236,49 @@ def build_trial_fn(
 ) -> Any:
     """Return a standalone optimization trial fn: (params) -> BacktestResult."""
     from config.schemas.orb import ORBConfig
+    from src.data.pipeline import DataPipeline
     from src.data.preprocessor import DataPreprocessor
+    from src.strategy.orb import ORBStrategy
 
     base_raw = json.loads(Path(base_config_path).read_text(encoding="utf-8"))
+
+    # In-memory indicator cache keyed by (atr_period, adx_period, volume_ma_period, data_id).
+    # Avoids recomputing indicators when Optuna revisits the same combo.
+    # DataPipeline disk cache is still used as a secondary layer for cross-run persistence.
+    # Cache both DataFrame AND bars list to avoid repeated to_dict("records") calls.
+    _indicator_cache: dict[tuple, tuple[Any, list[dict]]] = {}
+
+    def _get_processed_and_bars(config: Any, data: Any, data_id: int) -> tuple[Any, list[dict]]:
+        """
+        Get processed DataFrame with indicators AND pre-converted bars list.
+
+        Args:
+            config: Strategy config with indicator periods
+            data: Input DataFrame
+            data_id: Unique ID for this data (use id(data) for identity-based caching)
+
+        Returns:
+            (processed_df, bars_list) tuple - both cached together
+        """
+        key = (
+            config.strategy.atr_period,
+            config.strategy.adx_period,
+            config.strategy.volume_ma_period,
+            data_id,  # Use data identity instead of shape for reliable caching
+        )
+        if key not in _indicator_cache:
+            registry = ORBStrategy.build_registry(
+                atr_period=config.strategy.atr_period,
+                adx_period=config.strategy.adx_period,
+                volume_ma_period=config.strategy.volume_ma_period,
+            )
+            pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=True)
+            processed_df = pipeline.run(data)
+            # Pre-convert to bars list once and cache it
+            bars_list = processed_df.to_dict("records")
+            _indicator_cache[key] = (processed_df, bars_list)
+
+        return _indicator_cache[key]
 
     def trial_fn(params: dict[str, Any]) -> Any:
         trial_freq, strategy_params, risk_params = _split_params(params, freq)
@@ -240,6 +294,12 @@ def build_trial_fn(
             if trial_freq != freq
             else preprocessed_data
         )
+
+        # Get both processed DataFrame and pre-converted bars list from cache
+        # This avoids expensive to_dict("records") call on every trial
+        data_id = id(data)  # Use object identity for reliable cache key
+        processed_df, bars = _get_processed_and_bars(config, data, data_id)
+
         return _run_backtest(
             config=config,
             data=data,
@@ -250,7 +310,9 @@ def build_trial_fn(
             margin_rate=margin_rate,
             cache_dir=cache_dir,
             freq_minutes=int(trial_freq.replace("min", "")),
-            use_cache=(trial_freq == freq),
+            use_cache=True,
+            processed_data=processed_df,
+            bars_list=bars,
         )
 
     return trial_fn

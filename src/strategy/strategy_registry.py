@@ -1,7 +1,7 @@
 """
 src/strategy/strategy_registry.py
 
-Central registry for all strategies — backtest, optimization, and walk-forward.
+Central registry for all strategies - backtest, optimization, and walk-forward.
 
 Each strategy registers a StrategyPlugin that bundles everything the run scripts
 need: how to load the strategy, config class, param spaces, and trial fn builders.
