@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from config.schemas.session import Session, VN30SessionConfig
 from src.engine.session.base import SessionManager
@@ -42,7 +43,20 @@ class VN30Session(SessionManager):
 
         self.close_at_eod = close_at_eod
         self._cfg = session_cfg()
+        self._market_tz = ZoneInfo("Asia/Ho_Chi_Minh")
         logger.debug("VN30Session initialized: close_at_eod=%s", close_at_eod)
+
+    def _normalize_dt(self, dt: datetime) -> datetime:
+        """
+        Normalize datetime for session comparisons.
+
+        Policy:
+        - timezone-aware datetime: convert to Asia/Ho_Chi_Minh, then drop tzinfo
+        - naive datetime: keep as-is (assumed already in market local time)
+        """
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(self._market_tz).replace(tzinfo=None)
 
     def is_trading_hours(self, dt: datetime) -> bool:
         """
@@ -56,6 +70,8 @@ class VN30Session(SessionManager):
         Returns:
             True if in morning or afternoon session, False otherwise
         """
+        dt = self._normalize_dt(dt)
+
         if dt.weekday() >= 5:  # Weekend
             return False
 
@@ -72,6 +88,7 @@ class VN30Session(SessionManager):
         Returns:
             True if in ATC period (14:30-14:45), False otherwise
         """
+        dt = self._normalize_dt(dt)
         return self._cfg.get_session(dt.time()) == Session.ATC
 
     def should_close_eod(self, dt: datetime) -> bool:
@@ -89,6 +106,8 @@ class VN30Session(SessionManager):
         Returns:
             True if at or after ATC start and close_at_eod is enabled
         """
+        dt = self._normalize_dt(dt)
+
         if not self.close_at_eod:
             return False
         if self._cfg.ATC_START is None:
@@ -111,6 +130,7 @@ class VN30Session(SessionManager):
         Returns:
             True if should skip signal generation
         """
+        dt = self._normalize_dt(dt)
         return not self.is_trading_hours(dt)
 
     def is_entry_blocked(
@@ -132,6 +152,8 @@ class VN30Session(SessionManager):
         Returns:
             True if entry should be blocked
         """
+        dt = self._normalize_dt(dt)
+
         if allow_late or cutoff_seconds <= 0:
             return False
 
@@ -165,6 +187,8 @@ class VN30Session(SessionManager):
         Returns:
             Reason string if should force close, None otherwise
         """
+        dt = self._normalize_dt(dt)
+
         if preclose_seconds <= 0:
             return None
 
@@ -187,6 +211,8 @@ class VN30Session(SessionManager):
         Returns:
             Seconds to session end, or None if outside any session
         """
+        dt = self._normalize_dt(dt)
+
         cfg = self._cfg
         t = dt.time()
 
@@ -236,6 +262,7 @@ class VN30Session(SessionManager):
         Returns:
             Session name (e.g., "MORNING", "AFTERNOON", "ATC", "CLOSED")
         """
+        dt = self._normalize_dt(dt)
         return self._cfg.get_session(dt.time()).value.upper()
 
     def __repr__(self) -> str:
