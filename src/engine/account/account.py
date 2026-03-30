@@ -623,9 +623,9 @@ class AccountState:
         return price * quantity * self.contract_multiplier * self.commission_rate
 
     def calc_commission(self, price: float, quantity: int) -> float:
-        """Public wrapper — calculate commission for a trade."""
+        """Public wrapper - calculate commission for a trade."""
         return self._calc_commission(price, quantity)
 
     def open_position(self, order: Order, timestamp: datetime) -> Trade:
-        """Public wrapper — open position and create trade record."""
+        """Public wrapper - open position and create trade record."""
         return self._open_position(order, timestamp)

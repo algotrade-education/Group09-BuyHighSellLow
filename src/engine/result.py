@@ -162,7 +162,8 @@ class BacktestResult:
             indent: JSON indentation level (default: 2)
         """
 
-        def _serialize(obj):  # type: ignore[no-untyped-def]
+        def _serialize(obj: Any) -> str | None:
+            """Serialize datetime and special float values for JSON."""
             if isinstance(obj, datetime):
                 return obj.isoformat()
             if isinstance(obj, float) and (obj != obj or obj == float("inf")):
