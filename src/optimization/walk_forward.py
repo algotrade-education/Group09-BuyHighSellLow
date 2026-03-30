@@ -18,8 +18,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from src.optimization.grid_search import GridResult
-from src.optimization.optuna_search import OptunaResult
+from src.optimization.grid_search import GridResult, GridSearch
+from src.optimization.optuna_search import OptunaResult, OptunaSearch
 from src.optimization.scoring import ScorerConfig
 
 logger = logging.getLogger(__name__)
@@ -425,8 +425,6 @@ class WalkForwardOptimizer:
 
         results: list[GridResult] | list[OptunaResult] = []
         if self._optimizer == "grid":
-            from src.optimization.grid_search import GridSearch
-
             grid = GridSearch(wrapped_trial, self._param_space, scorer=self._scorer)
             results = grid.optimize(n_jobs=self._grid_n_jobs, show_progress=False)
             if not results:
@@ -434,8 +432,6 @@ class WalkForwardOptimizer:
             return results[0].params, results[0].metrics
 
         elif self._optimizer == "optuna":
-            from src.optimization.optuna_search import OptunaSearch
-
             storage = None
             if self._optuna_storage:
                 # Per-window storage to avoid trial conflicts
