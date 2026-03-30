@@ -1,0 +1,213 @@
+"""Redis-based live market data feed for paper trading.
+
+Wraps a Redis market data client to provide real-time tick data, filtering
+invalid prices and out-of-session timestamps before forwarding to BarAggregator.
+
+Key features:
+- Tick filtering: drops price <= 0 and out-of-session timestamps
+- Session time validation: VN30 trading hours (09:00-11:30, 13:00-14:30)
+- Watchdog monitoring: logs warning if no quotes received for >300s during session
+- Clock-based bar rollover: polling loop ensures bars emit even with sparse ticks
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import Callable
+from datetime import datetime, time
+from typing import Any
+
+from src.paper.bar_aggregator import BarAggregator
+from src.paper.feeds.base import FeedBase
+
+logger = logging.getLogger(__name__)
+
+
+def _in_vn30_session(dt: datetime) -> bool:
+    """Check if datetime falls within VN30 trading session hours.
+
+    VN30 sessions:
+    - Morning: 09:00 - 11:30
+    - Afternoon: 13:00 - 14:30
+
+    Args:
+        dt: Datetime to check.
+
+    Returns:
+        True if within trading hours, False otherwise.
+    """
+    t = dt.time()
+    morning_start = time(9, 0)
+    morning_end = time(11, 30)
+    afternoon_start = time(13, 0)
+    afternoon_end = time(14, 30)
+
+    return (morning_start <= t < morning_end) or (afternoon_start <= t < afternoon_end)
+
+
+class RedisFeed(FeedBase):
+    """Live market data feed from Redis.
+
+    Subscribes to Redis market data stream, filters ticks, and forwards
+    valid ticks to BarAggregator for OHLC bar construction.
+
+    Implements watchdog monitoring to detect feed silence during trading hours.
+    """
+
+    def __init__(
+        self,
+        redis_client: Any,
+        bar_aggregator: BarAggregator,
+        watchdog_silence_seconds: float = 300.0,
+    ) -> None:
+        """Initialize RedisFeed.
+
+        Args:
+            redis_client: Redis market data client with subscribe/unsubscribe methods.
+            bar_aggregator: BarAggregator instance to forward valid ticks to.
+            watchdog_silence_seconds: Seconds of silence before logging warning (default 300).
+        """
+        self._redis_client = redis_client
+        self._bar_aggregator = bar_aggregator
+        self._watchdog_silence_seconds = watchdog_silence_seconds
+
+        self._subscribed_symbol: str | None = None
+        self._last_quote_ts: datetime | None = None
+        self._polling_task: asyncio.Task | None = None
+        self._running = False
+
+    async def subscribe(self, symbol: str, callback: Callable[[dict], None]) -> None:
+        """Subscribe to market data for a symbol.
+
+        Registers the on_bar callback with BarAggregator and starts the Redis
+        subscription and polling loop.
+
+        Args:
+            symbol: Symbol to subscribe to (e.g. "VN30F1M").
+            callback: Callback to invoke when a new bar is ready.
+        """
+        if self._running:
+            logger.warning("RedisFeed already running, ignoring duplicate subscribe")
+            return
+
+        self._subscribed_symbol = symbol
+        self._bar_aggregator.set_on_bar(callback)
+        self._running = True
+
+        # Register quote callback with Redis client
+        self._redis_client.on_quote = self._on_quote
+
+        # Start Redis subscription
+        await self._redis_client.subscribe(symbol)
+
+        # Start polling loop for check_time() and watchdog
+        self._polling_task = asyncio.create_task(self._polling_loop())
+
+        logger.info("RedisFeed subscribed to %s", symbol)
+
+    async def unsubscribe(self, symbol: str) -> None:
+        """Unsubscribe from market data for a symbol.
+
+        Args:
+            symbol: Symbol to unsubscribe from.
+        """
+        if not self._running:
+            return
+
+        self._running = False
+
+        # Cancel polling task
+        if self._polling_task is not None:
+            self._polling_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._polling_task
+            self._polling_task = None
+
+        # Unsubscribe from Redis
+        if self._redis_client and symbol:
+            await self._redis_client.unsubscribe(symbol)
+
+        self._subscribed_symbol = None
+        logger.info("RedisFeed unsubscribed from %s", symbol)
+
+    async def close(self) -> None:
+        """Close the feed and clean up resources."""
+        if self._subscribed_symbol:
+            await self.unsubscribe(self._subscribed_symbol)
+
+        if self._redis_client:
+            await self._redis_client.close()
+
+        logger.info("RedisFeed closed")
+
+    async def _on_quote(self, instrument: str, quote: Any) -> None:
+        """Process incoming Redis quote snapshot.
+
+        Filters invalid prices and out-of-session timestamps before forwarding
+        to BarAggregator.
+
+        Args:
+            instrument: Symbol string (e.g. 'HNXDS:VN30F2601').
+            quote: Quote snapshot object with latest_matched_price and latest_matched_quantity.
+        """
+        # Filter 1: Drop invalid prices
+        price = getattr(quote, "latest_matched_price", None)
+        if price is None or price <= 0:
+            return
+
+        # Update watchdog timestamp
+        self._last_quote_ts = datetime.now()
+
+        # Filter 2: Drop out-of-session timestamps
+        if not _in_vn30_session(self._last_quote_ts):
+            return
+
+        # Forward valid tick to BarAggregator
+        volume = float(getattr(quote, "latest_matched_quantity", 0.0) or 0.0)
+        self._bar_aggregator.on_tick(self._last_quote_ts, price, volume)
+
+    async def _polling_loop(self) -> None:
+        """Polling loop for check_time() and watchdog monitoring.
+
+        Runs every second to:
+        1. Call BarAggregator.check_time() for clock-based bar rollover
+        2. Check for feed silence and log warning if >300s during session
+        """
+        try:
+            while self._running:
+                await asyncio.sleep(1)
+
+                # Clock-based bar rollover check
+                self._bar_aggregator.check_time()
+
+                # Watchdog: check for feed silence during session
+                self._check_watchdog()
+
+        except asyncio.CancelledError:
+            logger.debug("Polling loop cancelled")
+            raise
+
+    def _check_watchdog(self) -> None:
+        """Check for feed silence and log warning if exceeded threshold during session."""
+        now = datetime.now()
+
+        # Only check during trading hours
+        if not _in_vn30_session(now):
+            return
+
+        # Skip if no quotes received yet
+        if self._last_quote_ts is None:
+            return
+
+        # Calculate silence duration
+        silence_seconds = (now - self._last_quote_ts).total_seconds()
+
+        # Log warning if silence exceeds threshold
+        if silence_seconds > self._watchdog_silence_seconds:
+            logger.warning(
+                "Feed silence detected: no quotes for %.0f seconds (threshold: %.0f)",
+                silence_seconds,
+                self._watchdog_silence_seconds,
+            )
