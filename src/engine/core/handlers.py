@@ -172,10 +172,13 @@ class RiskHandler:
             contract_multiplier=self._account.contract_multiplier,
         )
 
-        # Risk check: margin availability
-        max_qty = self._account._max_affordable_quantity(check_price)
+        # Risk check: margin availability (using public API)
+        max_qty = self._account.risk_manager.max_affordable_quantity(
+            check_price, self._account.portfolio.available_cash, self._account.position
+        )
         if max_qty <= 0 or quantity <= 0:
             return
+
         quantity = min(quantity, max_qty)
 
         side = "buy" if event.signal_type == "long" else "sell"
@@ -263,8 +266,8 @@ class SimBrokerHandler:
         side_enum = OrderSide.BUY if event.side == "buy" else OrderSide.SELL
         exec_price, slippage = self._account.slippage_model.calculate(exec_price, side_enum)
 
-        # Calculate commission
-        commission = self._account._calc_commission(exec_price, event.quantity)
+        # Calculate commission (using public API)
+        commission = self._account.calc_commission(exec_price, event.quantity)
 
         self._bus.emit(
             FillEvent(
@@ -292,8 +295,12 @@ class SimBrokerHandler:
         Returns:
             Execution price if order can be filled, None otherwise
         """
+        open_price = float(bar["open"])
+        low_price = float(bar["low"])
+        high_price = float(bar["high"])
+
         if event.order_type == "market":
-            return float(bar["open"])
+            return open_price
 
         lp = event.limit_price
         if lp is None:
@@ -301,14 +308,14 @@ class SimBrokerHandler:
 
         # Buy limit: filled if bar low <= limit price
         if event.side == "buy":
-            if bar["low"] > lp:
+            if low_price > lp:
                 return None  # Price didn't reach limit
-            return bar["open"] if bar["open"] <= lp else lp
+            return open_price if open_price <= lp else lp
 
         # Sell limit: filled if bar high >= limit price
-        if bar["high"] < lp:
+        if high_price < lp:
             return None  # Price didn't reach limit
-        return bar["open"] if bar["open"] >= lp else lp
+        return open_price if open_price >= lp else lp
 
 
 class AccountHandler:
@@ -359,6 +366,6 @@ class AccountHandler:
             slippage=event.slippage,
         )
 
-        # Update account
-        self._account.cash -= event.commission
-        self._account._open_position(order, event.timestamp)
+        # Update account (using public API)
+        self._account.portfolio.deduct_cash(event.commission)
+        self._account.open_position(order, event.timestamp)  # Public API

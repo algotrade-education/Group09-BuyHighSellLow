@@ -48,7 +48,6 @@ from src.engine.core.handlers import (
 )
 from src.engine.equity_tracker import SimpleEquityTracker
 from src.engine.execution.broker import BaseBroker
-from src.engine.execution.sim_broker import SimBroker
 from src.engine.result import BacktestResult
 from src.engine.session import SessionManager, VN30Session
 from src.metrics.metrics import MetricsCalculator
@@ -153,13 +152,21 @@ class EventDrivenBacktester:
 
         This creates the event pipeline:
             MARKET -> Strategy -> SIGNAL -> Risk -> ORDER -> Broker -> FILL -> Account
+
+        Why local imports?
+        SimBroker imports are done locally to avoid circular import issues.
+        The broker module may import from engine, so importing at module level
+        would create a cycle. Local imports break the cycle by deferring the
+        import until runtime when all modules are already loaded.
         """
-        from src.engine.execution.sim_broker import SimBrokerT1
+        from src.engine.execution.sim_broker import SimBroker, SimBrokerT1
 
         strategy_h = StrategyHandler(self._strategy, self._account, self._bus)
         risk_h = RiskHandler(self._account, self._bus, self._current_bar)
 
         # Use T+1 broker if enabled (matches H2 behavior)
+        # T+0: Orders execute same bar (immediate fill)
+        # T+1: Orders execute next bar (realistic delay)
         broker: BaseBroker
         if self._use_t1:
             broker = SimBrokerT1(self._account, self._bus)
@@ -244,6 +251,8 @@ class EventDrivenBacktester:
             ):
                 next_open = float(bars[idx + 1]["open"]) if idx + 1 < total else float(bar["close"])
                 self._account.close_position(next_open, timestamp, "EOD Close")
+                # Cancel pending orders after EOD close
+                self._broker.cancel_pending_orders()
 
             # Skip signal generation?
             skip = (

@@ -71,3 +71,15 @@ class BaseBroker(ABC):
             bar: Current bar OHLCV data
         """
         pass
+
+    def cancel_pending_orders(self) -> None:
+        """
+        Cancel all pending orders.
+
+        For SimBroker (T+0): No-op since orders execute immediately
+        For SimBrokerT1: Clears pending order queue
+        For PaperBroker: Sends cancel requests to broker
+
+        Default implementation is no-op. Override if needed.
+        """
+        return None
