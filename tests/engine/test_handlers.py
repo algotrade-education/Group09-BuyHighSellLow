@@ -175,7 +175,7 @@ class TestRiskHandler:
         current_bar = {"open": 1000, "close": 1005}
 
         # Simulate daily loss hit
-        account._daily_loss_hit = True
+        account.risk_manager._daily_loss_hit = True
 
         handler = RiskHandler(account, bus, current_bar)
 
