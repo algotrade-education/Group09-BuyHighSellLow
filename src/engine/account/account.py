@@ -1,32 +1,23 @@
 """
 Account state management for backtesting and paper trading.
-
-This module provides AccountState class that tracks:
-- Cash and equity
-- Position state with MAE/MFE tracking
-- Trade history and signals
-- Daily P&L and loss limits
-- Margin and commission calculations
-
-Thread Safety Note:
-- For backtesting (single-threaded): No synchronization needed
-- For paper trading (async): Use asyncio.Lock() for concurrent access
-  The lock is optional and only used when enable_async_safety=True
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from config.constants import VN30F_CONTRACT_MULTIPLIER
-from src.engine.account.position import Position, PositionSide
+from src.engine.account.portfolio import PortfolioState
+from src.engine.account.position import Position
+from src.engine.account.risk_manager import RiskManager
 from src.engine.account.sizer import FixedSizer, PositionSizer
+from src.engine.account.trade_recorder import TradeRecorder
 from src.engine.execution.order import Order, OrderSide, OrderType
 from src.engine.execution.slippage import FixedSlippage, SlippageModel
-from src.metrics.trade_metrics import Trade, TradeSide
+from src.metrics.trade_metrics import Trade
 from src.strategy.base import PositionSnapshot
 from src.strategy.signal import Signal, TradeSignal
 
@@ -35,9 +26,7 @@ logger = logging.getLogger(__name__)
 
 class AccountState:
     """
-    Unified account state for backtesting and paper trading.
-
-    Tracks cash, position, trades, signals, and enforces risk limits.
+    Account state for backtesting and paper trading.
 
     Usage (backtester):
         ```python
@@ -85,7 +74,6 @@ class AccountState:
             max_daily_loss_pct: Max daily loss as % of equity (0 = disabled)
             enable_async_safety: Enable asyncio.Lock for paper trading (default: False for backtesting)
         """
-
         if initial_capital <= 0:
             raise ValueError("initial_capital must be > 0")
         if not 0 <= commission_rate < 1:
@@ -93,34 +81,24 @@ class AccountState:
         if position_size <= 0:
             raise ValueError("position_size must be > 0")
 
-        self.initial_capital = initial_capital
+        # Configuration
         self.commission_rate = commission_rate
         self.contract_multiplier = contract_multiplier
-        self.margin_rate = margin_rate
         self.position_sizer = position_sizer or FixedSizer(position_size)
         self.slippage_model = slippage_model or FixedSlippage(0.5)
         self.use_trailing_stop = use_trailing_stop
         self.trailing_atr_multiplier = trailing_atr_multiplier
-        self.max_daily_loss_pct = max_daily_loss_pct
-        self.enable_async_safety = enable_async_safety
 
-        # --- State - reset() initializes all ---
+        # Components (composition pattern)
+        self.portfolio = PortfolioState(initial_capital, margin_rate, contract_multiplier)
         self.position = Position(multiplier=contract_multiplier)
-        self.cash: float = initial_capital
-        self.equity: float = initial_capital
+        self.trade_recorder = TradeRecorder(contract_multiplier, enable_async_safety)
+        self.risk_manager = RiskManager(margin_rate, contract_multiplier, max_daily_loss_pct)
 
-        # V2 fix: Async safety for paper trading
-        # For backtesting (single-threaded), lock is None (no overhead)
-        # For paper trading (async), lock prevents race conditions
-        self._lock: asyncio.Lock | None = asyncio.Lock() if enable_async_safety else None
-        self._trades: list[Trade] = []
+        # Signal tracking (kept in AccountState for now)
         self._signals: list[dict[str, Any]] = []
-        self._trade_counter: int = 0
-        self._current_trade: Trade | None = None
-
-        self._daily_pnl: float = 0.0
-        self._current_date: date | None = None
-        self._daily_loss_hit: bool = False
+        self._enable_async_safety = enable_async_safety
+        self._lock: asyncio.Lock | None = asyncio.Lock() if enable_async_safety else None
 
     # --- Reset ---
 
@@ -129,61 +107,73 @@ class AccountState:
         Full reset - call before each backtest.
 
         Resets:
+        - Portfolio (cash and equity)
         - Position to FLAT
-        - Cash and equity to initial capital
-        - Trade and signal history
-        - Daily P&L tracking
+        - Trade history
+        - Risk manager (daily P&L tracking)
+        - Signal history
         - Order ID counter
         """
+        self.portfolio.reset()
         self.position.reset()
-        self.cash = self.initial_capital
-        self.equity = self.initial_capital
-        self._trades = []
+        self.trade_recorder.reset()
+        self.risk_manager.reset()
         self._signals = []
-        self._trade_counter = 0
-        self._current_trade = None
-        self._daily_pnl = 0.0
-        self._current_date = None
-        self._daily_loss_hit = False
         Order.reset_id_counter()  # Reset order IDs for new backtest
 
-    # --- Properties ---
+    # --- Properties (delegated to components) ---
+
+    @property
+    def cash(self) -> float:
+        """Get current cash balance."""
+        return self.portfolio.cash
+
+    @property
+    def equity(self) -> float:
+        """Get current equity."""
+        return self.portfolio.equity
 
     @property
     def trades(self) -> list[Trade]:
         """Return copy of trades list (thread-safe for async if enabled)."""
-        if self._lock is None:
-            return list(self._trades)
-        # Note: For async code, use get_trades_async() instead
-        # This property is for sync access only (backtesting)
-        return list(self._trades)
+        return self.trade_recorder.get_trades()
 
     @property
     def signals(self) -> list[dict[str, Any]]:
-        """Return copy of signals list (thread-safe for async if enabled)."""
-        if self._lock is None:
-            return list(self._signals)
-        # Note: For async code, use get_signals_async() instead
-        # This property is for sync access only (backtesting)
+        """Return copy of signals list (sync-only, use get_signals_async for async)."""
         return list(self._signals)
 
     async def get_trades_async(self) -> list[Trade]:
         """Async-safe method to get trades copy (for paper trading)."""
-        if self._lock is None:
-            return list(self._trades)
-        async with self._lock:
-            return list(self._trades)
+        return await self.trade_recorder.get_trades_async()
 
     async def get_signals_async(self) -> list[dict[str, Any]]:
-        """Async-safe method to get signals copy (for paper trading)."""
-        if self._lock is None:
+        """Async-safe method to get signals copy (for paper trading).
+
+        Lazy lock creation pattern:
+        The lock is created inside this async method (not in __init__) to avoid
+        "no running event loop" errors. Creating asyncio.Lock() requires an active
+        event loop, which may not exist during object initialization in sync contexts.
+
+        By creating the lock lazily on first async access, we ensure:
+        1. Backtesting (sync) never creates unnecessary locks
+        2. Paper trading (async) creates locks only when needed
+        3. No event loop errors during initialization
+        """
+        if not self._enable_async_safety:
             return list(self._signals)
+
+        # Lazy lock creation (inside event loop)
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+
         async with self._lock:
             return list(self._signals)
 
     @property
     def is_daily_loss_hit(self) -> bool:
-        return self._daily_loss_hit
+        """Check if daily loss limit has been hit."""
+        return self.risk_manager.is_daily_loss_hit
 
     @property
     def position_snapshot(self) -> PositionSnapshot:
@@ -203,7 +193,7 @@ class AccountState:
             take_profit=self.position.take_profit or 0.0,
         )
 
-    # --- Daily tracking ---
+    # --- Daily tracking (delegated to RiskManager) ---
 
     def update_daily(self, timestamp: datetime) -> None:
         """
@@ -212,29 +202,7 @@ class AccountState:
         Args:
             timestamp: Current timestamp
         """
-        trading_date = timestamp.date() if hasattr(timestamp, "date") else None
-        if trading_date and trading_date != self._current_date:
-            self._current_date = trading_date
-            self._daily_pnl = 0.0
-            self._daily_loss_hit = False
-
-    def _record_trade_pnl(self, pnl: float) -> None:
-        """
-        Record trade P&L and check daily loss limit.
-
-        Args:
-            pnl: Trade P&L (net after commission)
-        """
-        self._daily_pnl += pnl
-        if self.max_daily_loss_pct > 0:
-            limit = -(self.max_daily_loss_pct * self.equity)
-            if self._daily_pnl < limit:
-                self._daily_loss_hit = True
-                logger.info(
-                    "Max daily loss hit: daily_pnl=%.0f, limit=%.0f",
-                    self._daily_pnl,
-                    limit,
-                )
+        self.risk_manager.update_daily(timestamp)
 
     # --- Order creation ---
 
@@ -247,6 +215,21 @@ class AccountState:
         """
         Create Order from TradeSignal.
 
+        Order creation workflow:
+        1. Record signal for analysis (even if no order created)
+        2. Handle EXIT signals (close position immediately)
+        3. Validate entry conditions (not already in position)
+        4. Calculate position size based on risk parameters
+        5. Check margin availability at "check price"
+        6. Create and return Order object
+
+        Check price vs execution price:
+        - Check price: Used for margin calculation (signal.entry_price or current close)
+        - Execution price: Determined later in execute_order() with slippage applied
+
+        This separation allows us to validate margin before order submission while
+        still applying realistic slippage at execution time.
+
         Args:
             signal: TradeSignal from strategy
             bar: Current bar data
@@ -256,30 +239,63 @@ class AccountState:
             Order if created successfully, None otherwise
             (HOLD signal, already in position, insufficient margin)
         """
-        # Record signal (sync-safe, no lock needed for append in single-threaded backtest)
+        # Record signal (sync-safe for backtesting)
         # For async paper trading, caller should use create_order_async()
-        self._signals.append(
-            {
-                "datetime": timestamp,
-                "signal": signal.signal.value,
-                "ord_type": signal.ord_type,
-                "entry_price": signal.entry_price,
-                "stop_loss": signal.stop_loss,
-                "take_profit": signal.take_profit,
-                "reason": signal.reason,
-            }
-        )
+        self._signals.append(self._build_signal_record(signal, timestamp))
+
+        return self._create_order_core(signal, bar, timestamp)
+
+    async def create_order_async(
+        self,
+        signal: TradeSignal,
+        bar: dict[str, Any],
+        timestamp: datetime,
+    ) -> Order | None:
+        """Async-safe order creation for paper trading.
+
+        Records signal under lock when async safety is enabled, then delegates
+        to the shared order-creation logic.
+        """
+        signal_record = self._build_signal_record(signal, timestamp)
+
+        if self._enable_async_safety and self._lock is not None:
+            async with self._lock:
+                self._signals.append(signal_record)
+        else:
+            self._signals.append(signal_record)
+
+        return self._create_order_core(signal, bar, timestamp)
+
+    @staticmethod
+    def _build_signal_record(signal: TradeSignal, timestamp: datetime) -> dict[str, Any]:
+        return {
+            "datetime": timestamp,
+            "signal": signal.signal.value,
+            "ord_type": signal.ord_type,
+            "entry_price": signal.entry_price,
+            "stop_loss": signal.stop_loss,
+            "take_profit": signal.take_profit,
+            "reason": signal.reason,
+        }
+
+    def _create_order_core(
+        self,
+        signal: TradeSignal,
+        bar: dict[str, Any],
+        timestamp: datetime,
+    ) -> Order | None:
+        """Shared core logic for create_order/create_order_async."""
 
         if signal.signal == Signal.HOLD:
             return None
 
-        # EXIT signal
+        # EXIT signal - close position immediately
         if signal.signal == Signal.EXIT:
             if not self.position.is_flat:
                 self.close_position(bar["close"], timestamp, signal.reason or "Exit signal")
             return None
 
-        # LONG / SHORT
+        # LONG / SHORT - validate entry conditions
         if signal.signal not in (Signal.LONG, Signal.SHORT):
             return None
         if not self.position.is_flat:
@@ -302,7 +318,9 @@ class AccountState:
 
         # Check margin availability at check_price
         # Note: Slippage will be applied later in execute_order
-        max_qty = self._max_affordable_quantity(check_price)
+        max_qty = self.risk_manager.max_affordable_quantity(
+            check_price, self.portfolio.available_cash, self.position
+        )
         if max_qty <= 0:
             return None
         quantity = min(quantity, max_qty)
@@ -347,6 +365,18 @@ class AccountState:
         """
         Execute pending order against current bar.
 
+        Execution workflow:
+        1. Determine fill price based on order type and bar data
+        2. Apply slippage model (simulates market impact and spread)
+        3. Re-check margin after slippage (price may have moved against us)
+        4. Calculate commission
+        5. Fill order and update account state
+
+        Why re-check margin after slippage?
+        Slippage makes entry more expensive (buy higher, sell lower), so we need
+        to verify we still have enough margin after the slippage adjustment.
+        Without this check, we could enter positions we can't afford.
+
         Args:
             order: Order to execute
             bar: Current bar data
@@ -366,7 +396,9 @@ class AccountState:
 
             # Re-check affordability after slippage adjustment
             # Slippage makes entry more expensive, so we need to verify margin again
-            max_qty = self._max_affordable_quantity(exec_price)
+            max_qty = self.risk_manager.max_affordable_quantity(
+                exec_price, self.portfolio.available_cash, self.position
+            )
             if max_qty <= 0:
                 return False
 
@@ -383,7 +415,7 @@ class AccountState:
             )
 
             # Deduct entry commission from cash
-            self.cash -= commission
+            self.portfolio.deduct_cash(commission)
 
             # Open position + create Trade record
             self._open_position(order, timestamp)
@@ -426,27 +458,9 @@ class AccountState:
     # --- Position management ---
 
     def _open_position(self, order: Order, timestamp: datetime) -> Trade:
+        """Open position and create trade record."""
         self.position.open(order, timestamp)
-        side = TradeSide.LONG if order.is_buy else TradeSide.SHORT
-
-        # Sync increment (for backtesting)
-        # For async paper trading, caller should ensure proper locking
-        self._trade_counter += 1
-        trade = Trade(
-            trade_id=str(self._trade_counter),
-            side=side,
-            entry_time=timestamp,
-            entry_price=order.filled_price or 0.0,
-            quantity=order.quantity,
-            commission=order.commission,
-            stop_loss=order.stop_loss or 0.0,
-            take_profit=order.take_profit or 0.0,
-        )
-        self._trades.append(trade)
-        self._current_trade = trade
-
-        logger.info("Position opened: %s @ %.2f", side, order.filled_price)
-        return trade
+        return self.trade_recorder.open_trade(order, timestamp)
 
     def close_position(
         self,
@@ -470,67 +484,28 @@ class AccountState:
         if self.position.is_flat:
             return None
 
+        # Apply slippage if requested
         exit_side = OrderSide.SELL if self.position.is_long else OrderSide.BUY
         if apply_slippage:
-            exit_price, slippage_point = self.slippage_model.calculate(exit_price, exit_side)
+            exit_price, _ = self.slippage_model.calculate(exit_price, exit_side)
 
+        # Calculate exit commission
         commission = self._calc_commission(exit_price, self.position.quantity)
 
-        if self._current_trade:
-            # Attach MAE/MFE from Position to Trade record
-            self._current_trade.mae = self.position.mae
-            self._current_trade.mfe = self.position.mfe
+        # Close trade record (calculates P&L)
+        trade = self.trade_recorder.close_trade(
+            self.position, exit_price, commission, timestamp, exit_reason
+        )
 
-            # Finalize Trade
-            trade = self._current_trade
-            side = self.position.side
-            qty = self.position.quantity
-            entry_px = self.position.entry_price
+        if trade:
+            # Update portfolio cash
+            self.portfolio.deduct_cash(commission)  # Exit commission
+            self.portfolio.add_cash(trade.gross_pnl)  # Realized P&L
 
-            # Calculate PnL
-            gross_pnl = (
-                (exit_price - entry_px) * qty * self.contract_multiplier
-                if side == PositionSide.LONG
-                else (entry_px - exit_price) * qty * self.contract_multiplier
-            )
-            total_commission = trade.commission + commission
-            net_pnl = gross_pnl - total_commission
+            # Record P&L for daily loss limit tracking
+            self.risk_manager.record_trade_pnl(trade.pnl, self.portfolio.equity)
 
-            trade.exit_time = timestamp
-            trade.exit_price = exit_price
-            trade.commission = total_commission
-            trade.gross_pnl = gross_pnl
-            trade.pnl = net_pnl
-            trade.exit_reason = exit_reason
-
-            # V2 fix: Clarified cash flow accounting
-            # Entry: cash -= entry_commission (done in execute_order)
-            # Exit: cash -= exit_commission (done above, before this comment)
-            # Exit: cash += gross_pnl (realized gain/loss from price movement)
-            # Net effect: cash change = gross_pnl - total_commission
-            self.cash -= commission  # Exit commission
-            self.cash += gross_pnl  # Realized PnL
-
-            logger.info(
-                "Position closed (%s): pnl=%.0f, reason=%s",
-                exit_reason,
-                net_pnl,
-                exit_reason,
-            )
-
-            # V2 fix: Always record PnL for daily loss limit tracking
-            # This ensures daily loss limits work for all close scenarios (SL/TP/EOD)
-            self._record_trade_pnl(net_pnl)
-
-        else:
-            logger.warning(
-                "Position closed but no trade record - exit_price=%.2f, reason=%s",
-                exit_price,
-                exit_reason,
-            )
-            trade = None
-
-        self._current_trade = None
+        # Close position
         self.position.close()
         return trade
 
@@ -546,6 +521,12 @@ class AccountState:
         Note: SL is checked before TP in same bar (conservative bias)
         since we don't have tick data to know which hit first.
 
+        Gap handling:
+        When a bar opens with a gap (open != previous close), we check if the gap
+        jumped over our SL/TP levels. If so, we execute at the open price (not the
+        SL/TP level) since that's the first available execution price. We also skip
+        slippage for gap executions since the gap itself represents the slippage.
+
         Args:
             bar: Current bar data (must have open, high, low, close)
             timestamp: Current timestamp
@@ -555,17 +536,18 @@ class AccountState:
 
         open_price = float(bar.get("open", bar["close"]))
 
-        # Gap SL check
+        # Gap SL check - execute at open if gap jumped over SL
         if self.position.stop_loss is not None:  # noqa: SIM102
             if (self.position.is_long and open_price <= self.position.stop_loss) or (
                 self.position.is_short and open_price >= self.position.stop_loss
             ):
+                # Gap execution: use open price, skip slippage (gap IS the slippage)
                 self.close_position(
                     open_price, timestamp, "Stop loss (gap at open)", apply_slippage=False
                 )
                 return
 
-        # Gap TP check
+        # Gap TP check - execute at open if gap jumped over TP
         if self.position.take_profit is not None:  # noqa: SIM102
             if (self.position.is_long and open_price >= self.position.take_profit) or (
                 self.position.is_short and open_price <= self.position.take_profit
@@ -576,8 +558,10 @@ class AccountState:
                 return
 
         # Intrabar SL (check low for long, high for short)
+        # Use bar extremes to detect if SL was hit during the bar
         sl_price = bar["low"] if self.position.is_long else bar["high"]
         if self.position.check_stop_loss(sl_price):
+            # Execute at SL level (not bar extreme) with slippage
             self.close_position(
                 self.position.stop_loss or bar["close"],
                 timestamp,
@@ -595,7 +579,7 @@ class AccountState:
             )
             return
 
-        # Trailing stop
+        # Trailing stop update (only if position still open)
         if self.use_trailing_stop and self.position.stop_loss is not None:
             self._update_trailing_stop(bar)
 
@@ -617,7 +601,7 @@ class AccountState:
             if self.position.stop_loss is None or new_sl < self.position.stop_loss:
                 self.position.stop_loss = new_sl
 
-    # --- Equity ---
+    # --- Equity (delegated to PortfolioState) ---
 
     def update_equity(self, current_price: float) -> None:
         """
@@ -630,41 +614,18 @@ class AccountState:
         """
         if not self.position.is_flat:
             self.position.update_unrealized_pnl(current_price)
-        self.equity = self.cash + self.position.unrealized_pnl
+        self.portfolio.update_equity(self.position)
 
     # --- Helpers ---
 
     def _calc_commission(self, price: float, quantity: int) -> float:
+        """Calculate commission for a trade."""
         return price * quantity * self.contract_multiplier * self.commission_rate
 
-    def _max_affordable_quantity(self, price: float) -> int:
-        """
-        Calculate maximum affordable quantity based on available margin.
+    def calc_commission(self, price: float, quantity: int) -> float:
+        """Public wrapper — calculate commission for a trade."""
+        return self._calc_commission(price, quantity)
 
-        Args:
-            price: Entry price
-
-        Returns:
-            Maximum quantity that can be afforded
-        """
-        if price <= 0 or self.margin_rate <= 0:
-            return 0
-
-        used_margin = 0.0
-        if not self.position.is_flat:
-            used_margin = (
-                self.position.entry_price
-                * self.position.quantity
-                * self.contract_multiplier
-                * self.margin_rate
-            )
-
-        # V2 fix: Use cash instead of equity for conservative margin calculation
-        # equity includes unrealized PnL which can be negative
-        available = max(0.0, self.cash - used_margin)
-        margin_per = price * self.contract_multiplier * self.margin_rate
-
-        if margin_per <= 0:
-            return 0
-
-        return int(available // margin_per)
+    def open_position(self, order: Order, timestamp: datetime) -> Trade:
+        """Public wrapper — open position and create trade record."""
+        return self._open_position(order, timestamp)
