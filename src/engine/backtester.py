@@ -153,6 +153,7 @@ class Backtester:
         datetime_col: str = "datetime",
         progress_callback: Callable[[int, int], None] | None = None,
         warmup_bars: int = 0,
+        bars_list: list[dict[str, Any]] | None = None,
     ) -> BacktestResult:
         """
         Run backtest on historical data.
@@ -162,6 +163,8 @@ class Backtester:
             datetime_col: Name of datetime column
             progress_callback: Optional callback(current_bar, total_bars) for progress tracking
             warmup_bars: First N bars are warmup - signals generated but no trades executed
+            bars_list: Pre-converted list of dicts (optional). If provided, skips to_dict("records")
+                      conversion which can be expensive for repeated backtests on the same data.
 
         Returns:
             BacktestResult with trades, equity curve, and performance metrics
@@ -177,10 +180,14 @@ class Backtester:
         total_bars = len(data)
         timestamps = pd.to_datetime(data[datetime_col]).tolist()
 
-        # Convert to list of dicts for fast access
-        # Note: This uses ~2x memory vs DataFrame but provides O(1) access
+        # Use pre-converted bars list if provided, otherwise convert now
+        # Note: to_dict("records") uses ~2x memory but provides O(1) access
         # For large datasets (>1M bars), consider chunked processing
-        bars: list[dict[str, Any]] = data.to_dict("records")
+        bars: list[dict[str, Any]]
+        if bars_list is not None:
+            bars = bars_list
+        else:
+            bars = [{str(k): v for k, v in row.items()} for row in data.to_dict("records")]
 
         pending_order: Order | None = None
         pending_order_age: int = 0
@@ -211,6 +218,14 @@ class Backtester:
 
             # --- 3. EOD close ---
             # V2 fix: Use next bar open to avoid look-ahead bias
+            #
+            # Why next bar open?
+            # At EOD, we don't know the final close price until the bar completes.
+            # Using current bar close would be look-ahead bias (using future information).
+            # Instead, we close at the NEXT bar's open price, which is the first price
+            # we'd actually be able to execute at in real trading.
+            #
+            # Fallback: If this is the last bar, use current close (no next bar available)
             if (
                 self.session_manager.should_close_eod(timestamp)
                 and not self.account.position.is_flat
