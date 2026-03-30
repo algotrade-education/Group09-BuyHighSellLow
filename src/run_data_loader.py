@@ -37,6 +37,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+import pandas as pd
+
 from src.utils.cli_helpers import (
     print_exception,
     print_kv,
@@ -188,8 +190,6 @@ def cmd_inspect(args: argparse.Namespace) -> int:
             print("   Run: python -m src.run_data_loader fetch ... to fetch data first")
             return 1
 
-        import pandas as pd
-
         df["datetime"] = pd.to_datetime(df["datetime"])
 
         # --- Basic info ---
@@ -336,8 +336,6 @@ def cmd_stats(args: argparse.Namespace) -> int:
             },
             label_width=16,
         )
-
-        import pandas as pd
 
         prep["datetime"] = pd.to_datetime(prep["datetime"])
         bars_per_day = prep.groupby(prep["datetime"].dt.date).size()
