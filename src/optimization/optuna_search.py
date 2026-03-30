@@ -64,7 +64,7 @@ def fingerprint_param_space(param_space: dict[str, dict[str, Any]]) -> str:
     """
     Compute a stable SHA-256 fingerprint of a param space.
 
-    Single-choice categoricals are excluded — they're constants, not search
+    Single-choice categoricals are excluded - they're constants, not search
     dimensions, so changing them doesn't constitute a different study.
     """
     meaningful = {
@@ -159,6 +159,8 @@ class OptunaSearch:
         storage_path: str | None = None,
         n_jobs: int = 1,
         patience: int | None = None,
+        batch_storage_writes: bool = True,
+        storage_write_interval: int | None = None,
     ) -> None:
         """
         Args:
@@ -182,6 +184,12 @@ class OptunaSearch:
                                Automatically enables constant_liar for TPE.
             patience:          Stop early if no improvement for this many trials.
                                Default: n_trials // 4. Set 0 to disable.
+            batch_storage_writes: If True and storage_path is set, run in-memory first
+                               then periodically flush to disk. Significantly faster than
+                               writing after every trial. Default: True.
+            storage_write_interval: How often to flush to disk (in trials).
+                               Default: max(10, n_trials // 20) = every 5% of trials.
+                               Only used if batch_storage_writes=True.
         """
         if not OPTUNA_AVAILABLE:
             raise ImportError("Optuna is not installed. Run: pip install optuna")
@@ -193,6 +201,7 @@ class OptunaSearch:
                 n_jobs,
             )
 
+        # Config for Optuna
         self._trial_fn = trial_fn
         self._param_space = param_space
         self._scorer = scorer or ScorerConfig()
@@ -202,8 +211,26 @@ class OptunaSearch:
             n_startup_trials if n_startup_trials is not None else max(20, n_trials // 10)
         )
         self._seed = seed
+
+        # Storage config
         self._study_name = study_name
-        self._storage = self._build_storage(storage_path)
+        self._storage_path = storage_path
+        self._batch_storage_writes = batch_storage_writes and storage_path is not None
+        self._storage_write_interval = (
+            storage_write_interval
+            if storage_write_interval is not None
+            else max(10, n_trials // 20)
+        )
+
+        # If batching is enabled, start with in-memory storage
+        # We'll periodically copy to disk storage
+        if self._batch_storage_writes:
+            self._storage = None  # In-memory
+            self._disk_storage = self._build_storage(storage_path)
+        else:
+            self._storage = self._build_storage(storage_path)
+            self._disk_storage = None
+
         self._n_jobs = n_jobs
         self._patience = patience if patience is not None else max(n_trials // 4, 20)
 
@@ -234,18 +261,45 @@ class OptunaSearch:
         sampler = self._build_sampler()
         pruner = self._build_pruner()
 
+        # Load existing trials from disk storage if resuming
+        already_done = 0
+        if self._batch_storage_writes and self._disk_storage:
+            try:
+                disk_study = optuna.load_study(
+                    study_name=self._study_name,
+                    storage=self._disk_storage,
+                )
+                already_done = len(disk_study.trials)
+                if already_done > 0:
+                    logger.info(
+                        "Loading %d existing trials from disk storage...",
+                        already_done,
+                    )
+            except KeyError:
+                pass  # Study doesn't exist yet
+
         self.study = optuna.create_study(
             study_name=self._study_name,
             direction="maximize",
             sampler=sampler,
             pruner=pruner,
-            storage=self._storage,
+            storage=self._storage,  # In-memory if batching enabled
             load_if_exists=True,
         )
 
         # Stamp fingerprint on new studies so future runs can detect param space changes
         if _FINGERPRINT_ATTR not in self.study.user_attrs:
             self.study.set_user_attr(_FINGERPRINT_ATTR, fingerprint_param_space(self._param_space))
+
+        # If resuming with batched writes, copy trials from disk to in-memory study
+        if self._batch_storage_writes and already_done > 0:
+            disk_study = optuna.load_study(
+                study_name=self._study_name,
+                storage=self._disk_storage,
+            )
+            for trial in disk_study.trials:
+                self.study.add_trial(trial)
+            logger.info("Copied %d trials from disk to in-memory study", already_done)
 
         already_done = len(self.study.trials)
         remaining = max(0, self._n_trials - already_done)
@@ -262,16 +316,99 @@ class OptunaSearch:
                     f"Resuming '{self._study_name}': {already_done} done, {remaining} remaining..."
                 )
 
-            self.study.optimize(
-                self._objective,
-                n_trials=remaining,
-                n_jobs=self._n_jobs,
-                show_progress_bar=show_progress and self._n_jobs == 1,
-            )
+            # Run optimization with periodic disk flushes if batching enabled
+            if self._batch_storage_writes and self._disk_storage:
+                self._optimize_with_batched_writes(remaining, show_progress)
+            else:
+                self.study.optimize(
+                    self._objective,
+                    n_trials=remaining,
+                    n_jobs=self._n_jobs,
+                    show_progress_bar=show_progress and self._n_jobs == 1,
+                )
 
         self.results = self._collect_results()
         self.results.sort(key=lambda r: r.score, reverse=True)
         return self.results
+
+    def _optimize_with_batched_writes(self, n_trials: int, show_progress: bool) -> None:
+        """
+        Run optimization with periodic disk writes instead of after every trial.
+
+        This significantly improves performance by reducing SQLite I/O overhead.
+        Trials are run in-memory and flushed to disk every N trials.
+        """
+        if self.study is None:
+            raise RuntimeError("Study is not initialized.")
+
+        interval = self._storage_write_interval
+        trials_since_flush = 0
+
+        if show_progress:
+            print(f"  Batched storage writes: every {interval} trials")
+
+        for batch_start in range(0, n_trials, interval):
+            batch_size = min(interval, n_trials - batch_start)
+
+            # Run a batch of trials in-memory
+            self.study.optimize(
+                self._objective,
+                n_trials=batch_size,
+                n_jobs=self._n_jobs,
+                show_progress_bar=show_progress and self._n_jobs == 1,
+            )
+
+            trials_since_flush += batch_size
+
+            # Flush to disk storage
+            if self._disk_storage:
+                self._flush_to_disk_storage()
+                if show_progress:
+                    total_done = len(self.study.trials)
+                    print(f"  ✓ Flushed {trials_since_flush} trials to disk (total: {total_done})")
+                trials_since_flush = 0
+
+        # Final flush to ensure everything is saved
+        if self._disk_storage and trials_since_flush > 0:
+            self._flush_to_disk_storage()
+            if show_progress:
+                print(f"  ✓ Final flush: {trials_since_flush} trials")
+
+    def _flush_to_disk_storage(self) -> None:
+        """Copy all trials from in-memory study to disk storage."""
+        if not self._disk_storage or self.study is None:
+            return
+
+        try:
+            # Load or create disk study
+            try:
+                disk_study = optuna.load_study(
+                    study_name=self._study_name,
+                    storage=self._disk_storage,
+                )
+            except KeyError:
+                disk_study = optuna.create_study(
+                    study_name=self._study_name,
+                    direction="maximize",
+                    storage=self._disk_storage,
+                )
+                # Copy user attributes (like fingerprint)
+                for key, value in self.study.user_attrs.items():
+                    disk_study.set_user_attr(key, value)
+
+            # Copy new trials that don't exist in disk storage yet
+            disk_study_numbers = (
+                max(t.number for t in disk_study.trials) if disk_study.trials else -1
+            )
+            new_trials = [t for t in self.study.trials if t.number > disk_study_numbers]
+
+            for trial in new_trials:
+                disk_study.add_trial(trial)
+
+            logger.debug("Flushed %d new trials to disk storage", len(new_trials))
+
+        except Exception as e:
+            logger.warning("Failed to flush to disk storage: %s", e)
 
     # --- Sampler / Pruner builders --------------------------------
 
@@ -397,7 +534,7 @@ class OptunaSearch:
         """Sample parameters from param_space using Optuna's trial API.
 
         Categorical params with a single choice are injected as constants
-        rather than sampled — this avoids Optuna's distribution compatibility
+        rather than sampled - this avoids Optuna's distribution compatibility
         error when resuming a study that previously had a wider choice set.
         """
         params: dict[str, Any] = {}
@@ -484,11 +621,16 @@ class OptunaSearch:
         Returns a StorageConflict if a mismatch is detected, None if safe to proceed
         (no existing study, or fingerprints match, or no storage configured).
         """
-        if not OPTUNA_AVAILABLE or self._storage is None:
+        if not OPTUNA_AVAILABLE:
+            return None
+
+        # Check disk storage if batched writes enabled, otherwise check regular storage
+        storage_to_check = self._disk_storage if self._batch_storage_writes else self._storage
+        if storage_to_check is None:
             return None
 
         try:
-            summaries = optuna.get_all_study_summaries(storage=self._storage)
+            summaries = optuna.get_all_study_summaries(storage=storage_to_check)
         except Exception:
             return None  # Storage doesn't exist yet
 
@@ -498,7 +640,7 @@ class OptunaSearch:
 
         # Load the study to read its stored fingerprint
         try:
-            study = optuna.load_study(study_name=self._study_name, storage=self._storage)
+            study = optuna.load_study(study_name=self._study_name, storage=storage_to_check)
         except Exception:
             return None
 
@@ -507,7 +649,7 @@ class OptunaSearch:
 
         conflict = StorageConflict(
             study_name=self._study_name,
-            storage_path=self._storage,
+            storage_path=storage_to_check,
             existing_fingerprint=stored_fp,
             incoming_fingerprint=incoming_fp,
             existing_trials=existing.n_trials,
@@ -516,10 +658,16 @@ class OptunaSearch:
 
     def delete_study(self) -> None:
         """Delete the study from storage so a fresh run can start."""
-        if not OPTUNA_AVAILABLE or self._storage is None:
+        if not OPTUNA_AVAILABLE:
             return
+
+        # Delete from disk storage if batched writes enabled
+        storage_to_delete = self._disk_storage if self._batch_storage_writes else self._storage
+        if storage_to_delete is None:
+            return
+
         try:
-            optuna.delete_study(study_name=self._study_name, storage=self._storage)
+            optuna.delete_study(study_name=self._study_name, storage=storage_to_delete)
             logger.info("Deleted study '%s' from storage.", self._study_name)
         except Exception as e:
             logger.warning("Could not delete study '%s': %s", self._study_name, e)
