@@ -5,8 +5,10 @@ This module handles 1-minute bars.
 
 from __future__ import annotations
 
+import glob as glob_mod
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 DATETIME_COL = "datetime"
 _CACHE_VERSION = "v2"
 _REQUIRED_COLS = [DATETIME_COL, "open", "high", "low", "close", "volume"]
+_MARKET_TIMEZONE = "Asia/Ho_Chi_Minh"
 
 
 # --- Manifest ---
@@ -344,8 +347,6 @@ class DataLoader:
         Returns:
             1-minute OHLCV DataFrame.
         """
-        import glob as glob_mod
-
         raw_paths = sorted(glob_mod.glob(path_pattern))
         if not raw_paths:
             raise FileNotFoundError(f"No files match: {path_pattern!r}")
@@ -490,6 +491,7 @@ class DataLoader:
         # --- Incremental Fetch Path (Current Month Only) ---
         last_synced = manifest.get_last_synced_timestamp(month_key)
         existing_df = None
+        df: pd.DataFrame | None = None
 
         if is_current and last_synced:
             # Try to load existing cache for incremental update
@@ -553,6 +555,10 @@ class DataLoader:
             df = _dedup_sort(df)
 
         # --- Validation ---
+        if df is None or df.empty:
+            logger.warning("No data to validate for %s/%s.", symbol, month_key)
+            return None
+
         result = self._validator.validate_ohlcv(df)
 
         if not result.is_valid:
@@ -713,8 +719,6 @@ def _month_key_from_path(path: str) -> str:
     Recognises patterns: YYYY_MM, YYYY-MM, YYYYMM anywhere in the stem.
     Falls back to the file's modification time if no pattern is found.
     """
-    import re
-
     stem = Path(path).stem
 
     for pattern in (r"(\d{4})[_-](\d{2})", r"(\d{4})(\d{2})"):
@@ -755,7 +759,7 @@ def _aggregate_ticks_to_1min(
         at day boundaries. This function computes the diff to get actual traded volume.
     """
     df = df.copy()
-    df[datetime_col] = pd.to_datetime(df[datetime_col])
+    df[datetime_col] = _normalize_datetime_to_market_naive(df[datetime_col])
     df = df.sort_values(datetime_col)
 
     # --- Compute volume diff (handle cumulative) ---
@@ -798,9 +802,42 @@ def _aggregate_ticks_to_1min(
 
 def _dedup_sort(df: pd.DataFrame) -> pd.DataFrame:
     """Deduplicate rows by datetime (keep last) and sort ascending."""
+    if DATETIME_COL in df.columns:
+        df = df.copy()
+        df[DATETIME_COL] = _normalize_datetime_to_market_naive(df[DATETIME_COL])
+
     return df.drop_duplicates(subset=[DATETIME_COL], keep="last").sort_values(
         DATETIME_COL, ignore_index=True
     )
+
+
+def _normalize_datetime_to_market_naive(
+    values: pd.Series,
+    market_timezone: str = _MARKET_TIMEZONE,
+) -> pd.Series:
+    """
+    Normalize timestamps for consistent session/EOD comparisons.
+
+    Policy:
+    - timezone-aware input: convert to market timezone then drop tzinfo
+    - naive input: keep as-is (assumed already in market local time)
+
+    Raises:
+        ValueError: if datetime values are invalid or mixed in a way that
+            cannot be parsed consistently.
+    """
+    try:
+        parsed = pd.to_datetime(values, errors="raise")
+    except Exception as exc:
+        raise ValueError(
+            "Invalid or mixed datetime values detected. "
+            "Please normalize input timestamps before loading data."
+        ) from exc
+
+    if parsed.dt.tz is not None:
+        parsed = parsed.dt.tz_convert(market_timezone).dt.tz_localize(None)
+
+    return parsed
 
 
 def _is_current_month(month_key: str) -> bool:
