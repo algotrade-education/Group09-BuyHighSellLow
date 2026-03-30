@@ -199,6 +199,15 @@ class SimBroker(BaseBroker):
         notional = price * quantity * self._account.contract_multiplier
         return notional * self._account.commission_rate
 
+    def cancel_pending_orders(self) -> None:
+        """
+        Cancel all pending orders.
+
+        For SimBroker (T+0), this is a no-op since orders are executed immediately.
+        Overridden in SimBrokerT1 to clear pending order queue.
+        """
+        pass  # No pending orders in T+0 execution
+
 
 class SimBrokerT1(SimBroker):
     """
@@ -254,3 +263,14 @@ class SimBrokerT1(SimBroker):
 
         # Clear pending orders
         self._pending_orders.clear()
+
+    def cancel_pending_orders(self) -> None:
+        """
+        Cancel all pending orders.
+
+        This is useful for EOD close scenarios where we want to
+        clear the order queue without executing pending orders.
+        """
+        if self._pending_orders:
+            logger.debug("Cancelling %d pending orders", len(self._pending_orders))
+            self._pending_orders.clear()
