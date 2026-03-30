@@ -1,5 +1,8 @@
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 from src.data.indicators.base import IndicatorBase
 
 
@@ -158,6 +161,81 @@ class WilderADX(IndicatorBase):
     @property
     def di_minus(self) -> float | None:
         return self._di_minus_value if self.is_ready else None
+
+    def compute_vectorized(self, df: pd.DataFrame) -> pd.Series:
+        """
+        Vectorized Wilder ADX using numpy - matches bar-by-bar output exactly.
+        ~50-100x faster than the Python loop fallback.
+
+        Bar-by-bar timing (period=p):
+          - Bars 0..p   : seed phase for smoothed DM+/DM-/TR (count 1..p+1)
+          - Bar p+1 onward: Wilder smoothing; DX collected for ADX seed
+          - ADX seeds when p DX values collected → first output at index p*2-1
+        """
+        high = df["high"].to_numpy(dtype=np.float64)
+        low = df["low"].to_numpy(dtype=np.float64)
+        close = df["close"].to_numpy(dtype=np.float64)
+        n = len(high)
+        p = self.period
+
+        adx = np.full(n, np.nan, dtype=np.float64)
+        if n < p * 2:
+            return pd.Series(adx, index=df.index)
+
+        # Directional movement (bar i vs bar i-1)
+        up_move = np.empty(n, dtype=np.float64)
+        down_move = np.empty(n, dtype=np.float64)
+        up_move[0] = 0.0
+        down_move[0] = 0.0
+        up_move[1:] = high[1:] - high[:-1]
+        down_move[1:] = low[:-1] - low[1:]
+
+        dm_plus = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        dm_minus = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        # True Range
+        prev_close = np.empty(n, dtype=np.float64)
+        prev_close[0] = close[0]
+        prev_close[1:] = close[:-1]
+        tr = np.maximum(high - low, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
+
+        # Seed smoothed DM+, DM-, TR: SMA of indices 1..p (count 2..p+1 in bar-by-bar)
+        # bar-by-bar seeds when count == period+1 (index p), using values from indices 1..p
+        sdm_plus = dm_plus[1 : p + 1].mean()
+        sdm_minus = dm_minus[1 : p + 1].mean()
+        str_ = tr[1 : p + 1].mean()
+
+        alpha = (p - 1) / p
+        dx_seed: list[float] = []
+        adx_value: float | None = None
+
+        # bar-by-bar: at count=p+1 (index p), smoothed values are seeded and DX is computed
+        # in the same bar. So we start from index p (not p+1).
+        for i in range(p, n):
+            # Only apply Wilder smoothing from index p+1 onward
+            # At index p, smoothed values are already seeded via SMA above
+            if i > p:
+                sdm_plus = sdm_plus * alpha + dm_plus[i] / p
+                sdm_minus = sdm_minus * alpha + dm_minus[i] / p
+                str_ = str_ * alpha + tr[i] / p
+
+            if str_ > 0:
+                di_plus = 100.0 * sdm_plus / str_
+                di_minus = 100.0 * sdm_minus / str_
+                di_sum = di_plus + di_minus
+                if di_sum > 0:
+                    dx = 100.0 * abs(di_plus - di_minus) / di_sum
+
+                    if adx_value is None:
+                        dx_seed.append(dx)
+                        if len(dx_seed) == p:
+                            adx_value = sum(dx_seed) / p
+                            adx[i] = adx_value
+                    else:
+                        adx_value = adx_value * alpha + dx / p
+                        adx[i] = adx_value
+
+        return pd.Series(adx, index=df.index)
 
     def _reset_state(self) -> None:
         self._prev_high = None

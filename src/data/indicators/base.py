@@ -6,6 +6,9 @@ All indicators should inherit from this class and implement the required methods
 from abc import ABC, abstractmethod
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 
 class IndicatorBase(ABC):
     """
@@ -124,6 +127,28 @@ class IndicatorBase(ABC):
     def _set_state(self, state: dict) -> None:
         # Load the indicator state from a dictionary. Should be the inverse of _get_state.
         pass
+
+    # --- Vectorized Interface ---
+
+    def compute_vectorized(self, df: pd.DataFrame) -> pd.Series:
+        """
+        Compute indicator over entire DataFrame at once using numpy.
+
+        Subclasses should override this for significant speedup during optimization.
+        Default fallback: runs bar-by-bar update() loop (same as DataPipeline._compute).
+
+        Returns:
+            pd.Series aligned with df.index, NaN during warm-up period.
+        """
+        self.reset()
+        results: list[float | None] = []
+        for bar in df.to_dict("records"):
+            results.append(self.update(**{k: bar[k] for k in self.required_inputs if k in bar}))
+        return pd.Series(
+            [np.nan if v is None else v for v in results],
+            index=df.index,
+            dtype=np.float64,
+        )
 
     # --- Helpers ---
     def _set_value(self, value: float) -> float:

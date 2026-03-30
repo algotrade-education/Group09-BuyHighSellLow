@@ -1,6 +1,9 @@
 from collections import deque
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 from src.data.indicators.base import IndicatorBase
 
 
@@ -40,6 +43,12 @@ class VolumeMA(IndicatorBase):
             return self._set_value(avg)
 
         return None
+
+    def compute_vectorized(self, df: pd.DataFrame) -> pd.Series:
+        """Vectorized SMA of volume using pandas rolling - exact match to bar-by-bar."""
+        vol = df["volume"].astype(np.float64)
+        result = vol.rolling(window=self.period, min_periods=self.period).mean()
+        return result.rename(None)
 
     def _reset_state(self) -> None:
         self._buffer.clear()
