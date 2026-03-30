@@ -135,7 +135,18 @@ class Position:
         low: float | None = None,
     ) -> float:
         """
-        Update unrealized PnL and track MAE/MFE.
+        Update unrealized P&L and track MAE/MFE.
+
+        Unrealized P&L is the "floating" profit/loss if we closed the position
+        at the current price. It changes every bar as the market moves.
+
+        This is different from realized P&L (in TradeRecorder) which is calculated
+        only once when the trade actually closes, using actual execution prices.
+
+        MAE/MFE tracking:
+        - MAE (Maximum Adverse Excursion): Worst price against us during the trade
+        - MFE (Maximum Favorable Excursion): Best price in our favor during the trade
+        - Used for post-trade analysis to optimize stop placement and profit targets
 
         Args:
             current_price: Current market price (typically close price)
@@ -143,13 +154,14 @@ class Position:
             low: Low price of current bar (optional, for better MAE/MFE tracking)
 
         Returns:
-            Updated unrealized PnL
+            Updated unrealized P&L
         """
         if self.is_flat:
             self.unrealized_pnl = 0.0
             return 0.0
 
         # Update MAE/MFE with intrabar extremes if provided
+        # This gives more accurate worst/best price tracking than using only close
         prices_to_check = [current_price]
         if high is not None:
             prices_to_check.append(high)
@@ -162,6 +174,7 @@ class Position:
             if self._worst_price is None or price < self._worst_price:
                 self._worst_price = price
 
+        # Calculate unrealized P&L (mark-to-market)
         if self.is_long:
             self.unrealized_pnl = (
                 (current_price - self.entry_price) * self.quantity * self.multiplier
