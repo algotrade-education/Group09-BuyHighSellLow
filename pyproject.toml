@@ -29,6 +29,7 @@ optimization = [
 # Chỉ cần khi chạy paper trading live
 paper = [
     "redis>=5.0.0",
+    "httpx>=0.28.0",
 ]
 
 # Visualization

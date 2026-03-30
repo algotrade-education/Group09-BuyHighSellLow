@@ -78,6 +78,7 @@ reports/*.html
 .coverage
 htmlcov/
 .tox/
+.hypothesis/
 
 # MyPy
 .mypy_cache/
