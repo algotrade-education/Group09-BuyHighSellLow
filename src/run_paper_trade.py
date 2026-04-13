@@ -595,6 +595,7 @@ def _prepare_live_or_dry_runtime(
         dry_run=(mode == "DRY-RUN"),
         sim=False,
         bar_aggregator=bar_aggregator,
+        session_manager=session_manager,
     )
     order_manager = OrderManager(
         client=broker_client,

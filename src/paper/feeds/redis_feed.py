@@ -5,7 +5,7 @@ invalid prices and out-of-session timestamps before forwarding to BarAggregator.
 
 Key features:
 - Tick filtering: drops price <= 0 and out-of-session timestamps
-- Session time validation: VN30 trading hours (09:00-11:30, 13:00-14:30)
+- Session time validation: delegated to SessionManager (no hardcoded times)
 - Watchdog monitoring: logs warning if no quotes received for >300s during session
 - Clock-based bar rollover: polling loop ensures bars emit even with sparse ticks
 """
@@ -16,36 +16,17 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
-from datetime import datetime, time
+from datetime import datetime
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.paper.bar_aggregator import BarAggregator
 from src.paper.feeds.base import FeedBase
 
+if TYPE_CHECKING:
+    from src.engine.session import SessionManager
+
 logger = logging.getLogger(__name__)
-
-
-def _in_vn30_session(dt: datetime) -> bool:
-    """Check if datetime falls within VN30 trading session hours.
-
-    VN30 sessions:
-    - Morning: 09:00 - 11:30
-    - Afternoon: 13:00 - 14:30
-
-    Args:
-        dt: Datetime to check.
-
-    Returns:
-        True if within trading hours, False otherwise.
-    """
-    t = dt.time()
-    morning_start = time(9, 0)
-    morning_end = time(11, 30)
-    afternoon_start = time(13, 0)
-    afternoon_end = time(14, 30)
-
-    return (morning_start <= t < morning_end) or (afternoon_start <= t < afternoon_end)
 
 
 class RedisFeed(FeedBase):
@@ -61,17 +42,20 @@ class RedisFeed(FeedBase):
         self,
         redis_client: Any,
         bar_aggregator: BarAggregator,
-        watchdog_silence_seconds: float = 60.0,
+        session_manager: SessionManager,
+        watchdog_silence_seconds: float = 300.0,
     ) -> None:
         """Initialize RedisFeed.
 
         Args:
             redis_client: Redis market data client with subscribe/unsubscribe methods.
             bar_aggregator: BarAggregator instance to forward valid ticks to.
-            watchdog_silence_seconds: Seconds of silence before logging warning (default 300).
+            session_manager: SessionManager for trading hours validation.
+            watchdog_silence_seconds: Seconds of silence before logging warning.
         """
         self._redis_client = redis_client
         self._bar_aggregator = bar_aggregator
+        self._session_manager = session_manager
         self._watchdog_silence_seconds = watchdog_silence_seconds
 
         self._subscribed_symbol: str | None = None
@@ -182,7 +166,7 @@ class RedisFeed(FeedBase):
         self._last_quote_ts = datetime.now()
 
         # Filter 2: Drop out-of-session timestamps
-        if not _in_vn30_session(self._last_quote_ts):
+        if not self._session_manager.is_trading_hours(self._last_quote_ts):
             self._quote_dropped_out_of_session += 1
             return
 
@@ -233,7 +217,7 @@ class RedisFeed(FeedBase):
         now = datetime.now()
 
         # Only check during trading hours
-        if not _in_vn30_session(now):
+        if not self._session_manager.is_trading_hours(now):
             return
 
         # No quotes ever received since startup

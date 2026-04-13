@@ -38,6 +38,7 @@ def build_clients(
     dry_run: bool,
     sim: bool,
     bar_aggregator: BarAggregator | None = None,
+    session_manager: Any | None = None,
     sim_df: pd.DataFrame | None = None,
     sim_pipeline: Any | None = None,
     atr_period: int = 14,
@@ -54,6 +55,7 @@ def build_clients(
         dry_run: If True, orders are logged but not sent via FIX.
         sim: If True, use SimFeed for historical replay (no Redis/FIX).
         bar_aggregator: BarAggregator instance (required for RedisFeed).
+        session_manager: SessionManager for trading hours validation (required for RedisFeed).
         sim_df: Historical DataFrame (required for SimFeed).
         sim_pipeline: Optional pipeline for indicator computation (SimFeed).
         atr_period: ATR period for warmup calculation (SimFeed).
@@ -116,10 +118,13 @@ def build_clients(
     # Construct RedisFeed
     if bar_aggregator is None:
         raise BootstrapError("bar_aggregator is required for RedisFeed")
+    if session_manager is None:
+        raise BootstrapError("session_manager is required for RedisFeed")
 
     redis_feed: FeedBase = RedisFeed(
         redis_client=redis_client,
         bar_aggregator=bar_aggregator,
+        session_manager=session_manager,
         watchdog_silence_seconds=300.0,
     )
 

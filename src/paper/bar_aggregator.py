@@ -620,9 +620,11 @@ class BarAggregator:
         """Periodically log quote callback quality metrics when enabled."""
         if not self._debug_quotes:
             return
+
         now = monotonic()
         if now - self._diag_last_ts < 60:
             return
+
         self._diag_last_ts = now
         total = self._quote_callbacks
         logger.debug(
