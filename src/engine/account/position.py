@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from src.engine.execution.order import Order
+from src.strategy.base import PositionSnapshot
 
 
 class PositionSide(StrEnum):
@@ -206,4 +207,20 @@ class Position:
         return (
             f"Position({self.side}, entry={self.entry_price:.2f}, "
             f"qty={self.quantity}, upnl={self.unrealized_pnl:.0f}{mae_str}{mfe_str})"
+        )
+
+    def to_snapshot(self) -> PositionSnapshot:
+        """Convert to immutable snapshot for strategy signal generation.
+
+        Returns:
+            PositionSnapshot with current position state.
+        """
+        return PositionSnapshot(
+            is_flat=self.is_flat,
+            is_long=self.is_long,
+            is_short=self.is_short,
+            quantity=self.quantity,
+            entry_price=self.entry_price,
+            stop_loss=self.stop_loss or 0.0,
+            take_profit=self.take_profit or 0.0,
         )

@@ -29,8 +29,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from src.strategy.base import PositionSnapshot
-
 if TYPE_CHECKING:
     from src.engine.account.sizer import PositionSizer
     from src.engine.session.base import SessionManager
@@ -116,16 +114,7 @@ class SignalHandler:
             return
 
         # Generate signal from strategy
-        position = self._tracker.position
-        position_snapshot = PositionSnapshot(
-            is_flat=position.is_flat,
-            is_long=position.is_long,
-            is_short=position.is_short,
-            quantity=position.quantity,
-            entry_price=position.entry_price,
-            stop_loss=position.stop_loss or 0.0,
-            take_profit=position.take_profit or 0.0,
-        )
+        position_snapshot = self._tracker.position.to_snapshot()
         signal = self._strategy.generate_signal(bar, position_snapshot, is_warmup=False)
 
         # HOLD signal - no action

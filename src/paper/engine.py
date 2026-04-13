@@ -374,15 +374,7 @@ class PaperEngine:
                 # Warmup strategy state
                 pos = self._tracker.position
                 try:
-                    position_snapshot = PositionSnapshot(
-                        is_flat=bool(pos.is_flat),
-                        is_long=bool(pos.is_long),
-                        is_short=bool(pos.is_short),
-                        quantity=int(pos.quantity),
-                        entry_price=float(pos.entry_price),
-                        stop_loss=float(pos.stop_loss or 0.0),
-                        take_profit=float(pos.take_profit or 0.0),
-                    )
+                    position_snapshot = pos.to_snapshot()
                 except (TypeError, ValueError):
                     position_snapshot = PositionSnapshot.flat()
 
