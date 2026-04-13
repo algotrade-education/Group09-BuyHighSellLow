@@ -162,7 +162,7 @@ class ORBStrategy(IntradayStrategy):
 
         # --- 4. Position check ---
         if position is not None and not position.is_flat:
-            return TradeSignal(Signal.HOLD)
+            return TradeSignal(Signal.HOLD, reason="Position already open")
 
         # --- 5. Trade limit ---
         if self._trades_this_session >= self._p.max_trades_per_session:
@@ -242,7 +242,7 @@ class ORBStrategy(IntradayStrategy):
                 entry_price = parsed.close if self._p.require_close_confirmation else breakout_low
             return self._build_short_signal(entry_price, atr, range_size, session, is_warmup)
 
-        return TradeSignal(Signal.HOLD)
+        return TradeSignal(Signal.HOLD, reason="No breakout signal")
 
     # --- Signal builders ---
 

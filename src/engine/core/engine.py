@@ -268,7 +268,13 @@ class EventDrivenBacktester:
                 )
 
             # Emit MarketEvent -> triggers entire pipeline
-            if not skip:
+            if skip:
+                logger.debug(
+                    "Signal skipped @ %s (daily_loss=%s)",
+                    timestamp,
+                    self._account.is_daily_loss_hit,
+                )
+            else:
                 self._bus.emit(
                     MarketEvent(
                         timestamp=timestamp,

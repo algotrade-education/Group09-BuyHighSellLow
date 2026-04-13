@@ -121,6 +121,11 @@ class SignalHandler:
 
         # HOLD signal - no action
         if signal.is_hold:
+            logger.info(
+                "on_bar: HOLD signal at bar_time=%s reason=%s",
+                bar_time.strftime("%Y-%m-%d %H:%M:%S"),
+                signal.reason or "No actionable signal",
+            )
             return
 
         # EXIT signal - submit exit if not flat (bypasses guards 2 and 3)

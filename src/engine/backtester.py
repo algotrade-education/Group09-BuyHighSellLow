@@ -255,7 +255,13 @@ class Backtester:
                         position=self.account.position_snapshot,
                         is_warmup=is_warmup,
                     )
-                    if signal.is_entry and not is_warmup:
+                    if signal.is_hold:
+                        logger.debug(
+                            "HOLD @ %s: %s",
+                            timestamp,
+                            signal.reason or "no reason",
+                        )
+                    elif signal.is_entry and not is_warmup:
                         new_order = self.account.create_order(signal, bar, timestamp)
                         if new_order is not None and pending_order is None:
                             pending_order = new_order

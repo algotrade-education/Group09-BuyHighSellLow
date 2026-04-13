@@ -79,6 +79,11 @@ class StrategyHandler:
                 is_warmup=event.is_warmup,
             )
             if signal.is_hold:
+                logger.debug(
+                    "HOLD @ %s: %s",
+                    event.timestamp,
+                    signal.reason or "no reason",
+                )
                 return
 
             self._bus.emit(
