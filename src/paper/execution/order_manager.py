@@ -118,7 +118,7 @@ class OrderManager:
 
         side = "BUY" if signal.is_long else "SELL"
         ord_type = signal.ord_type  # "MARKET" or "LIMIT"
-        price = signal.entry_price if ord_type == "LIMIT" else None
+        price = signal.entry_price
         stop_loss = signal.stop_loss if signal.stop_loss > 0 else None
         take_profit = signal.take_profit if signal.take_profit > 0 else None
 
@@ -139,7 +139,7 @@ class OrderManager:
         if self._dry_run or self._client is None:
             logger.info("submit_entry [DRY-RUN]: order logged only, not sent")
             effective_price = (
-                price if price and price > 0 else float(bar.get("close", 1300.0) if bar else 1300.0)
+                price if price and price > 0 else float(bar.get("close", 1800.0) if bar else 1800.0)
             )
             self._tracker.record_open(
                 fill_price=effective_price,
@@ -158,7 +158,7 @@ class OrderManager:
                 qty=qty,
                 price=price
                 if price and price > 0
-                else float(bar.get("close", 1300.0) if bar else 1300.0),
+                else float(bar.get("close", 1800.0) if bar else 1800.0),
                 ord_type=ord_type,
                 tif="GTC",
             )
