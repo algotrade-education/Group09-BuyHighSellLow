@@ -239,10 +239,15 @@ def evict_old_files(
 ) -> int:
     """Delete day-files older than ``max_age_days`` for ``db_symbol``.
 
+    ``db_symbol`` is normalized before resolving the cache directory so that
+    concrete contracts (e.g. ``VN30F2604``) and generic symbols (``VN30F1M``)
+    both resolve to the same directory — consistent with ``load_with_cache``.
+
     Returns the number of files removed.
     """
+    normalized_symbol = normalize_symbol(db_symbol)
     cutoff = date.today() - timedelta(days=max_age_days)
-    symbol_dir = cache_root / db_symbol
+    symbol_dir = cache_root / normalized_symbol
     if not symbol_dir.exists():
         return 0
 
@@ -258,7 +263,7 @@ def evict_old_files(
             logger.debug("Warmup cache: evicted %s", path)
 
     if removed:
-        logger.info("Warmup cache: evicted %d old file(s) for %s.", removed, db_symbol)
+        logger.info("Warmup cache: evicted %d old file(s) for %s.", removed, normalized_symbol)
     return removed
 
 
