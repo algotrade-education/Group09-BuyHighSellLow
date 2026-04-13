@@ -176,9 +176,20 @@ class SignalHandler:
 
             # All guards passed - submit entry if flat
             if self._tracker.is_flat:
-                # Calculate position size
-                atr_val = bar.get("atr_14")
-                atr_float = float(atr_val) if atr_val is not None else 0.0
+                # Extract ATR
+                atr_float = next(
+                    (
+                        float(v)
+                        for k, v in bar.items()
+                        if str(k).startswith("atr_") and v and float(v) > 0
+                    ),
+                    0.0,
+                )
+                if atr_float == 0.0:
+                    logger.warning(
+                        "on_bar: no ATR value found in bar at bar_time=%s — position sizing will use atr=0.0",
+                        bar_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
 
                 qty = self._position_sizer.calculate_size(
                     equity=self._tracker.equity,
