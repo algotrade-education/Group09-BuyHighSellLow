@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -63,9 +63,6 @@ class RiskHandler:
       the engine stores this and BarHandler submits it when the session reopens.
     """
 
-    # ATC (At-The-Close) safety threshold - force close at or after 14:30
-    ATC_START = time(14, 30)
-
     def __init__(
         self,
         tracker: Tracker,
@@ -93,6 +90,17 @@ class RiskHandler:
         self._session_manager = session_manager
         self._config = config
         self._on_deferred_exit = on_deferred_exit
+
+    def set_deferred_exit_callback(self, callback: Callable[[str | None], None]) -> None:
+        """Set or replace the deferred exit callback after construction.
+
+        Allows the engine to wire itself in after both the handler and engine
+        are constructed, avoiding the need for a placeholder None reference.
+
+        Args:
+            callback: Callable invoked with the deferred reason (or None to clear).
+        """
+        self._on_deferred_exit = callback
 
     def on_bar(self, bar: dict, bar_time: datetime) -> bool:
         """Process risk checks on a new bar.
@@ -167,8 +175,8 @@ class RiskHandler:
 
         reason: str | None = None
 
-        # 1. ATC safety close (bar_time >= 14:30)
-        if bar_time.time() >= self.ATC_START:
+        # 1. ATC safety close - delegate to session_manager instead of hardcoding time(14, 30)
+        if self._session_manager.is_atc(bar_time):
             reason = "ATC Safety Close"
 
         # 2. Session preclose window
@@ -228,10 +236,8 @@ class RiskHandler:
         can_exit_now = self._session_manager.is_trading_hours(bar_time)
 
         # Also allow exits during ATC even if not in standard trading hours
-        if not can_exit_now:
-            is_atc = getattr(self._session_manager, "is_atc", None)
-            if callable(is_atc) and is_atc(bar_time):
-                can_exit_now = True
+        if not can_exit_now and self._session_manager.is_atc(bar_time):
+            can_exit_now = True
 
         if can_exit_now:
             self._order_manager.submit_exit(

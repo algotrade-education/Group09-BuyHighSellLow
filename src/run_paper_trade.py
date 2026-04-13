@@ -225,36 +225,6 @@ def determine_mode(args: argparse.Namespace) -> str:
         return "LIVE"
 
 
-def log_startup_info(args: argparse.Namespace, mode: str) -> None:
-    """Log startup information.
-
-    Args:
-        args: Parsed arguments namespace.
-        mode: Operating mode string.
-    """
-    logger.info("=" * 60)
-    logger.info("Paper Trading System - Starting")
-    logger.info("=" * 60)
-    logger.info("Operating Mode: %s", mode)
-    logger.info("Strategy: %s", args.strategy)
-    logger.info("Symbol: %s", args.symbol)
-    logger.info("Bar Frequency: %s minutes", args.freq)
-    logger.info("Initial Capital: %s VND", f"{args.capital:,.0f}")
-
-    if args.config:
-        logger.info("Config File: %s", args.config)
-    else:
-        logger.info("Config File: config/strategy_params/%s_default.json", args.strategy)
-
-    if mode == "SIM":
-        if args.sample:
-            logger.info("Sample Size: %d bars", args.sample)
-        else:
-            logger.info("Sample Size: All available data")
-
-    logger.info("=" * 80)
-
-
 def _resolve_config_path(args: argparse.Namespace) -> Path:
     if args.config:
         return Path(args.config)
@@ -300,9 +270,9 @@ def _build_shared_runtime(
     risk_manager = RiskManager(
         use_trailing_stop=strategy_config.risk.use_trailing_stop,
         trailing_atr_multiplier=strategy_config.risk.trailing_atr_multiplier,
-        max_daily_loss_pct=strategy_config.risk.max_daily_loss,
+        max_daily_loss_fraction=strategy_config.risk.max_daily_loss,
         initial_capital=args.capital,
-        max_loss_per_trade_pct=0.0,
+        max_loss_per_trade_fraction=0.0,
     )
     strategy = ORBStrategy(config=strategy_config)
 
@@ -332,6 +302,125 @@ def _build_shared_runtime(
         position_sizer,
         signal_handler_config,
     )
+
+
+def _create_bar_aggregator(
+    freq_minutes: int,
+    atr_period: int,
+    session_manager: Any,
+    args: argparse.Namespace,
+) -> tuple[Any, dict]:
+    """Create BarAggregator with runtime config and fallback provider.
+
+    Args:
+        freq_minutes: Bar frequency in minutes.
+        atr_period: ATR period for warmup.
+        session_manager: Session manager instance.
+        args: Command-line arguments.
+
+    Returns:
+        Tuple of (bar_aggregator, runtime_config).
+    """
+    from config.schemas.paper import get_paper_bar_config
+    from src.database.data_service import get_data_service
+    from src.paper.bar_aggregator import BarAggregator
+    from src.paper.bar_fallback import create_fallback_provider
+
+    bar_config = get_paper_bar_config()
+    runtime_config = {
+        "stale_trade_seconds": bar_config.stale_seconds,
+        "min_live_updates": bar_config.min_updates,
+        "preclose_fetch_seconds": bar_config.preclose_fetch_seconds,
+        "debug_quotes": bar_config.debug_quotes,
+    }
+    logger.info(
+        "Bar runtime config: stale=%ss min_updates=%d preclose_fetch=%ss debug_quotes=%s",
+        bar_config.stale_seconds,
+        bar_config.min_updates,
+        bar_config.preclose_fetch_seconds,
+        bar_config.debug_quotes,
+    )
+
+    fallback_provider = None
+    if bar_config.enable_db_bar_fallback:
+        data_service = get_data_service()
+        fallback_provider = create_fallback_provider(
+            data_service=data_service,
+            symbol=args.symbol,
+            freq_minutes=freq_minutes,
+            enabled=True,
+        )
+        logger.info("DB bar fallback enabled")
+    else:
+        logger.info("DB bar fallback disabled")
+
+    bar_aggregator = BarAggregator(
+        freq_minutes=freq_minutes,
+        atr_period=atr_period,
+        fallback_bar_provider=fallback_provider,
+        runtime_config=runtime_config,
+        session_manager=session_manager,
+    )
+
+    return bar_aggregator, runtime_config
+
+
+def _create_handlers(
+    tracker: Any,
+    order_manager: Any,
+    session_manager: Any,
+    risk_manager: Any,
+    strategy: Any,
+    position_sizer: Any,
+    risk_handler_config: Any,
+    signal_handler_config: Any,
+) -> tuple[Any, Any, Any]:
+    """Create handler instances for the engine pipeline.
+
+    The deferred exit callback is NOT wired here — it requires the engine
+    instance which doesn't exist yet. Call risk_handler.set_deferred_exit_callback()
+    after engine construction.
+
+    Args:
+        tracker: Account tracker.
+        order_manager: Order manager.
+        session_manager: Session manager.
+        risk_manager: Risk manager.
+        strategy: Trading strategy.
+        position_sizer: Position sizer.
+        risk_handler_config: Risk handler configuration.
+        signal_handler_config: Signal handler configuration.
+
+    Returns:
+        Tuple of (bar_handler, risk_handler, signal_handler).
+    """
+    from src.paper.handlers.bar_handler import BarHandler
+    from src.paper.handlers.risk_handler import RiskHandler
+    from src.paper.handlers.signal_handler import SignalHandler
+
+    bar_handler = BarHandler(
+        tracker=tracker,
+        order_manager=order_manager,
+        session_manager=session_manager,
+    )
+    risk_handler = RiskHandler(
+        tracker=tracker,
+        order_manager=order_manager,
+        risk_manager=risk_manager,
+        session_manager=session_manager,
+        config=risk_handler_config,
+    )
+    signal_handler = SignalHandler(
+        strategy=strategy,
+        tracker=tracker,
+        order_manager=order_manager,
+        risk_manager=risk_manager,
+        session_manager=session_manager,
+        position_sizer=position_sizer,
+        config=signal_handler_config,
+    )
+
+    return bar_handler, risk_handler, signal_handler
 
 
 def _load_sim_raw_data(args: argparse.Namespace, data_service: Any) -> pd.DataFrame:
@@ -454,14 +543,12 @@ def _prepare_live_or_dry_runtime(
     freq_minutes: int,
     atr_period: int,
 ) -> tuple[Any, Any, Any, pd.DataFrame | None]:
-    from config.schemas.paper import get_paper_bar_config
     from src.database.data_service import get_data_service
     from src.paper.account.reconciler import Reconciler
-    from src.paper.bar_aggregator import BarAggregator
-    from src.paper.bar_fallback import create_fallback_provider
     from src.paper.bootstrap import build_clients
     from src.paper.execution.order_manager import OrderManager
     from src.paper.warmup_cache import load_with_cache
+    from src.paper.warmup_seed import extract_incomplete_bar
 
     logger.info("%s mode: Loading warmup data...", mode)
     data_service = get_data_service()
@@ -473,78 +560,37 @@ def _prepare_live_or_dry_runtime(
         ohlcv_freq=format_minutes_to_frequency(freq_minutes),
     )
 
-    historical_df = None
-    incomplete_bar = None
-    if not raw_df.empty:
-        # Extract incomplete bar (last row before dropna) for seeding current bucket
-        last_row = raw_df.iloc[-1].copy()
-        incomplete_bar = {
-            "datetime": last_row["datetime"],
-            "open": float(last_row["open"]),
-            "high": float(last_row["high"]),
-            "low": float(last_row["low"]),
-            "close": float(last_row["close"]),
-            "volume": float(last_row["volume"]),
-        }
+    # Extract incomplete bar for seeding
+    incomplete_bar = extract_incomplete_bar(raw_df)
 
-        historical_df = raw_df
-        logger.info("Loaded %d bars for warmup", len(historical_df))
-        logger.info(
-            "Extracted incomplete bar: %s O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f",
-            incomplete_bar["datetime"],
-            incomplete_bar["open"],
-            incomplete_bar["high"],
-            incomplete_bar["low"],
-            incomplete_bar["close"],
-            incomplete_bar["volume"],
-        )
+    if not raw_df.empty:
+        logger.info("Loaded %d bars for warmup", len(raw_df))
+        if incomplete_bar:
+            logger.info(
+                "Extracted incomplete bar: %s O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f",
+                incomplete_bar["datetime"],
+                incomplete_bar["open"],
+                incomplete_bar["high"],
+                incomplete_bar["low"],
+                incomplete_bar["close"],
+                incomplete_bar["volume"],
+            )
     else:
         logger.warning("No historical data available for warmup")
 
-    # Load paper bar runtime config
-    bar_config = get_paper_bar_config()
-    runtime_config = {
-        "stale_trade_seconds": bar_config.stale_seconds,
-        "min_live_updates": bar_config.min_updates,
-        "preclose_fetch_seconds": bar_config.preclose_fetch_seconds,
-        "debug_quotes": bar_config.debug_quotes,
-    }
-    logger.info(
-        "Bar runtime config: stale=%ss min_updates=%d preclose_fetch=%ss debug_quotes=%s",
-        bar_config.stale_seconds,
-        bar_config.min_updates,
-        bar_config.preclose_fetch_seconds,
-        bar_config.debug_quotes,
-    )
+    # Create bar aggregator with config
+    bar_aggregator, _ = _create_bar_aggregator(freq_minutes, atr_period, session_manager, args)
 
-    fallback_provider = None
-    if bar_config.enable_db_bar_fallback:
-        fallback_provider = create_fallback_provider(
-            data_service=data_service,
-            symbol=args.symbol,
-            freq_minutes=freq_minutes,
-            enabled=True,
-        )
-        logger.info("DB bar fallback enabled")
-    else:
-        logger.info("DB bar fallback disabled")
-
-    bar_aggregator = BarAggregator(
-        freq_minutes=freq_minutes,
-        atr_period=atr_period,
-        fallback_bar_provider=fallback_provider,
-        runtime_config=runtime_config,
-        session_manager=session_manager,
-    )
+    # Preload history and seed incomplete bar
     if not raw_df.empty:
         logger.info("Preloading %d bars into BarAggregator for warmup", len(raw_df))
         bar_aggregator.preload_history(raw_df)
 
-        # Seed incomplete bar if it matches current time bucket
         if incomplete_bar is not None:
             logger.info("Seeding incomplete bar into BarAggregator...")
             bar_aggregator.seed_current_live_bar(incomplete_bar, validate_bucket=True)
 
+    # Build clients and managers
     feed, broker_client = build_clients(
         dry_run=(mode == "DRY-RUN"),
         sim=False,
@@ -563,7 +609,7 @@ def _prepare_live_or_dry_runtime(
         symbol=args.symbol,
     )
 
-    return feed, order_manager, reconciler, historical_df
+    return feed, order_manager, reconciler, raw_df if not raw_df.empty else None
 
 
 def _build_engine(
@@ -581,9 +627,6 @@ def _build_engine(
 ) -> Any:
     from config.schemas.paper import get_paper_engine_config
     from src.paper.engine import PaperEngine
-    from src.paper.handlers.bar_handler import BarHandler
-    from src.paper.handlers.risk_handler import RiskHandler
-    from src.paper.handlers.signal_handler import SignalHandler
     from src.paper.stats import SessionStats
 
     # Load paper engine config from environment
@@ -598,36 +641,25 @@ def _build_engine(
         engine_config.force_flat_on_last_candle,
     )
 
-    engine: PaperEngine | None = None
-
-    bar_handler = BarHandler(
+    # Create handlers (no deferred exit callback yet - engine not constructed)
+    bar_handler, risk_handler, signal_handler = _create_handlers(
         tracker=tracker,
         order_manager=order_manager,
         session_manager=session_manager,
-    )
-    risk_handler = RiskHandler(
-        tracker=tracker,
-        order_manager=order_manager,
         risk_manager=risk_manager,
-        session_manager=session_manager,
-        config=risk_handler_config,
-        on_deferred_exit=lambda reason: setattr(engine, "_deferred_exit_reason", reason),
-    )
-    signal_handler = SignalHandler(
         strategy=strategy,
-        tracker=tracker,
-        order_manager=order_manager,
-        risk_manager=risk_manager,
-        session_manager=session_manager,
         position_sizer=position_sizer,
-        config=signal_handler_config,
+        risk_handler_config=risk_handler_config,
+        signal_handler_config=signal_handler_config,
     )
 
+    # Create stats
     stats = SessionStats(
         tracker=tracker,
         benchmark_equity=None,
     )
 
+    # Create engine
     engine = PaperEngine(
         feed=feed,
         bar_handler=bar_handler,
@@ -644,6 +676,12 @@ def _build_engine(
         force_hard_exit=engine_config.force_hard_exit,
         output_dir="results/paper",
     )
+
+    # Wire deferred exit callback now that engine exists - avoids closure over None
+    risk_handler.set_deferred_exit_callback(
+        lambda reason: setattr(engine, "_deferred_exit_reason", reason)
+    )
+
     return engine
 
 
@@ -681,7 +719,6 @@ async def run_engine(args: argparse.Namespace, mode: str) -> None:
 
     engine = None
     historical_df = None
-    incomplete_bar = None
     sim_df = None
 
     try:
@@ -731,7 +768,6 @@ async def run_engine(args: argparse.Namespace, mode: str) -> None:
         logger.info("Starting engine...")
         await engine.start(
             historical_df=historical_df,
-            incomplete_bar=incomplete_bar,
             sim_df=sim_df,
         )
 
@@ -765,9 +801,6 @@ def main() -> None:
 
     # Determine operating mode
     mode = determine_mode(args)
-
-    # Log startup information
-    log_startup_info(args, mode)
 
     # Run engine with asyncio
     try:
