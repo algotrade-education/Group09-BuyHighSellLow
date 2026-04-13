@@ -48,7 +48,6 @@ class PaperBarConfig(BaseSettings):
     debug_quotes: bool = Field(
         default=False,
         description="Enable verbose quote-level logging for bar builder diagnostics.",
-        alias="PAPER_DEBUG_QUOTES",
     )
 
     enable_db_bar_fallback: bool = Field(
