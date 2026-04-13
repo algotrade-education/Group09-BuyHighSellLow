@@ -98,20 +98,19 @@ def build_clients(
     logger.info("Bootstrap: Connecting to Redis at %s:%d", redis_host, secrets.redis.port)
 
     try:
-        # Import Redis client (lazy import to avoid dependency in SIM mode)
-        from redis.asyncio import Redis
+        from paperbroker.market_data import RedisMarketDataClient
 
-        redis_client = Redis(
+        redis_client = RedisMarketDataClient(
             host=redis_host,
             port=secrets.redis.port,
             password=secrets.redis.password.get_secret_value() if secrets.redis.password else None,
-            decode_responses=False,
+            merge_updates=True,
         )
     except ImportError as exc:
         logger.error(
-            "Bootstrap: Redis client not available. Install with: pip install redis>=5.0.0"
+            "Bootstrap: paperbroker.market_data not available. Ensure paperbroker package is installed."
         )
-        raise RuntimeError("Redis client not available") from exc
+        raise RuntimeError("paperbroker.market_data not available") from exc
 
     # Construct RedisFeed
     if bar_aggregator is None:
