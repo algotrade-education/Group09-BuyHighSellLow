@@ -13,6 +13,7 @@ import pandas as pd
 
 from config.schemas.base import ResampleFreq
 from config.schemas.session import Session, SessionConfig, VN30SessionConfig
+from src.utils.frequency import to_pandas_offset
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ class DataPreprocessor:
         agg_rules = {k: v for k, v in agg_rules.items() if k in df.columns}
 
         resampled = (
-            df.resample(self._to_pandas_freq(freq))
+            df.resample(to_pandas_offset(freq))
             .agg(agg_rules)
             .dropna(subset=["close"])  # Drop bars with no trades (close is NaN)
             .reset_index()
@@ -220,25 +221,6 @@ class DataPreprocessor:
         return df
 
     # --- Helpers ---
-
-    @staticmethod
-    def _to_pandas_freq(freq: str) -> str:
-        """Convert our freq format -> pandas offset alias."""
-        mapping = {
-            "1min": "1min",
-            "5min": "5min",
-            "15min": "15min",
-            "30min": "30min",
-            "1H": "1H",
-            "1D": "1D",
-            "1W": "1W",
-            "1M": "1M",
-        }
-
-        if freq not in mapping:
-            raise ValueError(f"Unsupported freq '{freq}'. Supported: {list(mapping.keys())}")
-
-        return mapping[freq]
 
     def _validate_input(self, df: pd.DataFrame, require_columns: list[str] | None = None) -> None:
         """

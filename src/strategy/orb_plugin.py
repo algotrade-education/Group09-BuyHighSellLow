@@ -21,6 +21,7 @@ from typing import Any
 import pandas as pd
 
 from src.strategy.strategy_registry import StrategyPlugin, register_strategy_plugin
+from src.utils.frequency import parse_frequency_to_minutes
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -309,7 +310,7 @@ def build_trial_fn(
             contract_multiplier=contract_multiplier,
             margin_rate=margin_rate,
             cache_dir=cache_dir,
-            freq_minutes=int(trial_freq.replace("min", "")),
+            freq_minutes=parse_frequency_to_minutes(trial_freq),
             use_cache=True,
             processed_data=processed_df,
             bars_list=bars,
@@ -332,7 +333,7 @@ def build_wfo_trial_fn(
     from config.schemas.orb import ORBConfig
 
     base_raw = json.loads(Path(base_config_path).read_text(encoding="utf-8"))
-    freq_minutes = int(freq.replace("min", ""))
+    freq_minutes = parse_frequency_to_minutes(freq)
 
     def trial_fn(params: dict[str, Any], data: pd.DataFrame, window_capital: float) -> Any:
         trial_freq, strategy_params, risk_params = _split_params(params, freq)

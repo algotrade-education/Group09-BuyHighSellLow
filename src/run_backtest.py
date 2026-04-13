@@ -52,6 +52,7 @@ from src.utils.cli_helpers import (
     print_section_end,
     print_status,
 )
+from src.utils.frequency import parse_frequency_to_minutes
 from src.utils.logger import setup_logging
 
 if TYPE_CHECKING:
@@ -148,7 +149,7 @@ def _build_backtester(
         max_daily_loss_pct=config.risk.max_daily_loss,
         entry_cutoff_seconds=float(config.risk.entry_cutoff_seconds),
         allow_late_entry=config.risk.allow_late_entry,
-        freq_minutes=int(freq.replace("min", "")),
+        freq_minutes=parse_frequency_to_minutes(freq),
     )
 
 
@@ -300,7 +301,7 @@ def _compare_engines(
     bt1 = EventDrivenBacktester(
         strategy=strategy,
         account=account,
-        freq_minutes=int(freq.replace("min", "")),
+        freq_minutes=parse_frequency_to_minutes(freq),
         use_t1_execution=True,  # Match H2's pending order behavior
         entry_cutoff_seconds=float(config.risk.entry_cutoff_seconds),
         allow_late_entry=config.risk.allow_late_entry,

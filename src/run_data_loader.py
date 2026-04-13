@@ -48,6 +48,7 @@ from src.utils.cli_helpers import (
     print_section_end,
     print_status,
 )
+from src.utils.frequency import parse_frequency_to_minutes
 from src.utils.logger import setup_logging
 
 logger = setup_logging(
@@ -345,7 +346,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
         from config.schemas.session import VN30SessionConfig
 
-        expected = VN30SessionConfig().bars_per_year(int(args.freq.replace("min", "")))
+        expected = VN30SessionConfig().bars_per_year(parse_frequency_to_minutes(args.freq))
         actual = len(prep)
         coverage = actual / expected * 100 if expected > 0 else 0
 

@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from datetime import time
 from enum import StrEnum
 
+from src.utils.frequency import parse_frequency_to_minutes
+
 
 class Session(StrEnum):
     MORNING = "morning"
@@ -92,31 +94,17 @@ class SessionConfig(ABC):
     def _bars_per_day_from_frequency(
         trading_minutes_per_day: int, freq_minutes: int | str
     ) -> float:
-        if isinstance(freq_minutes, int):
-            if freq_minutes <= 0:
-                raise ValueError(f"freq_minutes must be positive, got {freq_minutes}")
-            return trading_minutes_per_day / freq_minutes
+        """Calculate bars per day from frequency.
 
-        freq_text = freq_minutes.strip().upper()
-        if not freq_text:
-            raise ValueError("freq_minutes string cannot be empty")
+        Args:
+            trading_minutes_per_day: Total trading minutes in a day
+            freq_minutes: Frequency as minutes (int) or string ('5min', '1H', etc.)
 
-        unit = freq_text[-1]
-        value_text = freq_text[:-1]
-
-        if unit not in {"M", "H", "D"} or not value_text.isdigit():
-            raise ValueError("freq_minutes must be int minutes or timeframe string like '1H'/'1D'")
-
-        value = int(value_text)
-        if value <= 0:
-            raise ValueError(f"frequency value must be positive, got {value}")
-
-        if unit == "M":
-            return trading_minutes_per_day / value
-        if unit == "H":
-            return trading_minutes_per_day / (value * 60)
-
-        return 1.0 / value
+        Returns:
+            Number of bars per day
+        """
+        minutes = parse_frequency_to_minutes(freq_minutes)
+        return trading_minutes_per_day / minutes
 
 
 class VN30SessionConfig(SessionConfig):
