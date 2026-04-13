@@ -30,6 +30,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from config.constants import MARKET_ORDER_PRICE_BUFFER
 from src.strategy.signal import TradeSignal
 
 if TYPE_CHECKING:
@@ -253,12 +254,13 @@ class OrderManager:
 
         try:
             if effective_ord_type == "MARKET":
-                # NOTE: For the current Paperbroker API, we need to raise/drop price by a margin of 20.0
+                # Use price buffer for MARKET orders to ensure execution
+                # (Paperbroker API requires price parameter even for MARKET orders)
                 price = effective_price or position.entry_price
                 if position.is_long:
-                    price += 20.0
+                    price += MARKET_ORDER_PRICE_BUFFER
                 else:
-                    price -= 20.0
+                    price -= MARKET_ORDER_PRICE_BUFFER
 
                 cl_ord_id = self._client.place_order(
                     full_symbol=self._symbol,

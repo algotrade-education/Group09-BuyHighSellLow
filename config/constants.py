@@ -24,6 +24,9 @@ VN30F_COMMISSION_RATE: float = 0.00015  # 0.015% of notional
 VN30F_MARGIN_RATE: float = 0.18  # 18% margin requirement
 VN30F_SLIPPAGE_POINTS: float = 0.5  # 0.5 index points slippage per side
 
+# --- Order Execution ---
+MARKET_ORDER_PRICE_BUFFER: float = 20.0  # Price buffer for MARKET orders (points above/below entry)
+
 # --- Data ---
 DEFAULT_SYMBOL: str = "VN30F1M"
 DATETIME_COLUMN: str = "datetime"
