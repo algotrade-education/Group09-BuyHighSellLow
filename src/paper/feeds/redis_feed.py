@@ -17,6 +17,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 from datetime import datetime, time
+from time import monotonic
 from typing import Any
 
 from src.paper.bar_aggregator import BarAggregator
@@ -60,7 +61,7 @@ class RedisFeed(FeedBase):
         self,
         redis_client: Any,
         bar_aggregator: BarAggregator,
-        watchdog_silence_seconds: float = 300.0,
+        watchdog_silence_seconds: float = 60.0,
     ) -> None:
         """Initialize RedisFeed.
 
@@ -77,6 +78,13 @@ class RedisFeed(FeedBase):
         self._last_quote_ts: datetime | None = None
         self._polling_task: asyncio.Task | None = None
         self._running = False
+
+        # Diagnostics counters
+        self._quote_callbacks: int = 0
+        self._quote_dropped_no_price: int = 0
+        self._quote_forwarded: int = 0
+        self._quote_dropped_out_of_session: int = 0
+        self._last_diag_log: float = 0.0
 
     async def subscribe(self, symbol: str, callback: Callable[[dict], None]) -> None:
         """Subscribe to market data for a symbol.
@@ -96,11 +104,8 @@ class RedisFeed(FeedBase):
         self._bar_aggregator.set_on_bar(callback)
         self._running = True
 
-        # Register quote callback with Redis client
-        self._redis_client.on_quote = self._on_quote
-
-        # Start Redis subscription
-        await self._redis_client.subscribe(symbol)
+        # Register quote callback with Redis client and start subscription
+        await self._redis_client.subscribe(symbol, self._on_quote)
 
         # Start polling loop for check_time() and watchdog
         self._polling_task = asyncio.create_task(self._polling_loop())
@@ -142,19 +147,35 @@ class RedisFeed(FeedBase):
 
         logger.info("RedisFeed closed")
 
-    async def _on_quote(self, instrument: str, quote: Any) -> None:
+    async def _on_quote(self, instrument_or_snapshot: Any, quote: Any = None) -> None:
         """Process incoming Redis quote snapshot.
+
+        Supports both callback shapes from RedisMarketDataClient:
+        - (instrument, quote_snapshot)
+        - (quote_snapshot,)
 
         Filters invalid prices and out-of-session timestamps before forwarding
         to BarAggregator.
 
         Args:
-            instrument: Symbol string (e.g. 'HNXDS:VN30F2601').
-            quote: Quote snapshot object with latest_matched_price and latest_matched_quantity.
+            instrument_or_snapshot: Symbol string or QuoteSnapshot (if single-arg form).
+            quote: QuoteSnapshot instance (if two-arg form).
         """
-        # Filter 1: Drop invalid prices
-        price = getattr(quote, "latest_matched_price", None)
+        # Normalise callback shape
+        if quote is None:
+            snapshot = instrument_or_snapshot
+            instrument = getattr(snapshot, "instrument", self._subscribed_symbol or "")
+        else:
+            instrument = str(instrument_or_snapshot or self._subscribed_symbol or "")
+            snapshot = quote
+
+        self._quote_callbacks += 1
+
+        # Filter 1: Drop invalid prices (bid/ask-only updates have no matched price)
+        price = getattr(snapshot, "latest_matched_price", None)
         if price is None or price <= 0:
+            self._quote_dropped_no_price += 1
+            self._log_quote_diagnostics(instrument)
             return
 
         # Update watchdog timestamp
@@ -162,11 +183,14 @@ class RedisFeed(FeedBase):
 
         # Filter 2: Drop out-of-session timestamps
         if not _in_vn30_session(self._last_quote_ts):
+            self._quote_dropped_out_of_session += 1
             return
 
         # Forward valid tick to BarAggregator
-        volume = float(getattr(quote, "latest_matched_quantity", 0.0) or 0.0)
+        self._quote_forwarded += 1
+        volume = float(getattr(snapshot, "latest_matched_quantity", 0.0) or 0.0)
         self._bar_aggregator.on_tick(self._last_quote_ts, price, volume)
+        self._log_quote_diagnostics(instrument)
 
     async def _polling_loop(self) -> None:
         """Polling loop for check_time() and watchdog monitoring.
@@ -189,6 +213,21 @@ class RedisFeed(FeedBase):
             logger.debug("Polling loop cancelled")
             raise
 
+    def _log_quote_diagnostics(self, instrument: str) -> None:
+        """Log quote callback quality metrics every 15 seconds or every 100 callbacks."""
+        now = monotonic()
+        if (now - self._last_diag_log) <= 15 and self._quote_callbacks % 100 != 0:
+            return
+        self._last_diag_log = now
+        logger.info(
+            "Quote diag | %s | callbacks=%d forwarded=%d dropped_no_price=%d dropped_out_of_session=%d",
+            instrument,
+            self._quote_callbacks,
+            self._quote_forwarded,
+            self._quote_dropped_no_price,
+            self._quote_dropped_out_of_session,
+        )
+
     def _check_watchdog(self) -> None:
         """Check for feed silence and log warning if exceeded threshold during session."""
         now = datetime.now()
@@ -197,8 +236,16 @@ class RedisFeed(FeedBase):
         if not _in_vn30_session(now):
             return
 
-        # Skip if no quotes received yet
+        # No quotes ever received since startup
         if self._last_quote_ts is None:
+            if not hasattr(self, "_subscribe_ts"):
+                self._subscribe_ts: datetime = now
+            silence_seconds = (now - self._subscribe_ts).total_seconds()
+            if silence_seconds > self._watchdog_silence_seconds:
+                logger.warning(
+                    "Feed silence detected: no quotes received since startup (%.0f seconds) - check Redis connection and quote attribute names",
+                    silence_seconds,
+                )
             return
 
         # Calculate silence duration
@@ -207,7 +254,7 @@ class RedisFeed(FeedBase):
         # Log warning if silence exceeds threshold
         if silence_seconds > self._watchdog_silence_seconds:
             logger.warning(
-                "Feed silence detected: no quotes for %.0f seconds (threshold: %.0f)",
+                "Feed silence detected: no quotes for %.0f seconds (threshold: %.0f) - check Redis connection and quote attribute names",
                 silence_seconds,
                 self._watchdog_silence_seconds,
             )

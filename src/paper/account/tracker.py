@@ -330,10 +330,26 @@ class Tracker:
         """
         self._state.portfolio.add_cash(cash - self._state.portfolio.cash)
 
-        if not self._state.position.is_flat:
-            self._state.update_equity(self._state.position.entry_price)
+        # Update equity based on current position
+        # Note: For positions, we can't calculate accurate unrealized P&L during
+        # reconciliation because we don't have the current market price yet.
+        # The equity will be properly updated when the first bar arrives.
+        # For now, just update the portfolio equity with current position state.
+        self._state.portfolio.update_equity(self._state.position)
 
-        logger.info("sync_cash: cash=%.2f", cash)
+        logger.info("sync_cash: cash=%.2f, equity=%.2f", cash, self._state.portfolio.equity)
+
+    def set_initial_capital(self, capital: float) -> None:
+        """Set the initial capital baseline after reconciliation.
+
+        This should be called after reconciling with the broker to set the
+        actual starting equity as the baseline for P&L calculations.
+
+        Args:
+            capital: Initial capital/equity to use as baseline.
+        """
+        self._state.portfolio.initial_capital = capital
+        logger.info("set_initial_capital: baseline set to %.2f", capital)
 
     def equity_snapshot(self, ts: datetime) -> None:
         """Store equity snapshot with timestamp deduplication.

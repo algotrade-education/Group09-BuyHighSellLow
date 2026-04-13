@@ -21,12 +21,15 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from src.data.pipeline import DataPipeline
 from src.paper.data_quality import BarState, DataQualityConfig, maybe_merge_db_bar
+
+if TYPE_CHECKING:
+    from src.engine.session.base import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -51,24 +54,6 @@ def _floor_to_bucket(dt: datetime, freq_minutes: int) -> datetime:
     )
 
 
-def _in_session(
-    dt: datetime,
-    morning_start: tuple,
-    morning_end: tuple,
-    afternoon_start: tuple,
-    afternoon_end: tuple,
-) -> bool:
-    """Check if datetime is within trading session."""
-    t = dt.time()
-    from datetime import time
-
-    ms = time(*morning_start)
-    me = time(*morning_end)
-    aft_s = time(*afternoon_start)
-    aft_e = time(*afternoon_end)
-    return (ms <= t < me) or (aft_s <= t < aft_e)
-
-
 class BarAggregator:
     """Aggregates ticks into OHLC bars with deterministic bucket timestamps.
 
@@ -86,6 +71,7 @@ class BarAggregator:
         atr_period: int,
         fallback_bar_provider: Callable | None,
         runtime_config: dict,
+        session_manager: SessionManager,
     ) -> None:
         """Initialize the bar aggregator.
 
@@ -98,12 +84,13 @@ class BarAggregator:
                 - stale_trade_seconds: Max gap seconds before triggering DB merge
                 - min_live_updates: Minimum live ticks required per bar
                 - debug_quotes: Enable quote diagnostics logging
-                - session_times: Dict with morning_start, morning_end, afternoon_start, afternoon_end tuples
+            session_manager: SessionManager instance for trading hours validation (required).
         """
         self.freq_minutes = freq_minutes
         self.atr_period = atr_period
         self._fallback_bar_provider = fallback_bar_provider
         self._runtime_config = runtime_config
+        self._session_manager = session_manager
 
         # Downstream callback registered via set_on_bar()
         self._on_bar: Callable[[dict], None] | None = None
@@ -136,18 +123,14 @@ class BarAggregator:
         default_stale = max(5, int(freq_minutes * 60 * 0.1))
         self._stale_trade_seconds = float(runtime_config.get("stale_trade_seconds", default_stale))
         self._min_live_updates = int(runtime_config.get("min_live_updates", 2))
+        self._preclose_fetch_seconds = float(runtime_config.get("preclose_fetch_seconds", 30.0))
+        self._bar_db_merged: bool = False  # prevents duplicate preclose merges
 
         self._debug_quotes = bool(runtime_config.get("debug_quotes", False))
         self._quote_callbacks = 0
         self._quote_with_price = 0
         self._quote_no_price = 0
         self._diag_last_ts = monotonic()
-
-        session_times = runtime_config.get("session_times", {})
-        self._morning_start = session_times.get("morning_start", (9, 0))
-        self._morning_end = session_times.get("morning_end", (11, 30))
-        self._afternoon_start = session_times.get("afternoon_start", (13, 0))
-        self._afternoon_end = session_times.get("afternoon_end", (14, 30))
 
     # ------------------------------------------------------------------
     # Public interface
@@ -160,9 +143,47 @@ class BarAggregator:
 
         Called every second by the polling loop. Forces a bar emit when the
         wall clock has crossed into a new bucket and there is accumulated data.
+        Also triggers a preclose DB merge when within preclose_fetch_seconds of
+        bucket end, matching the old bar_provider behaviour.
         """
         now = datetime.now()
         current_wall_bucket = _floor_to_bucket(now, self.freq_minutes)
+
+        if self._current_bucket is not None:
+            # Preclose DB fetch: merge DB bar before bucket closes to fill gaps
+            bucket_end = self._current_bucket + timedelta(minutes=self.freq_minutes)
+            seconds_to_close = max(0.0, (bucket_end - now).total_seconds())
+            if (
+                seconds_to_close <= self._preclose_fetch_seconds
+                and not self._bar_db_merged
+                and self._fallback_bar_provider is not None
+            ):
+                bar_state, dq_config, reference_time = self._build_quality_state()
+                from src.paper.data_quality import get_quality_reasons, merge_db_bar
+
+                reasons = get_quality_reasons(bar_state, now, dq_config)
+                if reasons:
+                    try:
+                        db_bar = self._fallback_bar_provider(self._current_bucket)
+                        if db_bar:
+                            current = self._build_bar_dict()
+                            merged = merge_db_bar(current, db_bar, reasons)
+                            self._open = merged["open"]
+                            self._high = merged["high"]
+                            self._low = merged["low"]
+                            self._close = merged["close"]
+                            self._volume = merged["volume"]
+                            self._bar_db_merged = True
+                            logger.warning(
+                                "DB bar preclose merge for %s | reasons=%s | live_updates=%d",
+                                self._current_bucket.strftime("%H:%M"),
+                                ",".join(reasons),
+                                self._trade_count,
+                            )
+                    except Exception:
+                        logger.warning(
+                            "Preclose DB fetch failed for %s", self._current_bucket, exc_info=True
+                        )
 
         if (
             self._current_bucket is not None
@@ -192,9 +213,8 @@ class BarAggregator:
         self._quote_with_price += 1
         dt = datetime.now()
 
-        if not _in_session(
-            dt, self._morning_start, self._morning_end, self._afternoon_start, self._afternoon_end
-        ):
+        # Filter out-of-session timestamps using SessionManager
+        if not self._session_manager.is_trading_hours(dt):
             return
 
         volume = float(getattr(quote, "latest_matched_quantity", 0.0) or 0.0)
@@ -294,6 +314,23 @@ class BarAggregator:
         bar_state, dq_config, reference_time = self._build_quality_state()
         bar = maybe_merge_db_bar(
             bar, bar_state, reference_time, dq_config, self._fallback_bar_provider
+        )
+
+        # Log bar formation details
+        logger.info(
+            "Bar formed | %s | O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f | ticks=%d gap=%.0fs | %s-%s",
+            bar["datetime"].strftime("%Y-%m-%d %H:%M")
+            if isinstance(bar.get("datetime"), datetime)
+            else bar.get("datetime"),
+            bar.get("open", 0.0),
+            bar.get("high", 0.0),
+            bar.get("low", 0.0),
+            bar.get("close", 0.0),
+            bar.get("volume", 0.0),
+            self._trade_count,
+            self._max_gap_seconds,
+            self._bar_first_trade_ts.strftime("%H:%M:%S") if self._bar_first_trade_ts else "N/A",
+            self._bar_last_trade_ts.strftime("%H:%M:%S") if self._bar_last_trade_ts else "N/A",
         )
 
         self._history.append(bar)
@@ -445,13 +482,8 @@ class BarAggregator:
                 else pd.Timestamp(str(row_dt)).to_pydatetime()
             )
 
-            if not _in_session(
-                dt,
-                self._morning_start,
-                self._morning_end,
-                self._afternoon_start,
-                self._afternoon_end,
-            ):
+            # Filter out-of-session timestamps using SessionManager
+            if not self._session_manager.is_trading_hours(dt):
                 continue
 
             open_val = float(str(row.open)) if hasattr(row, "open") else 0.0
@@ -582,6 +614,7 @@ class BarAggregator:
         self._trade_count = 0
         self._has_live_trade = False
         self._max_gap_seconds = 0.0
+        self._bar_db_merged = False
 
     def _maybe_log_diagnostics(self, instrument: str) -> None:
         """Periodically log quote callback quality metrics when enabled."""

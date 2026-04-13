@@ -39,12 +39,14 @@ from typing import Any
 import pandas as pd
 
 from config.constants import DEFAULT_INITIAL_CAPITAL, DEFAULT_SYMBOL
+from src.utils.frequency import format_minutes_to_frequency, parse_frequency_to_minutes
 from src.utils.logger import setup_logging
 
 logger = setup_logging(
     name="run_paper_trade",
     log_file="logs/paper_trade.log",
-    capture_all_loggers=False,
+    capture_all_loggers=True,
+    # console_level=logging.DEBUG
 )
 
 
@@ -85,6 +87,7 @@ Examples:
     parser.add_argument(
         "--strategy",
         type=str,
+        default="orb",
         required=True,
         help="Strategy name (e.g., 'orb', 'breakout'). Must match a config file in config/strategy_params/",
     )
@@ -148,8 +151,8 @@ Examples:
     parser.add_argument(
         "--freq",
         type=str,
-        default="5",
-        help="Bar frequency in minutes (default: 5)",
+        default=None,
+        help="Bar frequency in minutes (default: use resample_freq from strategy config)",
     )
 
     parser.add_argument(
@@ -194,14 +197,15 @@ def validate_args(args: argparse.Namespace) -> None:
         logger.error("--capital must be positive, got: %.2f", args.capital)
         sys.exit(1)
 
-    # Validate freq is valid
-    try:
-        freq_int = int(args.freq)
-        if freq_int <= 0:
-            raise ValueError("Frequency must be positive")
-    except ValueError:
-        logger.error("--freq must be a positive integer (minutes), got: %s", args.freq)
-        sys.exit(1)
+    # Validate freq if specified
+    if args.freq is not None:
+        from src.utils.frequency import validate_frequency
+
+        if not validate_frequency(args.freq):
+            logger.error(
+                "--freq must be a positive integer or format like '5min', '1H', got: %s", args.freq
+            )
+            sys.exit(1)
 
 
 def determine_mode(args: argparse.Namespace) -> str:
@@ -228,9 +232,9 @@ def log_startup_info(args: argparse.Namespace, mode: str) -> None:
         args: Parsed arguments namespace.
         mode: Operating mode string.
     """
-    logger.info("=" * 80)
+    logger.info("=" * 60)
     logger.info("Paper Trading System - Starting")
-    logger.info("=" * 80)
+    logger.info("=" * 60)
     logger.info("Operating Mode: %s", mode)
     logger.info("Strategy: %s", args.strategy)
     logger.info("Symbol: %s", args.symbol)
@@ -275,6 +279,7 @@ def _build_shared_runtime(
     freq_minutes: int,
 ) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     from config.constants import VN30F_COMMISSION_RATE, VN30F_CONTRACT_MULTIPLIER
+    from config.schemas.paper import get_paper_engine_config
     from src.engine.account.sizer import PercentRiskSizer
     from src.engine.session.vn30_session import VN30Session
     from src.paper.account.tracker import Tracker
@@ -282,6 +287,9 @@ def _build_shared_runtime(
     from src.paper.handlers.signal_handler import SignalHandlerConfig
     from src.paper.risk_manager import RiskManager
     from src.strategy.orb import ORBStrategy
+
+    # Load paper engine config from environment
+    engine_config = get_paper_engine_config()
 
     tracker = Tracker(
         initial_capital=args.capital,
@@ -299,10 +307,10 @@ def _build_shared_runtime(
     strategy = ORBStrategy(config=strategy_config)
 
     risk_handler_config = RiskHandlerConfig(
-        force_flat_on_session_close=True,
-        force_flat_preclose_seconds=15.0,
-        force_flat_on_last_candle=True,
-        defer_exit_outside_session=True,
+        force_flat_on_session_close=engine_config.force_flat_on_session_close,
+        force_flat_preclose_seconds=engine_config.force_flat_preclose_seconds,
+        force_flat_on_last_candle=engine_config.force_flat_on_last_candle,
+        defer_exit_outside_session=engine_config.defer_exit_outside_session,
         freq_minutes=freq_minutes,
     )
     position_sizer = PercentRiskSizer(
@@ -310,8 +318,8 @@ def _build_shared_runtime(
         max_size=strategy_config.risk.max_position_size,
     )
     signal_handler_config = SignalHandlerConfig(
-        entry_cutoff_seconds=float(strategy_config.risk.entry_cutoff_seconds),
-        allow_late_entry=strategy_config.risk.allow_late_entry,
+        entry_cutoff_seconds=engine_config.entry_cutoff_seconds,
+        allow_late_entry=engine_config.allow_late_entry,
         contract_multiplier=VN30F_CONTRACT_MULTIPLIER,
     )
 
@@ -442,12 +450,15 @@ def _prepare_live_or_dry_runtime(
     args: argparse.Namespace,
     mode: str,
     tracker: Any,
+    session_manager: Any,
     freq_minutes: int,
     atr_period: int,
 ) -> tuple[Any, Any, Any, pd.DataFrame | None]:
+    from config.schemas.paper import get_paper_bar_config
     from src.database.data_service import get_data_service
     from src.paper.account.reconciler import Reconciler
     from src.paper.bar_aggregator import BarAggregator
+    from src.paper.bar_fallback import create_fallback_provider
     from src.paper.bootstrap import build_clients
     from src.paper.execution.order_manager import OrderManager
     from src.paper.warmup_cache import load_with_cache
@@ -458,24 +469,81 @@ def _prepare_live_or_dry_runtime(
         data_service=data_service,
         db_symbol=args.symbol,
         n_days=5,
+        convert_to_ohlcv=True,
+        ohlcv_freq=format_minutes_to_frequency(freq_minutes),
     )
 
     historical_df = None
+    incomplete_bar = None
     if not raw_df.empty:
+        # Extract incomplete bar (last row before dropna) for seeding current bucket
+        last_row = raw_df.iloc[-1].copy()
+        incomplete_bar = {
+            "datetime": last_row["datetime"],
+            "open": float(last_row["open"]),
+            "high": float(last_row["high"]),
+            "low": float(last_row["low"]),
+            "close": float(last_row["close"]),
+            "volume": float(last_row["volume"]),
+        }
+
         historical_df = raw_df
         logger.info("Loaded %d bars for warmup", len(historical_df))
+        logger.info(
+            "Extracted incomplete bar: %s O=%.2f H=%.2f L=%.2f C=%.2f V=%.0f",
+            incomplete_bar["datetime"],
+            incomplete_bar["open"],
+            incomplete_bar["high"],
+            incomplete_bar["low"],
+            incomplete_bar["close"],
+            incomplete_bar["volume"],
+        )
     else:
         logger.warning("No historical data available for warmup")
+
+    # Load paper bar runtime config
+    bar_config = get_paper_bar_config()
+    runtime_config = {
+        "stale_trade_seconds": bar_config.stale_seconds,
+        "min_live_updates": bar_config.min_updates,
+        "preclose_fetch_seconds": bar_config.preclose_fetch_seconds,
+        "debug_quotes": bar_config.debug_quotes,
+    }
+    logger.info(
+        "Bar runtime config: stale=%ss min_updates=%d preclose_fetch=%ss debug_quotes=%s",
+        bar_config.stale_seconds,
+        bar_config.min_updates,
+        bar_config.preclose_fetch_seconds,
+        bar_config.debug_quotes,
+    )
+
+    fallback_provider = None
+    if bar_config.enable_db_bar_fallback:
+        fallback_provider = create_fallback_provider(
+            data_service=data_service,
+            symbol=args.symbol,
+            freq_minutes=freq_minutes,
+            enabled=True,
+        )
+        logger.info("DB bar fallback enabled")
+    else:
+        logger.info("DB bar fallback disabled")
 
     bar_aggregator = BarAggregator(
         freq_minutes=freq_minutes,
         atr_period=atr_period,
-        fallback_bar_provider=None,
-        runtime_config={},
+        fallback_bar_provider=fallback_provider,
+        runtime_config=runtime_config,
+        session_manager=session_manager,
     )
     if not raw_df.empty:
         logger.info("Preloading %d bars into BarAggregator for warmup", len(raw_df))
         bar_aggregator.preload_history(raw_df)
+
+        # Seed incomplete bar if it matches current time bucket
+        if incomplete_bar is not None:
+            logger.info("Seeding incomplete bar into BarAggregator...")
+            bar_aggregator.seed_current_live_bar(incomplete_bar, validate_bucket=True)
 
     feed, broker_client = build_clients(
         dry_run=(mode == "DRY-RUN"),
@@ -511,11 +579,24 @@ def _build_engine(
     position_sizer: Any,
     signal_handler_config: Any,
 ) -> Any:
+    from config.schemas.paper import get_paper_engine_config
     from src.paper.engine import PaperEngine
     from src.paper.handlers.bar_handler import BarHandler
     from src.paper.handlers.risk_handler import RiskHandler
     from src.paper.handlers.signal_handler import SignalHandler
     from src.paper.stats import SessionStats
+
+    # Load paper engine config from environment
+    engine_config = get_paper_engine_config()
+    logger.info(
+        "Paper engine config: close_on_shutdown=%s force_hard_exit=%s "
+        "force_flat_on_session_close=%s force_flat_preclose=%ss force_flat_on_last_candle=%s",
+        engine_config.close_on_shutdown,
+        engine_config.force_hard_exit,
+        engine_config.force_flat_on_session_close,
+        engine_config.force_flat_preclose_seconds,
+        engine_config.force_flat_on_last_candle,
+    )
 
     engine: PaperEngine | None = None
 
@@ -559,8 +640,8 @@ def _build_engine(
         session_manager=session_manager,
         strategy=strategy,
         symbol=args.symbol,
-        close_on_shutdown=True,
-        force_hard_exit=False,
+        close_on_shutdown=engine_config.close_on_shutdown,
+        force_hard_exit=engine_config.force_hard_exit,
         output_dir="results/paper",
     )
     return engine
@@ -575,7 +656,17 @@ async def run_engine(args: argparse.Namespace, mode: str) -> None:
     """
     strategy_config = _load_strategy_config(args)
 
-    freq_minutes = int(args.freq)
+    # Use resample_freq from config, allow CLI override
+    if args.freq is not None:
+        freq_str = args.freq
+        logger.info("Using frequency from CLI: %s", freq_str)
+    else:
+        freq_str = strategy_config.strategy.resample_freq
+        logger.info("Using frequency from config: %s", freq_str)
+
+    # Parse frequency string to minutes using centralized utility
+    freq_minutes = parse_frequency_to_minutes(freq_str)
+    logger.info("Bar frequency: %d minutes", freq_minutes)
     atr_period = strategy_config.strategy.atr_period  # Use ATR period from config
 
     (
@@ -608,6 +699,7 @@ async def run_engine(args: argparse.Namespace, mode: str) -> None:
                 args=args,
                 mode=mode,
                 tracker=tracker,
+                session_manager=session_manager,
                 freq_minutes=freq_minutes,
                 atr_period=atr_period,
             )

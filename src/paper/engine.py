@@ -197,13 +197,45 @@ class PaperEngine:
             self._reconciler.reconcile_position()
             self._reconciler.reconcile_cash()
             self._reconciler.reconcile_orders()
+
+            # Log initial account state after reconciliation
+            logger.info("=" * 60)
+            logger.info("INITIAL ACCOUNT STATE")
+            logger.info("=" * 60)
+            logger.info("Cash:     %s VND", f"{self._tracker.cash:,.2f}")
+            logger.info("Equity:   %s VND", f"{self._tracker.equity:,.2f}")
+
+            position = self._tracker.position
+            if position.quantity != 0:
+                logger.info(
+                    "Position: %s %d @ %.2f (Unrealized P&L: %s VND)",
+                    "LONG" if position.quantity > 0 else "SHORT",
+                    abs(position.quantity),
+                    position.entry_price,
+                    f"{position.unrealized_pnl:,.2f}",
+                )
+            else:
+                logger.info("Position: FLAT")
+            logger.info("=" * 60)
+
         except Exception:
             logger.exception("Broker reconciliation failed")
             # Continue anyway - reconciler logs errors internally
 
         # 5. Subscribe to feed
         logger.info("Starting feed subscription for %s...", self._symbol)
-        await self._feed.subscribe(self._symbol, self._on_bar)
+        try:
+            await asyncio.wait_for(self._feed.subscribe(self._symbol, self._on_bar), timeout=10.0)
+        except TimeoutError:
+            logger.error("Feed subscription timed out after 10 seconds")
+            logger.error("This usually means Redis connection is not available or not responding")
+            logger.error(
+                "Check MARKET_REDIS_HOST, MARKET_REDIS_PORT, and MARKET_REDIS_PASSWORD in .env"
+            )
+            raise
+        except Exception as e:
+            logger.error("Feed subscription failed: %s", e)
+            raise
 
         logger.info("Engine started successfully")
 
@@ -282,6 +314,25 @@ class PaperEngine:
             )
 
         # Print and save session statistics
+        logger.info("=" * 60)
+        logger.info("FINAL ACCOUNT STATE")
+        logger.info("=" * 60)
+        logger.info("Cash:     %s VND", f"{self._tracker.cash:,.2f}")
+        logger.info("Equity:   %s VND", f"{self._tracker.equity:,.2f}")
+
+        position = self._tracker.position
+        if position.quantity != 0:
+            logger.info(
+                "Position: %s %d @ %.2f (Unrealized P&L: %s VND)",
+                "LONG" if position.quantity > 0 else "SHORT",
+                abs(position.quantity),
+                position.entry_price,
+                f"{position.unrealized_pnl:,.2f}",
+            )
+        else:
+            logger.info("Position: FLAT")
+        logger.info("=" * 60)
+
         self._stats.print_summary()
 
         try:

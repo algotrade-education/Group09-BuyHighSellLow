@@ -58,6 +58,7 @@ class Reconciler:
         self._tracker = tracker
         self._order_manager = order_manager
         self._symbol = symbol
+        self._initial_capital_set = False  # Track if initial capital has been set
 
     # ------------------------------------------------------------------
     # Individual reconcile methods (can be called independently)
@@ -114,7 +115,11 @@ class Reconciler:
             logger.error("reconcile_position: broker API error", exc_info=True)
 
     def reconcile_cash(self) -> None:
-        """Sync cash balance from broker into the local tracker."""
+        """Sync cash balance from broker into the local tracker.
+
+        On first reconciliation, also sets the initial capital baseline
+        to the broker's current equity for accurate P&L tracking.
+        """
         if not self._client:
             logger.warning("reconcile_cash: no broker client available")
             return
@@ -127,6 +132,12 @@ class Reconciler:
 
             cash = float(response["remainCash"])
             self._tracker.sync_cash(cash)
+
+            # Set initial capital baseline on first reconciliation
+            if not self._initial_capital_set:
+                self._tracker.set_initial_capital(self._tracker.equity)
+                self._initial_capital_set = True
+
             logger.info("reconcile_cash: synced cash=%.2f", cash)
 
         except Exception:
