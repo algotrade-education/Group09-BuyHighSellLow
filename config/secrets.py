@@ -18,7 +18,6 @@ Usage:
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -89,7 +88,22 @@ class BrokerSecrets(BaseSettings):
     username: str = Field(default="")
     password: SecretStr = Field(default=SecretStr(""))
     rest_base_url: str = Field(default="http://localhost:9090")
-    account_id_d1: str = Field(default="D1")
+    account_id_d1: str = Field(default="D1")  # default_sub_account
+
+
+class FIXSecrets(BaseSettings):
+    """FIX protocol connection credentials."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    sender_comp_id: str = Field(default="", alias="SENDER_COMP_ID")
+    target_comp_id: str = Field(default="SERVER", alias="TARGET_COMP_ID")
+    socket_connect_host: str = Field(default="localhost", alias="SOCKET_CONNECT_HOST")
+    socket_connect_port: int = Field(default=5001, alias="SOCKET_CONNECT_PORT")
 
 
 class AppSecrets(BaseSettings):
@@ -104,6 +118,7 @@ class AppSecrets(BaseSettings):
     db: DBSecrets = Field(default_factory=DBSecrets)
     redis: RedisSecrets = Field(default_factory=RedisSecrets)
     broker: BrokerSecrets = Field(default_factory=BrokerSecrets)
+    fix: FIXSecrets = Field(default_factory=FIXSecrets)
 
 
 @lru_cache(maxsize=1)
@@ -131,17 +146,19 @@ class BrokerCredentials:
         password: Broker account password (plain text).
         sender_comp_id: FIX protocol sender company ID (resolved).
         target_comp_id: FIX protocol target company ID.
-        socket_host: FIX socket connection host.
-        socket_port: FIX socket connection port.
+        socket_connect_host: FIX socket connection host.
+        socket_connect_port: FIX socket connection port.
+        default_sub_account: Default sub-account ID.
     """
 
     rest_base_url: str
     username: str
     password: str
     sender_comp_id: str
+    default_sub_account: str = "D1"
     target_comp_id: str = "SERVER"
-    socket_host: str = "localhost"
-    socket_port: int = 5001
+    socket_connect_host: str = "localhost"
+    socket_connect_port: int = 5001
 
     def to_client_kwargs(self) -> dict:
         """Convert to kwargs dict for PaperBrokerClient constructor."""
@@ -151,8 +168,9 @@ class BrokerCredentials:
             "password": self.password,
             "sender_comp_id": self.sender_comp_id,
             "target_comp_id": self.target_comp_id,
-            "socket_host": self.socket_host,
-            "socket_port": self.socket_port,
+            "socket_connect_host": self.socket_connect_host,
+            "socket_connect_port": self.socket_connect_port,
+            "default_sub_account": self.default_sub_account,
         }
 
 
@@ -213,7 +231,7 @@ def get_broker_credentials(
     Resolution order for SenderCompID:
     1. Explicit sender_comp_id parameter
     2. REST API query (if enable_api_resolution=True)
-    3. Environment variable SENDER_COMP_ID
+    3. Environment variable SENDER_COMP_ID (loaded via pydantic)
     4. Raise ValueError if none available
 
     Args:
@@ -236,29 +254,30 @@ def get_broker_credentials(
     rest_base_url = secrets.broker.rest_base_url
     username = secrets.broker.username
     password = secrets.broker.password.get_secret_value()
+    default_sub_account = secrets.broker.account_id_d1
 
-    # Get optional FIX connection details from environment
-    target_comp_id = os.getenv("TARGET_COMP_ID", "SERVER")
-    socket_host = os.getenv("SOCKET_CONNECT_HOST", "localhost")
-    socket_port = int(os.getenv("SOCKET_CONNECT_PORT", "5001"))
+    # Get FIX connection details from secrets (loaded from .env via pydantic)
+    target_comp_id = secrets.fix.target_comp_id
+    socket_connect_host = secrets.fix.socket_connect_host
+    socket_connect_port = secrets.fix.socket_connect_port
 
     # Resolve SenderCompID using multiple strategies
     resolved_sender_id = None
 
     # Strategy 1: Explicit parameter
-    if sender_comp_id:
+    if sender_comp_id and len(sender_comp_id) > 0:
         logger.info("Using explicit SenderCompID: %s", sender_comp_id)
         resolved_sender_id = sender_comp_id
 
     # Strategy 2: REST API resolution
-    elif enable_api_resolution:
+    if not resolved_sender_id and enable_api_resolution:
         resolved_sender_id = _resolve_sender_comp_id_from_api(rest_base_url, username, password)
 
-    # Strategy 3: Environment variable
+    # Strategy 3: Environment variable (loaded via pydantic from .env)
     if not resolved_sender_id:
-        env_sender_id = os.getenv("SENDER_COMP_ID")
-        if env_sender_id:
-            logger.info("Using SenderCompID from environment variable: %s", env_sender_id)
+        env_sender_id = secrets.fix.sender_comp_id
+        if env_sender_id and len(env_sender_id) > 0:
+            logger.info("Using SenderCompID from environment: %s", env_sender_id)
             resolved_sender_id = env_sender_id
 
     # No resolution strategy succeeded
@@ -275,7 +294,8 @@ def get_broker_credentials(
         username=username,
         password=password,
         sender_comp_id=resolved_sender_id,
+        default_sub_account=default_sub_account,
         target_comp_id=target_comp_id,
-        socket_host=socket_host,
-        socket_port=socket_port,
+        socket_connect_host=socket_connect_host,
+        socket_connect_port=socket_connect_port,
     )
