@@ -106,17 +106,17 @@ def get_quality_reasons(
     if bar_state.trade_count < config.min_live_updates:
         reasons.append("too_few_updates")
 
-    if bar_state.max_gap_seconds >= config.stale_trade_seconds:
+    if bar_state.max_gap_seconds > config.stale_trade_seconds:
         reasons.append("large_internal_gap")
 
     if bar_state.first_trade_ts is not None:
         start_gap = (bar_state.first_trade_ts - bar_state.bucket_start).total_seconds()
-        if start_gap >= config.stale_trade_seconds:
+        if start_gap > config.stale_trade_seconds:
             reasons.append("start_gap")
 
     if bar_state.last_trade_ts is not None:
         end_gap = (reference_time - bar_state.last_trade_ts).total_seconds()
-        if end_gap >= config.stale_trade_seconds:
+        if end_gap > config.stale_trade_seconds:
             reasons.append("end_gap")
 
     return reasons
