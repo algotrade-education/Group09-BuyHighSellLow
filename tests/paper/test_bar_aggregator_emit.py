@@ -37,11 +37,14 @@ def make_aggregator(
     fallback_bar_provider=None,
     runtime_config: dict | None = None,
 ) -> BarAggregator:
+    from src.engine.session.base import AlwaysOpenSession
+
     return BarAggregator(
         freq_minutes=freq_minutes,
         atr_period=14,
         fallback_bar_provider=fallback_bar_provider,
         runtime_config=runtime_config or {},
+        session_manager=AlwaysOpenSession(),
     )
 
 

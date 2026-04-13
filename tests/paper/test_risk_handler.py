@@ -60,11 +60,12 @@ def make_risk_manager(exit_trigger: str | None = None) -> Mock:
 def make_session_manager(
     is_trading_hours: bool = True,
     get_force_close_reason: str | None = None,
+    is_atc: bool = False,
 ) -> Mock:
     session_manager = Mock()
     session_manager.is_trading_hours = Mock(return_value=is_trading_hours)
     session_manager.get_force_close_reason = Mock(return_value=get_force_close_reason)
-    session_manager.is_atc = Mock(return_value=False)
+    session_manager.is_atc = Mock(return_value=is_atc)
     return session_manager
 
 
@@ -194,7 +195,7 @@ class TestCheckForceFlatPriority:
         tracker = make_tracker(is_flat=False)
         order_manager = make_order_manager()
         risk_manager = make_risk_manager(exit_trigger=None)
-        session_manager = make_session_manager(is_trading_hours=True)
+        session_manager = make_session_manager(is_trading_hours=True, is_atc=True)
         config = make_config()
         engine = make_engine()
 

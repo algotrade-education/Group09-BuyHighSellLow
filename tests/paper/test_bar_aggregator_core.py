@@ -29,11 +29,14 @@ from src.paper.bar_aggregator import BarAggregator, _floor_to_bucket
 
 
 def make_aggregator(freq_minutes: int = 5) -> BarAggregator:
+    from src.engine.session.base import AlwaysOpenSession
+
     return BarAggregator(
         freq_minutes=freq_minutes,
         atr_period=14,
         fallback_bar_provider=None,
         runtime_config={},
+        session_manager=AlwaysOpenSession(),
     )
 
 

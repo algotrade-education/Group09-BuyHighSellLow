@@ -191,11 +191,14 @@ class TestWarmupDataLoading:
 
     def test_bar_aggregator_preload_history(self):
         """Test that BarAggregator.preload_history() loads historical bars."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         # Create historical data
@@ -218,11 +221,14 @@ class TestWarmupDataLoading:
 
     def test_preload_history_skips_invalid_bars(self):
         """Test that preload_history skips bars with high < low."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         # Create data with one invalid bar
@@ -245,11 +251,14 @@ class TestWarmupDataLoading:
 
     def test_preload_history_validates_required_columns(self):
         """Test that preload_history validates required columns."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         # Create data missing required column
@@ -274,11 +283,14 @@ class TestSeedCurrentBar:
 
     def test_seed_current_bar_initializes_accumulators(self):
         """Test that seed_current_bar initializes OHLC accumulators."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         # Seed with incomplete bar
@@ -303,11 +315,14 @@ class TestSeedCurrentBar:
 
     def test_seed_current_bar_sets_bucket_correctly(self):
         """Test that seed_current_bar sets current bucket to bar's datetime."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         bar_dict = {
@@ -334,11 +349,14 @@ class TestSeedCurrentBar:
 
     def test_seed_current_bar_skips_validation_when_disabled(self):
         """Test that seed_current_bar skips validation when validate_bucket=False."""
+        from src.engine.session.base import AlwaysOpenSession
+
         agg = BarAggregator(
             freq_minutes=5,
             atr_period=14,
             fallback_bar_provider=None,
             runtime_config={},
+            session_manager=AlwaysOpenSession(),
         )
 
         # Bar from old bucket

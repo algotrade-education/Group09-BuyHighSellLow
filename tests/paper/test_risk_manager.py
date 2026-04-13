@@ -29,16 +29,16 @@ from src.paper.risk_manager import RiskManager
 def make_risk_manager(
     use_trailing_stop: bool = False,
     trailing_atr_multiplier: float = 2.0,
-    max_daily_loss_pct: float = 0.0,
+    max_daily_loss_fraction: float = 0.0,
     initial_capital: float = 100_000.0,
-    max_loss_per_trade_pct: float = 0.0,
+    max_loss_per_trade_fraction: float = 0.0,
 ) -> RiskManager:
     return RiskManager(
         use_trailing_stop=use_trailing_stop,
         trailing_atr_multiplier=trailing_atr_multiplier,
-        max_daily_loss_pct=max_daily_loss_pct,
+        max_daily_loss_fraction=max_daily_loss_fraction,
         initial_capital=initial_capital,
-        max_loss_per_trade_pct=max_loss_per_trade_pct,
+        max_loss_per_trade_fraction=max_loss_per_trade_fraction,
     )
 
 
@@ -61,6 +61,22 @@ def make_position(
     pos.entry_price = entry_price
     pos.quantity = quantity
     pos.unrealized_pnl = unrealized_pnl
+
+    # Wire check_stop_loss / check_take_profit to match the real Position logic
+    # so get_exit_trigger (which delegates to these) behaves correctly.
+    def _check_sl(price: float) -> bool:
+        if stop_loss is None or is_flat:
+            return False
+        return price <= stop_loss if is_long else price >= stop_loss
+
+    def _check_tp(price: float) -> bool:
+        if take_profit is None or is_flat:
+            return False
+        return price >= take_profit if is_long else price <= take_profit
+
+    pos.check_stop_loss = _check_sl
+    pos.check_take_profit = _check_tp
+
     return pos
 
 
@@ -237,29 +253,29 @@ class TestGetExitTriggerShort:
 
 class TestGetExitTriggerMaxTradeLoss:
     def test_triggers_when_loss_exceeds_threshold(self):
-        """Returns 'Max Trade Loss' when unrealized loss > initial_capital * pct / 100."""
-        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_pct=2.0)
-        # threshold = 100_000 * 2 / 100 = 2_000
+        """Returns 'Max Trade Loss' when unrealized loss > initial_capital * fraction."""
+        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_fraction=0.02)
+        # threshold = 100_000 * 0.02 = 2_000
         pos = make_position(is_long=True, unrealized_pnl=-2_001.0)
         bar = make_bar()
         assert rm.get_exit_trigger(pos, bar) == "Max Trade Loss"
 
     def test_does_not_trigger_when_loss_below_threshold(self):
-        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_pct=2.0)
+        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_fraction=0.02)
         pos = make_position(is_long=True, unrealized_pnl=-1_999.0)
         bar = make_bar()
         assert rm.get_exit_trigger(pos, bar) != "Max Trade Loss"
 
     def test_never_triggers_when_pct_is_zero(self):
-        """When max_loss_per_trade_pct == 0.0, Max Trade Loss must never be returned (Req 9.5)."""
-        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_pct=0.0)
+        """When max_loss_per_trade_fraction == 0.0, Max Trade Loss must never be returned."""
+        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_fraction=0.0)
         pos = make_position(is_long=True, unrealized_pnl=-999_999.0)
         bar = make_bar()
         assert rm.get_exit_trigger(pos, bar) != "Max Trade Loss"
 
     def test_sl_takes_priority_over_max_trade_loss(self):
         """SL/TP checks happen before per-trade loss check."""
-        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_pct=1.0)
+        rm = make_risk_manager(initial_capital=100_000.0, max_loss_per_trade_fraction=0.01)
         pos = make_position(is_long=True, stop_loss=1290.0, unrealized_pnl=-5_000.0)
         bar = make_bar(low=1285.0)
         assert rm.get_exit_trigger(pos, bar) == "Stop Loss"
@@ -352,30 +368,30 @@ class TestApplyTrailingStop:
 
 class TestIsDailyLossHit:
     def test_returns_false_when_disabled(self):
-        """max_daily_loss_pct == 0.0 → always False."""
-        rm = make_risk_manager(max_daily_loss_pct=0.0, initial_capital=100_000.0)
+        """max_daily_loss_fraction == 0.0 → always False."""
+        rm = make_risk_manager(max_daily_loss_fraction=0.0, initial_capital=100_000.0)
         assert not rm.is_daily_loss_hit(-999_999.0)
 
     def test_returns_false_when_pnl_positive(self):
-        rm = make_risk_manager(max_daily_loss_pct=2.0, initial_capital=100_000.0)
+        rm = make_risk_manager(max_daily_loss_fraction=0.02, initial_capital=100_000.0)
         assert not rm.is_daily_loss_hit(500.0)
 
     def test_returns_false_when_loss_below_threshold(self):
-        """threshold = 100_000 * 2 / 100 = 2_000"""
-        rm = make_risk_manager(max_daily_loss_pct=2.0, initial_capital=100_000.0)
+        """threshold = 100_000 * 0.02 = 2_000"""
+        rm = make_risk_manager(max_daily_loss_fraction=0.02, initial_capital=100_000.0)
         assert not rm.is_daily_loss_hit(-1_999.0)
 
     def test_returns_true_when_loss_equals_threshold(self):
-        rm = make_risk_manager(max_daily_loss_pct=2.0, initial_capital=100_000.0)
+        rm = make_risk_manager(max_daily_loss_fraction=0.02, initial_capital=100_000.0)
         assert rm.is_daily_loss_hit(-2_000.0)
 
     def test_returns_true_when_loss_exceeds_threshold(self):
-        rm = make_risk_manager(max_daily_loss_pct=2.0, initial_capital=100_000.0)
+        rm = make_risk_manager(max_daily_loss_fraction=0.02, initial_capital=100_000.0)
         assert rm.is_daily_loss_hit(-2_500.0)
 
     def test_threshold_scales_with_capital(self):
         """Threshold is proportional to initial_capital."""
-        rm = make_risk_manager(max_daily_loss_pct=1.0, initial_capital=500_000_000.0)
-        # threshold = 5_000_000
+        rm = make_risk_manager(max_daily_loss_fraction=0.01, initial_capital=500_000_000.0)
+        # threshold = 500_000_000 * 0.01 = 5_000_000
         assert not rm.is_daily_loss_hit(-4_999_999.0)
         assert rm.is_daily_loss_hit(-5_000_000.0)

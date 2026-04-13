@@ -154,9 +154,9 @@ async def test_sim_mode_end_to_end_flow(
     risk_manager = RiskManager(
         use_trailing_stop=False,
         trailing_atr_multiplier=2.0,
-        max_daily_loss_pct=5.0,
+        max_daily_loss_fraction=0.05,
         initial_capital=100000.0,
-        max_loss_per_trade_pct=0.0,
+        max_loss_per_trade_fraction=0.0,
     )
 
     stats = SessionStats(
@@ -303,9 +303,9 @@ async def test_engine_with_deferred_exit_flow(
     risk_manager = RiskManager(
         use_trailing_stop=False,
         trailing_atr_multiplier=2.0,
-        max_daily_loss_pct=5.0,
+        max_daily_loss_fraction=0.05,
         initial_capital=100000.0,
-        max_loss_per_trade_pct=0.0,
+        max_loss_per_trade_fraction=0.0,
     )
 
     stats = SessionStats(
@@ -457,9 +457,9 @@ async def test_engine_graceful_shutdown_with_open_position(
     _ = RiskManager(
         use_trailing_stop=False,
         trailing_atr_multiplier=2.0,
-        max_daily_loss_pct=5.0,
+        max_daily_loss_fraction=0.05,
         initial_capital=100000.0,
-        max_loss_per_trade_pct=0.0,
+        max_loss_per_trade_fraction=0.0,
     )
 
     stats = Mock()
@@ -545,9 +545,9 @@ async def test_engine_handler_pipeline_short_circuit(
     _ = RiskManager(
         use_trailing_stop=False,
         trailing_atr_multiplier=2.0,
-        max_daily_loss_pct=5.0,
+        max_daily_loss_fraction=0.05,
         initial_capital=100000.0,
-        max_loss_per_trade_pct=0.0,
+        max_loss_per_trade_fraction=0.0,
     )
 
     stats = SessionStats(

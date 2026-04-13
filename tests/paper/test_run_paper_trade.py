@@ -14,7 +14,6 @@ import pytest
 
 from src.run_paper_trade import (
     determine_mode,
-    log_startup_info,
     parse_args,
     validate_args,
 )
@@ -300,118 +299,6 @@ def test_determine_mode_returns_live():
     mode = determine_mode(args)
 
     assert mode == "LIVE"
-
-
-# --- Startup Logging Tests (Requirement 12.6) ---
-
-
-def test_log_startup_info_logs_mode(caplog):
-    """Test that log_startup_info logs the operating mode.
-
-    Requirement 12.6: THE EntryPoint SHALL log the operating mode (LIVE / DRY-RUN / SIM),
-    symbol, and bar frequency at startup.
-    """
-    from unittest.mock import patch
-
-    # Mock the logger to capture calls
-    with patch("src.run_paper_trade.logger") as mock_logger:
-        args = Mock()
-        args.strategy = "orb"
-        args.symbol = "VN30F1M"
-        args.freq = "5"
-        args.capital = 100000.0
-        args.config = None
-        args.sample = None
-
-        log_startup_info(args, "LIVE")
-
-        # Verify logger.info was called with mode
-        calls = [str(call) for call in mock_logger.info.call_args_list]
-        assert any("Operating Mode: LIVE" in str(call) or "LIVE" in str(call) for call in calls)
-
-
-def test_log_startup_info_logs_symbol(caplog):
-    """Test that log_startup_info logs the symbol."""
-    from unittest.mock import patch
-
-    # Mock the logger to capture calls
-    with patch("src.run_paper_trade.logger") as mock_logger:
-        args = Mock()
-        args.strategy = "orb"
-        args.symbol = "VN30F1M"
-        args.freq = "5"
-        args.capital = 100000.0
-        args.config = None
-        args.sample = None
-
-        log_startup_info(args, "LIVE")
-
-        # Verify logger.info was called with symbol
-        calls = [str(call) for call in mock_logger.info.call_args_list]
-        assert any("Symbol: VN30F1M" in str(call) or "VN30F1M" in str(call) for call in calls)
-
-
-def test_log_startup_info_logs_bar_frequency(caplog):
-    """Test that log_startup_info logs the bar frequency."""
-    from unittest.mock import patch
-
-    # Mock the logger to capture calls
-    with patch("src.run_paper_trade.logger") as mock_logger:
-        args = Mock()
-        args.strategy = "orb"
-        args.symbol = "VN30F1M"
-        args.freq = "5"
-        args.capital = 100000.0
-        args.config = None
-        args.sample = None
-
-        log_startup_info(args, "LIVE")
-
-        # Verify logger.info was called with bar frequency
-        calls = [str(call) for call in mock_logger.info.call_args_list]
-        assert any("Bar Frequency" in str(call) and "5" in str(call) for call in calls)
-
-
-def test_log_startup_info_logs_sample_size_for_sim(caplog):
-    """Test that log_startup_info logs sample size for SIM mode."""
-    from unittest.mock import patch
-
-    # Mock the logger to capture calls
-    with patch("src.run_paper_trade.logger") as mock_logger:
-        args = Mock()
-        args.strategy = "orb"
-        args.symbol = "VN30F1M"
-        args.freq = "5"
-        args.capital = 100000.0
-        args.config = None
-        args.sample = 100
-
-        log_startup_info(args, "SIM")
-
-        # Verify logger.info was called with sample size
-        calls = [str(call) for call in mock_logger.info.call_args_list]
-        assert any("Sample Size" in str(call) and "100" in str(call) for call in calls)
-
-
-def test_log_startup_info_logs_all_data_for_sim_without_sample(caplog):
-    """Test that log_startup_info logs 'All available data' when no sample."""
-    from unittest.mock import patch
-
-    # Mock the logger to capture calls
-    with patch("src.run_paper_trade.logger") as mock_logger:
-        args = Mock()
-        args.strategy = "orb"
-        args.symbol = "VN30F1M"
-        args.freq = "5"
-        args.capital = 100000.0
-        args.config = None
-        args.sample = None
-
-        log_startup_info(args, "SIM")
-
-        # Verify logger.info was called with "All available data"
-        calls = [str(call) for call in mock_logger.info.call_args_list]
-        assert any("All available data" in str(call) for call in calls)
 
 
 # --- Engine Construction Tests ---
