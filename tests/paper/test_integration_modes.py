@@ -67,6 +67,15 @@ def mock_bar_aggregator():
     return agg
 
 
+@pytest.fixture
+def mock_session_manager():
+    """Mock SessionManager for testing."""
+    sm = Mock()
+    sm.is_trading_hours = Mock(return_value=True)
+    sm.is_atc = Mock(return_value=False)
+    return sm
+
+
 # --- LIVE Mode Tests ---
 
 
@@ -76,15 +85,13 @@ class TestLiveMode:
     @patch("src.paper.bootstrap._build_broker_client")
     @patch("src.paper.bootstrap.get_secrets")
     def test_live_mode_creates_redis_feed_and_broker_client(
-        self, mock_get_secrets, mock_build_broker, mock_bar_aggregator
+        self, mock_get_secrets, mock_build_broker, mock_bar_aggregator, mock_session_manager
     ):
         """Test that LIVE mode creates RedisFeed and PaperBrokerClient."""
-        # Mock secrets to pass validation
         mock_secrets = Mock()
         mock_secrets.redis.host = "redis.example.com"
         mock_get_secrets.return_value = mock_secrets
 
-        # Mock broker client builder
         mock_broker = Mock()
         mock_build_broker.return_value = mock_broker
 
@@ -92,6 +99,7 @@ class TestLiveMode:
             dry_run=False,
             sim=False,
             bar_aggregator=mock_bar_aggregator,
+            session_manager=mock_session_manager,
         )
 
         # Verify RedisFeed was created
@@ -104,40 +112,42 @@ class TestLiveMode:
         mock_build_broker.assert_called_once()
 
     @patch("src.paper.bootstrap.get_secrets")
-    def test_live_mode_validates_redis_host(self, mock_get_secrets, mock_bar_aggregator):
-        """Test that LIVE mode validates Redis host is configured."""
-        # Mock secrets with missing Redis host
+    def test_live_mode_validates_redis_host(
+        self, mock_get_secrets, mock_bar_aggregator, mock_session_manager
+    ):
+        """Test that LIVE mode raises BootstrapError when Redis host is not configured."""
+        from src.paper.bootstrap import BootstrapError
+
         mock_secrets = Mock()
         mock_secrets.redis.host = "localhost"
         mock_get_secrets.return_value = mock_secrets
 
-        # Mock environment to not have MARKET_REDIS_HOST
-        with patch.dict("os.environ", {}, clear=True), pytest.raises(SystemExit):
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(BootstrapError):
             build_clients(
                 dry_run=False,
                 sim=False,
                 bar_aggregator=mock_bar_aggregator,
+                session_manager=mock_session_manager,
             )
 
     @patch("src.paper.bootstrap._build_broker_client")
     @patch("src.paper.bootstrap.get_secrets")
     @pytest.mark.asyncio
     async def test_live_mode_redis_feed_subscribes_to_symbol(
-        self, mock_get_secrets, mock_build_broker, mock_bar_aggregator
+        self, mock_get_secrets, mock_build_broker, mock_bar_aggregator, mock_session_manager
     ):
         """Test that RedisFeed subscribes to the specified symbol."""
-        # Mock secrets
         mock_secrets = Mock()
         mock_secrets.redis.host = "redis.example.com"
         mock_get_secrets.return_value = mock_secrets
 
-        # Mock broker client
         mock_build_broker.return_value = Mock()
 
         feed, _ = build_clients(
             dry_run=False,
             sim=False,
             bar_aggregator=mock_bar_aggregator,
+            session_manager=mock_session_manager,
         )
 
         # Mock Redis client
@@ -148,8 +158,8 @@ class TestLiveMode:
         callback = Mock()
         await feed.subscribe("VN30F1M", callback)
 
-        # Verify Redis client subscribe was called
-        feed._redis_client.subscribe.assert_called_once_with("VN30F1M")
+        # Verify Redis client subscribe was called with symbol and handler
+        feed._redis_client.subscribe.assert_called_once_with("VN30F1M", feed._on_quote)
 
         # Cleanup
         await feed.unsubscribe("VN30F1M")
@@ -163,10 +173,9 @@ class TestDryRunMode:
 
     @patch("src.paper.bootstrap.get_secrets")
     def test_dry_run_mode_creates_redis_feed_without_broker_client(
-        self, mock_get_secrets, mock_bar_aggregator
+        self, mock_get_secrets, mock_bar_aggregator, mock_session_manager
     ):
         """Test that DRY-RUN mode creates RedisFeed but no broker client."""
-        # Mock secrets
         mock_secrets = Mock()
         mock_secrets.redis.host = "redis.example.com"
         mock_get_secrets.return_value = mock_secrets
@@ -175,6 +184,7 @@ class TestDryRunMode:
             dry_run=True,
             sim=False,
             bar_aggregator=mock_bar_aggregator,
+            session_manager=mock_session_manager,
         )
 
         # Verify RedisFeed was created
@@ -186,19 +196,22 @@ class TestDryRunMode:
         assert broker_client is None
 
     @patch("src.paper.bootstrap.get_secrets")
-    def test_dry_run_mode_validates_redis_host(self, mock_get_secrets, mock_bar_aggregator):
-        """Test that DRY-RUN mode validates Redis host is configured."""
-        # Mock secrets with missing Redis host
+    def test_dry_run_mode_validates_redis_host(
+        self, mock_get_secrets, mock_bar_aggregator, mock_session_manager
+    ):
+        """Test that DRY-RUN mode raises BootstrapError when Redis host is not configured."""
+        from src.paper.bootstrap import BootstrapError
+
         mock_secrets = Mock()
         mock_secrets.redis.host = "localhost"
         mock_get_secrets.return_value = mock_secrets
 
-        # Mock environment to not have MARKET_REDIS_HOST
-        with patch.dict("os.environ", {}, clear=True), pytest.raises(SystemExit):
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(BootstrapError):
             build_clients(
                 dry_run=True,
                 sim=False,
                 bar_aggregator=mock_bar_aggregator,
+                session_manager=mock_session_manager,
             )
 
 
@@ -250,12 +263,14 @@ class TestSimMode:
         pytest.skip("SimFeed requires indicator pipeline - tested in engine integration")
 
     def test_sim_mode_requires_sim_df(self):
-        """Test that SIM mode requires sim_df parameter."""
-        with pytest.raises(SystemExit):
+        """Test that SIM mode raises BootstrapError when sim_df is not provided."""
+        from src.paper.bootstrap import BootstrapError
+
+        with pytest.raises(BootstrapError):
             build_clients(
                 dry_run=False,
                 sim=True,
-                sim_df=None,  # Missing required parameter
+                sim_df=None,
                 atr_period=14,
             )
 

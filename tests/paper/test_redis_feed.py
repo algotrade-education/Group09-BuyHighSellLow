@@ -17,69 +17,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from src.paper.bar_aggregator import BarAggregator
-from src.paper.feeds.redis_feed import RedisFeed, _in_vn30_session
-
-# --- Session Time Validation Tests ---
-
-
-class TestInVN30Session:
-    """Tests for VN30 trading session time validation."""
-
-    def test_morning_session_start(self):
-        """09:00 is within morning session."""
-        dt = datetime(2024, 1, 15, 9, 0, 0)
-        assert _in_vn30_session(dt)
-
-    def test_morning_session_middle(self):
-        """10:15 is within morning session."""
-        dt = datetime(2024, 1, 15, 10, 15, 0)
-        assert _in_vn30_session(dt)
-
-    def test_morning_session_end_boundary(self):
-        """11:29:59 is within morning session."""
-        dt = datetime(2024, 1, 15, 11, 29, 59)
-        assert _in_vn30_session(dt)
-
-    def test_morning_session_after_end(self):
-        """11:30 is NOT within morning session (lunch break)."""
-        dt = datetime(2024, 1, 15, 11, 30, 0)
-        assert not _in_vn30_session(dt)
-
-    def test_lunch_break(self):
-        """12:00 is NOT within trading session (lunch break)."""
-        dt = datetime(2024, 1, 15, 12, 0, 0)
-        assert not _in_vn30_session(dt)
-
-    def test_afternoon_session_start(self):
-        """13:00 is within afternoon session."""
-        dt = datetime(2024, 1, 15, 13, 0, 0)
-        assert _in_vn30_session(dt)
-
-    def test_afternoon_session_middle(self):
-        """13:45 is within afternoon session."""
-        dt = datetime(2024, 1, 15, 13, 45, 0)
-        assert _in_vn30_session(dt)
-
-    def test_afternoon_session_end_boundary(self):
-        """14:29:59 is within afternoon session."""
-        dt = datetime(2024, 1, 15, 14, 29, 59)
-        assert _in_vn30_session(dt)
-
-    def test_afternoon_session_after_end(self):
-        """14:30 is NOT within afternoon session (market closed)."""
-        dt = datetime(2024, 1, 15, 14, 30, 0)
-        assert not _in_vn30_session(dt)
-
-    def test_before_market_open(self):
-        """08:00 is NOT within trading session (before open)."""
-        dt = datetime(2024, 1, 15, 8, 0, 0)
-        assert not _in_vn30_session(dt)
-
-    def test_after_market_close(self):
-        """15:00 is NOT within trading session (after close)."""
-        dt = datetime(2024, 1, 15, 15, 0, 0)
-        assert not _in_vn30_session(dt)
-
+from src.paper.feeds.redis_feed import RedisFeed
 
 # --- RedisFeed Lifecycle Tests ---
 
@@ -105,11 +43,22 @@ def mock_bar_aggregator():
 
 
 @pytest.fixture
-def redis_feed(mock_redis_client, mock_bar_aggregator):
+def mock_session_manager():
+    """Mock session manager for RedisFeed tests."""
+    from unittest.mock import Mock
+
+    sm = Mock()
+    sm.is_trading_hours = Mock(return_value=True)
+    return sm
+
+
+@pytest.fixture
+def redis_feed(mock_redis_client, mock_bar_aggregator, mock_session_manager):
     """Create RedisFeed instance with mocked dependencies."""
     return RedisFeed(
         redis_client=mock_redis_client,
         bar_aggregator=mock_bar_aggregator,
+        session_manager=mock_session_manager,
         watchdog_silence_seconds=300.0,
     )
 
@@ -141,19 +90,19 @@ class TestRedisFeedLifecycle:
     async def test_subscribe_registers_quote_handler_with_redis(
         self, redis_feed, mock_redis_client
     ):
-        """Test that subscribe() registers on_quote handler with Redis client."""
+        """Test that subscribe() passes on_quote handler to Redis client subscribe()."""
         callback = Mock()
         await redis_feed.subscribe("VN30F1M", callback)
 
-        assert mock_redis_client.on_quote == redis_feed._on_quote
+        mock_redis_client.subscribe.assert_called_once_with("VN30F1M", redis_feed._on_quote)
 
     @pytest.mark.asyncio
     async def test_subscribe_calls_redis_subscribe(self, redis_feed, mock_redis_client):
-        """Test that subscribe() calls Redis client subscribe()."""
+        """Test that subscribe() calls Redis client subscribe() with symbol and handler."""
         callback = Mock()
         await redis_feed.subscribe("VN30F1M", callback)
 
-        mock_redis_client.subscribe.assert_called_once_with("VN30F1M")
+        mock_redis_client.subscribe.assert_called_once_with("VN30F1M", redis_feed._on_quote)
 
     @pytest.mark.asyncio
     async def test_subscribe_starts_polling_task(self, redis_feed):
@@ -298,15 +247,14 @@ class TestQuoteProcessing:
 
     @pytest.mark.asyncio
     async def test_on_quote_filters_out_of_session_timestamps(
-        self, redis_feed, mock_bar_aggregator
+        self, redis_feed, mock_bar_aggregator, mock_session_manager
     ):
         """Test that quotes outside trading hours are filtered out."""
         quote = make_quote(price=1300.0)
+        mock_session_manager.is_trading_hours.return_value = False
 
-        # Mock datetime.now() to return lunch break time
         with patch("src.paper.feeds.redis_feed.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
-
             await redis_feed._on_quote("HNXDS:VN30F2601", quote)
 
         mock_bar_aggregator.on_tick.assert_not_called()
@@ -417,14 +365,13 @@ class TestWatchdog:
             # Should not raise or log warning
             redis_feed._check_watchdog()
 
-    def test_watchdog_no_warning_outside_session(self, redis_feed):
+    def test_watchdog_no_warning_outside_session(self, redis_feed, mock_session_manager):
         """Test that watchdog doesn't warn outside trading hours."""
         redis_feed._last_quote_ts = datetime(2024, 1, 15, 9, 0, 0)
+        mock_session_manager.is_trading_hours.return_value = False
 
-        # Check during lunch break
         with patch("src.paper.feeds.redis_feed.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
-
             redis_feed._check_watchdog()
 
         # No assertion needed - just verify no exception

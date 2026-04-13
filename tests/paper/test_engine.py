@@ -33,13 +33,20 @@ def mock_tracker():
     """Mock tracker for testing."""
     tracker = Mock()
     tracker.is_flat = True
-    tracker.position = Mock()
-    tracker.position.side = Mock(value="FLAT")
+    tracker.cash = 100000.0
     tracker.equity = 100000.0
     tracker.daily_pnl = 0.0
     tracker.update_unrealized = Mock()
     tracker.update_daily_pnl = Mock()
     tracker.equity_snapshot = Mock()
+    # Position: flat by default so the logging branch takes the "FLAT" path
+    position = Mock()
+    position.quantity = 0
+    position.side = Mock(value="FLAT")
+    position.entry_price = 0.0
+    position.unrealized_pnl = 0.0
+    tracker.position = position
+    tracker.position_snapshot = Mock()
     return tracker
 
 

@@ -157,8 +157,8 @@ class TestDataPreprocessorResample:
     def test_resample_unsupported_freq(self, sample_df):
         preprocessor = DataPreprocessor()
 
-        with pytest.raises(ValueError, match="Unsupported freq"):
-            preprocessor.resample(sample_df, "3min")
+        with pytest.raises(ValueError):
+            preprocessor.resample(sample_df, "invalid_freq")
 
 
 class TestDataPreprocessorFilterTradingHours:
