@@ -7,14 +7,13 @@ Key responsibilities:
 - Validate environment configuration
 - Construct appropriate feed type (RedisFeed or SimFeed)
 - Construct broker client with resolved SenderCompID
-- Exit gracefully with descriptive errors on misconfiguration
+- Raise BootstrapError on misconfiguration
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import sys
 from typing import TYPE_CHECKING, Any
 
 from config.secrets import get_secrets
@@ -28,6 +27,10 @@ if TYPE_CHECKING:
     from paperbroker.client import PaperBrokerClient
 
 logger = logging.getLogger(__name__)
+
+
+class BootstrapError(Exception):
+    """Bootstrap configuration or initialization error."""
 
 
 def build_clients(
@@ -68,8 +71,7 @@ def build_clients(
     if sim:
         logger.info("Bootstrap: SIM mode - constructing SimFeed")
         if sim_df is None:
-            logger.error("Bootstrap: sim_df is required for SIM mode")
-            sys.exit(1)
+            raise BootstrapError("sim_df is required for SIM mode")
 
         feed: FeedBase = SimFeed(
             df=sim_df,
@@ -87,12 +89,11 @@ def build_clients(
     if not redis_host or redis_host == "localhost":  # noqa: SIM102
         # Check if explicitly set in environment
         if "MARKET_REDIS_HOST" not in os.environ:
-            logger.error(
-                "Bootstrap: MARKET_REDIS_HOST environment variable is not set. "
+            raise BootstrapError(
+                "MARKET_REDIS_HOST environment variable is not set. "
                 "This is required for LIVE and DRY-RUN modes. "
                 "Please set MARKET_REDIS_HOST in your .env file or environment."
             )
-            sys.exit(1)
 
     # Construct Redis client
     logger.info("Bootstrap: Connecting to Redis at %s:%d", redis_host, secrets.redis.port)
@@ -114,8 +115,7 @@ def build_clients(
 
     # Construct RedisFeed
     if bar_aggregator is None:
-        logger.error("Bootstrap: bar_aggregator is required for RedisFeed")
-        sys.exit(1)
+        raise BootstrapError("bar_aggregator is required for RedisFeed")
 
     redis_feed: FeedBase = RedisFeed(
         redis_client=redis_client,
@@ -171,8 +171,6 @@ def _build_broker_client() -> PaperBrokerClient:
         return client
 
     except ValueError as exc:
-        logger.error("Bootstrap: Failed to resolve credentials: %s", exc)
-        sys.exit(1)
+        raise BootstrapError(f"Failed to resolve credentials: {exc}") from exc
     except Exception as exc:
-        logger.error("Bootstrap: Failed to construct PaperBrokerClient: %s", exc)
-        sys.exit(1)
+        raise BootstrapError(f"Failed to construct PaperBrokerClient: {exc}") from exc
