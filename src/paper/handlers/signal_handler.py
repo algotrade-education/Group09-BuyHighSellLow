@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from config.constants import VN30F_CONTRACT_MULTIPLIER
+
 if TYPE_CHECKING:
     from src.engine.account.sizer import PositionSizer
     from src.engine.session.base import SessionManager
@@ -46,7 +48,7 @@ class SignalHandlerConfig:
 
     entry_cutoff_seconds: float = 0.0
     allow_late_entry: bool = False
-    contract_multiplier: float = 100000.0  # VN30F default
+    contract_multiplier: float = VN30F_CONTRACT_MULTIPLIER
 
 
 class SignalHandler:
