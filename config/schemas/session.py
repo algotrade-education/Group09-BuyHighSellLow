@@ -36,6 +36,7 @@ class SessionConfig(ABC):
     AFTERNOON_START: time
     AFTERNOON_END: time
     TRADING_DAYS_PER_YEAR: int
+    TRADING_MINUTES_PER_DAY: int  # Excludes ATC; used for bars_per_day and frequency conversion
 
     @abstractmethod
     def get_session(self, current_time: time) -> Session:
@@ -136,6 +137,7 @@ class VN30SessionConfig(SessionConfig):
     # --- Derived constants ---
     # Used for annualize metrics
     TRADING_DAYS_PER_YEAR: int = 252
+    TRADING_MINUTES_PER_DAY: int = 255  # Exclude ATC: (11:30-9:00) + (14:30-13:00) = 150 + 105
     BARS_PER_DAY_1MIN: int = 255  # Exclude ATC bars
     BARS_PER_DAY_5MIN: int = 51  # Exclude ATC bars
     BARS_PER_DAY_15MIN: int = 17  # Exclude ATC bars
@@ -221,6 +223,7 @@ class SPXSessionConfig(SessionConfig):
     AFTERNOON_END: time = time(16, 0)  # No afternoon session
 
     TRADING_DAYS_PER_YEAR: int = 252
+    TRADING_MINUTES_PER_DAY: int = 390  # 9:30 AM - 4:00 PM, no lunch break
 
     def get_session(self, current_time: time) -> Session:
         """

@@ -72,8 +72,9 @@ def parse_frequency_to_minutes(freq: str | int) -> int:
             days = int(freq_str[:-1])
             if days <= 0:
                 raise ValueError(f"Frequency must be positive, got {days}")
-            # Assume 1 trading day = 4 hours = 240 minutes (VN30 session)
-            return days * 240
+            # 255 trading minutes/day for VN30 (150 morning + 105 afternoon, excludes ATC)
+            # Source of truth: VN30SessionConfig.TRADING_MINUTES_PER_DAY
+            return days * 255
         except ValueError as e:
             raise ValueError(f"Invalid day format '{freq}': {e}") from e
 
@@ -83,8 +84,8 @@ def parse_frequency_to_minutes(freq: str | int) -> int:
             weeks = int(freq_str[:-1])
             if weeks <= 0:
                 raise ValueError(f"Frequency must be positive, got {weeks}")
-            # Assume 1 week = 5 trading days = 1200 minutes
-            return weeks * 1200
+            # 5 trading days * 255 minutes = 1275 minutes/week
+            return weeks * 1275
         except ValueError as e:
             raise ValueError(f"Invalid week format '{freq}': {e}") from e
 
@@ -104,8 +105,8 @@ def parse_frequency_to_minutes(freq: str | int) -> int:
             months = int(freq_str[:-1])
             if months <= 0:
                 raise ValueError(f"Frequency must be positive, got {months}")
-            # Assume 1 month = 20 trading days = 4800 minutes
-            return months * 4800
+            # 20 trading days * 255 minutes = 5100 minutes/month
+            return months * 5100
         except ValueError as e:
             raise ValueError(f"Invalid month format '{freq}': {e}") from e
 
@@ -132,14 +133,14 @@ def format_minutes_to_frequency(minutes: int) -> str:
         '5min'
         >>> format_minutes_to_frequency(60)
         '1H'
-        >>> format_minutes_to_frequency(240)
+        >>> format_minutes_to_frequency(255)
         '1D'
     """
     if minutes <= 0:
         raise ValueError(f"Minutes must be positive, got {minutes}")
 
     # Check for common conversions
-    if minutes == 240:
+    if minutes == 255:
         return "1D"
     elif minutes == 60:
         return "1H"
