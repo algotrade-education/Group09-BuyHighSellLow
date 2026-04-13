@@ -22,6 +22,7 @@ from src.engine.account.account import AccountState
 from src.engine.account.position import Position, PositionSide
 from src.engine.execution.order import Order, OrderSide, OrderType
 from src.metrics.trade_metrics import Trade, TradeSide
+from src.strategy.base import PositionSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +404,15 @@ class Tracker:
     def position(self) -> Position:
         """Return current open position (or FLAT position if none)."""
         return self._state.position
+
+    @property
+    def position_snapshot(self) -> PositionSnapshot:
+        """Return immutable snapshot of current position for strategy signal generation.
+
+        Delegates to AccountState.position_snapshot, which is the canonical
+        implementation shared with the backtesting engine.
+        """
+        return self._state.position_snapshot
 
     @property
     def trades(self) -> list[Trade]:

@@ -93,6 +93,21 @@ class SessionManager(ABC):
         """
         return None
 
+    def is_atc(self, dt: datetime) -> bool:
+        """
+        Check if currently in ATC (At-The-Close) period.
+
+        Default implementation returns False (no ATC period).
+        Override in session-specific subclasses (e.g. VN30Session).
+
+        Args:
+            dt: Datetime to check
+
+        Returns:
+            True if in ATC period, False otherwise
+        """
+        return False
+
 
 class AlwaysOpenSession(SessionManager):
     """

@@ -19,7 +19,7 @@ V2 improvements over V1:
 - Thin orchestrator: business logic moved to handlers
 - Background task tracking: prevents task leaks
 - Independent timer task: not blocked by DB queries
-- Warmup flow: preload history, seed bar, reconcile, strategy warmup
+- Warmup flow: strategy warmup + reconciliation (bar preload/seed handled upstream)
 - Sim mode support: historical replay via SimFeed
 """
 
@@ -31,8 +31,6 @@ import logging
 import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-
-from src.strategy.base import PositionSnapshot
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -129,18 +127,17 @@ class PaperEngine:
     async def start(
         self,
         historical_df: pd.DataFrame | None = None,
-        incomplete_bar: dict[str, Any] | None = None,
         sim_df: pd.DataFrame | None = None,
     ) -> None:
         """Start the engine and begin processing market data.
 
         Supports three modes:
-        - LIVE: historical_df + incomplete_bar provided, no sim_df
+        - LIVE: historical_df provided, no sim_df
         - DRY-RUN: same as LIVE but orders are simulated
         - SIM: sim_df provided, replays historical data
 
         Workflow (LIVE/DRY-RUN):
-        1. Warmup: preload history, seed bar, warmup strategy
+        1. Warmup: strategy state from historical bars
         2. Reconcile broker state (position, cash, orders)
         3. Subscribe to feed with on_bar callback
         4. Feed begins emitting bars → on_bar pipeline executes
@@ -151,7 +148,6 @@ class PaperEngine:
 
         Args:
             historical_df: Historical bars for indicator warmup (LIVE/DRY-RUN).
-            incomplete_bar: Partially formed bar to seed current state (LIVE/DRY-RUN).
             sim_df: Historical dataset for sim mode replay (SIM).
         """
         if self._running:
@@ -164,21 +160,22 @@ class PaperEngine:
         if sim_df is not None:
             await self._run_sim(sim_df)
         else:
-            await self._run_live(historical_df, incomplete_bar)
+            await self._run_live(historical_df)
 
     async def _run_live(
         self,
         historical_df: pd.DataFrame | None = None,
-        incomplete_bar: dict[str, Any] | None = None,
     ) -> None:
         """Run live/dry-run mode with warmup flow.
 
-        Warmup flow (Requirement 1.4):
-        1. Preload history into BarAggregator
-        2. Seed current bar if incomplete_bar provided
-        3. Warmup strategy state with historical bars
-        4. Reconcile broker state
-        5. Subscribe to feed
+        Warmup flow:
+        1. Warmup strategy state with historical bars
+        2. Reconcile broker state
+        3. Subscribe to feed
+
+        Note:
+            BarAggregator preload/seed is performed during runtime construction
+            in ``run_paper_trade`` before ``engine.start()`` is called.
         """
         # Note: BarAggregator warmup is handled in bootstrap/run_paper_trade
         # because BarAggregator is constructed there and passed to RedisFeed.
@@ -186,12 +183,12 @@ class PaperEngine:
         # This is by design - the engine is a thin orchestrator that doesn't manage
         # low-level feed details.
 
-        # 3. Warmup: strategy state
+        # 1. Warmup: strategy state
         if historical_df is not None and not historical_df.empty:
             logger.info("Warming up strategy state with %d bars...", len(historical_df))
             self._warmup_strategy(historical_df)
 
-        # 4. Reconcile broker state before starting feed
+        # 2. Reconcile broker state before starting feed
         logger.info("Reconciling broker state...")
         try:
             self._reconciler.reconcile_position()
@@ -222,7 +219,7 @@ class PaperEngine:
             logger.exception("Broker reconciliation failed")
             # Continue anyway - reconciler logs errors internally
 
-        # 5. Subscribe to feed
+        # 3. Subscribe to feed
         logger.info("Starting feed subscription for %s...", self._symbol)
         try:
             await asyncio.wait_for(self._feed.subscribe(self._symbol, self._on_bar), timeout=10.0)
@@ -372,15 +369,9 @@ class PaperEngine:
                 self._tracker.update_unrealized(float(bar.get("close", 0.0) or 0.0))
 
                 # Warmup strategy state
-                pos = self._tracker.position
-                try:
-                    position_snapshot = pos.to_snapshot()
-                except (TypeError, ValueError):
-                    position_snapshot = PositionSnapshot.flat()
-
                 self._strategy.generate_signal(
                     bar=bar,
-                    position=position_snapshot,
+                    position=self._tracker.position_snapshot,
                     is_warmup=True,
                 )
             except Exception as exc:
