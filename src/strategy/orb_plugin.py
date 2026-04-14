@@ -42,16 +42,17 @@ _FULL: dict[str, dict[str, Any]] = {
     # Frequency
     "resample_freq": {"type": "categorical", "choices": ["15min"]},
     # Core strategy
-    "orb_minutes": {"type": "int", "low": 10, "high": 60, "step": 5},
+    "orb_minutes": {"type": "int", "low": 0, "high": 60, "step": 15},
     "atr_period": {"type": "int", "low": 14, "high": 30},
-    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.1},
-    "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.1},
+    "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.05},
+    "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.05},
     "breakout_buffer": {"type": "float", "low": 0.0, "high": 1.0, "step": 0.05},
+    "require_close_confirmation": {"type": "categorical", "choices": [True, False]},
     "use_range_sl": {"type": "categorical", "choices": [True, False]},
     "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
-    "max_range_atr": {"type": "float", "low": 2.0, "high": 6.0, "step": 0.5},
+    "max_range_atr": {"type": "float", "low": 2.0, "high": 7.0, "step": 0.1},
     # Direction / trade limits
-    "long_only": {"type": "categorical", "choices": [True, False]},
+    "long_only": {"type": "categorical", "choices": [False]},
     "max_trades_per_session": {"type": "int", "low": 1, "high": 3},
     # Optional filters
     "use_volume_filter": {"type": "categorical", "choices": [True, False]},
@@ -61,7 +62,7 @@ _FULL: dict[str, dict[str, Any]] = {
     "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
     "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
     "risk_per_trade_pct": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.25},
-    "entry_ord_type": {"type": "categorical", "choices": ["MARKET"]},
+    "entry_ord_type": {"type": "categorical", "choices": ["LIMIT"]},
 }
 
 _CORE: dict[str, dict[str, Any]] = {
@@ -74,6 +75,7 @@ _CORE: dict[str, dict[str, Any]] = {
         "atr_tp_multiplier",
         "atr_sl_multiplier",
         "breakout_buffer",
+        "require_close_confirmation",
         "use_range_sl",
         "min_range_atr",
         "max_range_atr",
@@ -86,6 +88,7 @@ _WFO_GRID: dict[str, list[Any]] = {
     "atr_tp_multiplier": [1.5, 2.0, 3.0],
     "atr_sl_multiplier": [0.75, 1.0, 1.5],
     "breakout_buffer": [0.0, 0.1, 0.2],
+    "require_close_confirmation": [True, False],
     "use_range_sl": [True, False],
     "min_range_atr": [0.3, 0.5, 0.8],
     "max_range_atr": [2.5, 3.0, 4.0],
