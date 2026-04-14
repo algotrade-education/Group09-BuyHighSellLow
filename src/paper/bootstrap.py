@@ -132,14 +132,14 @@ def build_clients(
     broker_client = None
     if not dry_run:
         logger.info("Bootstrap: LIVE mode - constructing PaperBrokerClient")
-        broker_client = _build_broker_client()
+        broker_client = build_broker_client()
     else:
         logger.info("Bootstrap: DRY-RUN mode - orders will be logged only")
 
     return redis_feed, broker_client
 
 
-def _build_broker_client() -> PaperBrokerClient:
+def build_broker_client() -> PaperBrokerClient:
     """Construct PaperBrokerClient with resolved credentials.
 
     Uses get_broker_credentials() from config.secrets for clean credential
