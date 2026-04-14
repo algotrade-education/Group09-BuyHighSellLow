@@ -270,7 +270,7 @@ def get_broker_credentials(
         resolved_sender_id = sender_comp_id
 
     # Strategy 2: REST API resolution
-    if not resolved_sender_id and enable_api_resolution:
+    if enable_api_resolution:
         resolved_sender_id = _resolve_sender_comp_id_from_api(rest_base_url, username, password)
 
     # Strategy 3: Environment variable (loaded via pydantic from .env)

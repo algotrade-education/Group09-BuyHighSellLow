@@ -146,7 +146,7 @@ def _build_broker_client() -> PaperBrokerClient:
     resolution with multiple strategies (API, environment variables).
 
     Returns:
-        PaperBrokerClient instance.
+        Connected and logged-on PaperBrokerClient instance.
 
     Raises:
         SystemExit: If credentials cannot be resolved or client construction fails.
@@ -167,7 +167,15 @@ def _build_broker_client() -> PaperBrokerClient:
         creds = get_broker_credentials(enable_api_resolution=True)
 
         # Construct client using credentials
-        client = PaperBrokerClient(**creds.to_client_kwargs())
+        client = PaperBrokerClient(**creds.to_client_kwargs(), console=False)
+
+        logger.info("Bootstrap: Starting FIX session...")
+        client.connect()
+
+        timeout = int(os.getenv("PAPER_FIX_LOGON_TIMEOUT", "60"))
+        if not client.wait_until_logged_on(timeout=timeout):
+            error = client.last_logon_error() or "no reason returned"
+            raise BootstrapError(f"FIX logon failed: {error}")
 
         logger.info(
             "Bootstrap: PaperBrokerClient constructed with SenderCompID=%s",

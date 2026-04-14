@@ -44,7 +44,7 @@ from paperbroker.client import PaperBrokerClient
 from config.secrets import _resolve_sender_comp_id_from_api
 from src.utils.logger import setup_logging
 
-logger = setup_logging(__name__, log_file="logs/account_check.log")
+logger = setup_logging(__name__, log_file="logs/account_check.log", capture_all_loggers=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -116,8 +116,10 @@ def print_balances(client: PaperBrokerClient) -> None:
     """
     section("💰 BALANCES")
     try:
+        session_id = client.get_session_id()
         cash = client.get_cash_balance()
         total = client.get_account_balance()
+        print(f"\n  Session ID     : {session_id}")
         print(f"\n  Available Cash : {fmt(cash.get('remainCash', 0)):>20} VND")
         print(f"  Total Balance  : {fmt(total.get('totalBalance', 0)):>20} VND")
     except Exception as exc:
@@ -382,7 +384,7 @@ def main(args: argparse.Namespace) -> None:
         socket_connect_port=port,
         sender_comp_id=sender,
         target_comp_id=target,
-        console=False,
+        console=True,
     )
 
     client.connect()
