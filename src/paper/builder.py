@@ -534,7 +534,7 @@ def prepare_live(
     raw_df = load_with_cache(
         data_service=get_data_service(),
         db_symbol=args.symbol,
-        n_days=5,
+        n_days=7,
         convert_to_ohlcv=True,
         ohlcv_freq=format_minutes_to_frequency(freq_minutes),
     )
