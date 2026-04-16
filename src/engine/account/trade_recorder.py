@@ -61,7 +61,8 @@ class TradeRecorder:
         self._trades: list[Trade] = []
         self._trade_counter: int = 0
         self._current_trade: Trade | None = None
-        self._lock: asyncio.Lock | None = asyncio.Lock() if enable_async_safety else None
+        self._enable_async_safety = enable_async_safety
+        self._lock: asyncio.Lock | None = None
 
     def reset(self) -> None:
         """Reset all trade history."""
@@ -172,8 +173,12 @@ class TradeRecorder:
 
     async def get_trades_async(self) -> list[Trade]:
         """Get copy of all trades (async-safe)."""
-        if self._lock is None:
+        if not self._enable_async_safety:
             return list(self._trades)
+
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+
         async with self._lock:
             return list(self._trades)
 
