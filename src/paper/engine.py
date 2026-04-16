@@ -206,8 +206,8 @@ class PaperEngine:
             if position.quantity != 0:
                 logger.info(
                     "Position: %s %d @ %.2f (Unrealized P&L: %s VND)",
-                    "LONG" if position.quantity > 0 else "SHORT",
-                    abs(position.quantity),
+                    position.side.value,
+                    position.quantity,
                     position.entry_price,
                     f"{position.unrealized_pnl:,.2f}",
                 )
@@ -321,8 +321,8 @@ class PaperEngine:
         if position.quantity != 0:
             logger.info(
                 "Position: %s %d @ %.2f (Unrealized P&L: %s VND)",
-                "LONG" if position.quantity > 0 else "SHORT",
-                abs(position.quantity),
+                position.side.value,
+                position.quantity,
                 position.entry_price,
                 f"{position.unrealized_pnl:,.2f}",
             )
