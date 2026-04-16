@@ -50,7 +50,7 @@ _FULL: dict[str, dict[str, Any]] = {
     "require_close_confirmation": {"type": "categorical", "choices": [True, False]},
     "use_range_sl": {"type": "categorical", "choices": [True, False]},
     "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
-    "max_range_atr": {"type": "float", "low": 2.0, "high": 7.0, "step": 0.1},
+    "max_range_atr": {"type": "float", "low": 2.0, "high": 6.0, "step": 0.1},
     # Direction / trade limits
     "long_only": {"type": "categorical", "choices": [False]},
     "max_trades_per_session": {"type": "int", "low": 1, "high": 3},
@@ -58,6 +58,15 @@ _FULL: dict[str, dict[str, Any]] = {
     "use_volume_filter": {"type": "categorical", "choices": [True, False]},
     "use_adx_filter": {"type": "categorical", "choices": [True, False]},
     "adx_min": {"type": "float", "low": 15.0, "high": 35.0, "step": 1.0},
+    # Adaptive volatility
+    "use_adaptive_volatility": {"type": "categorical", "choices": [True, False]},
+    "atr_lookback_period": {"type": "int", "low": 10, "high": 30, "step": 5},
+    "volatility_low_threshold": {"type": "float", "low": 0.6, "high": 0.85, "step": 0.05},
+    "volatility_high_threshold": {"type": "float", "low": 1.2, "high": 1.5, "step": 0.05},
+    "low_vol_range_multiplier": {"type": "float", "low": 0.5, "high": 0.9, "step": 0.1},
+    "high_vol_range_multiplier": {"type": "float", "low": 1.1, "high": 1.5, "step": 0.1},
+    "low_vol_buffer_multiplier": {"type": "float", "low": 0.5, "high": 0.9, "step": 0.1},
+    "high_vol_buffer_multiplier": {"type": "float", "low": 1.1, "high": 1.5, "step": 0.1},
     # Risk
     "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
     "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
@@ -95,6 +104,15 @@ _WFO_GRID: dict[str, list[Any]] = {
     "long_only": [False],
     "use_volume_filter": [False],
     "use_adx_filter": [False],
+    # Adaptive volatility
+    "use_adaptive_volatility": [False, True],
+    "atr_lookback_period": [15, 20],
+    "volatility_low_threshold": [0.7, 0.75],
+    "volatility_high_threshold": [1.25, 1.3],
+    "low_vol_range_multiplier": [0.7, 0.8],
+    "high_vol_range_multiplier": [1.2, 1.3],
+    "low_vol_buffer_multiplier": [0.7, 0.8],
+    "high_vol_buffer_multiplier": [1.2, 1.3],
 }
 
 # WFO Optuna: no resample_freq - data is pre-sliced per window
@@ -169,6 +187,8 @@ def _run_backtest(
         atr_period=config.strategy.atr_period,
         adx_period=config.strategy.adx_period,
         volume_ma_period=config.strategy.volume_ma_period,
+        atr_lookback_period=config.strategy.atr_lookback_period,
+        use_adaptive_volatility=config.strategy.use_adaptive_volatility,
     )
 
     if processed_data is not None:
@@ -218,6 +238,8 @@ def load_fn(config_path: str) -> tuple[Any, Any, Any]:
         atr_period=config.strategy.atr_period,
         adx_period=config.strategy.adx_period,
         volume_ma_period=config.strategy.volume_ma_period,
+        atr_lookback_period=config.strategy.atr_lookback_period,
+        use_adaptive_volatility=config.strategy.use_adaptive_volatility,
     )
     return strategy, registry, config
 
@@ -268,6 +290,8 @@ def build_trial_fn(
             config.strategy.atr_period,
             config.strategy.adx_period,
             config.strategy.volume_ma_period,
+            config.strategy.atr_lookback_period,
+            config.strategy.use_adaptive_volatility,
             data_id,  # Use data identity instead of shape for reliable caching
         )
         if key not in _indicator_cache:
@@ -275,6 +299,8 @@ def build_trial_fn(
                 atr_period=config.strategy.atr_period,
                 adx_period=config.strategy.adx_period,
                 volume_ma_period=config.strategy.volume_ma_period,
+                atr_lookback_period=config.strategy.atr_lookback_period,
+                use_adaptive_volatility=config.strategy.use_adaptive_volatility,
             )
             pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=True)
             processed_df = pipeline.run(data)

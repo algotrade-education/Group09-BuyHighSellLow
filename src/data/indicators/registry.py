@@ -36,6 +36,7 @@ def _ensure_factory_loaded() -> None:
 
     from src.data.indicators.adx import WilderADX
     from src.data.indicators.atr import WilderATR
+    from src.data.indicators.sma import SMA
     from src.data.indicators.volume_ma import VolumeMA
 
     _factory.update(
@@ -43,6 +44,7 @@ def _ensure_factory_loaded() -> None:
             "atr": WilderATR,
             "adx": WilderADX,
             "volume_ma": VolumeMA,
+            "sma": SMA,
         }
     )
     _factory_loaded = True

@@ -183,6 +183,81 @@ class ORBStrategyConfig(BaseStrategyConfig):
         description="Maximum number of trades to take per trading session. E.g., 1 means only the first valid breakout will be traded each day.",
     )
 
+    # --- Adaptive Volatility Adjustment ---
+    use_adaptive_volatility: bool = Field(
+        default=False,
+        description=(
+            "Enable adaptive volatility adjustment. When enabled, the strategy will adjust min_range_atr, max_range_atr, "
+            "and breakout_buffer based on current volatility regime compared to historical ATR. "
+            "This helps avoid missing trades on low volatility days and reduces false breakouts on high volatility days."
+        ),
+    )
+    atr_lookback_period: int = Field(
+        default=20,
+        ge=5,
+        le=100,
+        description=(
+            "Number of bars to use for calculating the ATR moving average for volatility regime detection. "
+            "E.g., 20 means compare current ATR with the average ATR of the last 20 bars."
+        ),
+    )
+    volatility_low_threshold: float = Field(
+        default=0.7,
+        ge=0.1,
+        le=1.0,
+        description=(
+            "Threshold for low volatility regime. If current_atr / atr_ma < this value, "
+            "the strategy will relax range filters (reduce min_range_atr) and tighten breakout buffer. "
+            "E.g., 0.7 means if ATR is 30% below average, it's considered low volatility."
+        ),
+    )
+    volatility_high_threshold: float = Field(
+        default=1.3,
+        ge=1.0,
+        le=3.0,
+        description=(
+            "Threshold for high volatility regime. If current_atr / atr_ma > this value, "
+            "the strategy will tighten range filters (increase min_range_atr) and widen breakout buffer. "
+            "E.g., 1.3 means if ATR is 30% above average, it's considered high volatility."
+        ),
+    )
+    low_vol_range_multiplier: float = Field(
+        default=0.7,
+        ge=0.1,
+        le=1.0,
+        description=(
+            "Multiplier for min_range_atr during low volatility regime. "
+            "E.g., 0.7 means min_range_atr will be reduced to 70% of its configured value when volatility is low."
+        ),
+    )
+    high_vol_range_multiplier: float = Field(
+        default=1.3,
+        ge=1.0,
+        le=2.0,
+        description=(
+            "Multiplier for min_range_atr during high volatility regime. "
+            "E.g., 1.3 means min_range_atr will be increased to 130% of its configured value when volatility is high."
+        ),
+    )
+    low_vol_buffer_multiplier: float = Field(
+        default=0.7,
+        ge=0.1,
+        le=1.0,
+        description=(
+            "Multiplier for breakout_buffer during low volatility regime. "
+            "E.g., 0.7 means breakout_buffer will be reduced to 70% of its configured value when volatility is low."
+        ),
+    )
+    high_vol_buffer_multiplier: float = Field(
+        default=1.3,
+        ge=1.0,
+        le=2.0,
+        description=(
+            "Multiplier for breakout_buffer during high volatility regime. "
+            "E.g., 1.3 means breakout_buffer will be increased to 130% of its configured value when volatility is high."
+        ),
+    )
+
     # --- Validators ---
     @model_validator(mode="after")
     def validate_range_atr_order(self) -> "ORBStrategyConfig":

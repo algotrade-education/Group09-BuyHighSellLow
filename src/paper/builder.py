@@ -125,6 +125,8 @@ def build_indicator_pipeline(strategy_config: Any, use_cache: bool = False) -> D
         atr_period=strategy_config.strategy.atr_period,
         adx_period=strategy_config.strategy.adx_period,
         volume_ma_period=strategy_config.strategy.volume_ma_period,
+        atr_lookback_period=strategy_config.strategy.atr_lookback_period,
+        use_adaptive_volatility=strategy_config.strategy.use_adaptive_volatility,
     )
     return DataPipeline(registry=registry, cache_dir="data/cache", use_cache=use_cache)
 

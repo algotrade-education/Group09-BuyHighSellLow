@@ -84,6 +84,9 @@ class ORBStrategy(IntradayStrategy):
         self._atr_col = f"atr_{self._p.atr_period}"
         self._adx_col = f"adx_{self._p.adx_period}"
         self._vol_ma_col = f"volume_ma_{self._p.volume_ma_period}"
+        self._atr_ma_col = (
+            f"atr_ma_{self._p.atr_lookback_period}" if self._p.use_adaptive_volatility else None
+        )
 
         # --- Opening range state ---
         self._range_high: float = 0.0
@@ -107,13 +110,15 @@ class ORBStrategy(IntradayStrategy):
         atr_period: int = 14,
         adx_period: int = 14,
         volume_ma_period: int = 20,
+        atr_lookback_period: int = 20,
+        use_adaptive_volatility: bool = False,
         **_: Any,
     ) -> IndicatorRegistry:
         """
         Build IndicatorRegistry for ORB.
         Register only the indicators that are actually needed.
         """
-        return (
+        registry = (
             IndicatorRegistry()
             .register(IndicatorSpec("atr", {"period": atr_period}, f"atr_{atr_period}"))
             .register(IndicatorSpec("adx", {"period": adx_period}, f"adx_{adx_period}"))
@@ -123,6 +128,18 @@ class ORBStrategy(IntradayStrategy):
                 )
             )
         )
+
+        # Add ATR moving average for adaptive volatility
+        if use_adaptive_volatility:
+            registry.register(
+                IndicatorSpec(
+                    "sma",
+                    {"period": atr_lookback_period, "source_col": f"atr_{atr_period}"},
+                    f"atr_ma_{atr_lookback_period}",
+                )
+            )
+
+        return registry
 
     # --- Core interface ---
 
@@ -195,8 +212,8 @@ class ORBStrategy(IntradayStrategy):
         if atr is None:
             return TradeSignal(Signal.HOLD, reason="ATR not available")
 
-        # Range quality filters
-        range_filter = self._check_range_filters(atr)
+        # Range quality filters (with adaptive adjustment)
+        range_filter = self._check_range_filters(bar, atr)
         if range_filter is not None:
             return range_filter
 
@@ -205,8 +222,12 @@ class ORBStrategy(IntradayStrategy):
         if optional_filter is not None:
             return optional_filter
 
+        # Get volatility regime for adaptive buffer
+        regime, _, buffer_multiplier = self._get_volatility_regime(bar, atr)
+        adjusted_buffer = self._p.breakout_buffer * buffer_multiplier
+
         # Breakout levels
-        buffer = self._p.breakout_buffer * atr
+        buffer = adjusted_buffer * atr
         breakout_high = self._range_high + buffer
         breakout_low = self._range_low - buffer
         range_size = self._range_high - self._range_low
@@ -330,7 +351,44 @@ class ORBStrategy(IntradayStrategy):
 
     # --- Filters ---
 
-    def _check_range_filters(self, atr: float) -> TradeSignal | None:
+    def _get_volatility_regime(self, bar: dict[str, Any], atr: float) -> tuple[str, float, float]:
+        """
+        Determine volatility regime and return adjusted multipliers.
+
+        Returns:
+            tuple: (regime_name, range_multiplier, buffer_multiplier)
+                - regime_name: "low", "normal", or "high"
+                - range_multiplier: adjustment for min_range_atr
+                - buffer_multiplier: adjustment for breakout_buffer
+        """
+        if not self._p.use_adaptive_volatility or self._atr_ma_col is None:
+            return ("normal", 1.0, 1.0)
+
+        atr_ma = float(bar.get(self._atr_ma_col, 0.0) or 0.0)
+        if atr_ma <= 0:
+            return ("normal", 1.0, 1.0)
+
+        atr_ratio = atr / atr_ma
+
+        if atr_ratio < self._p.volatility_low_threshold:
+            # Low volatility: relax range filter, tighten buffer
+            return (
+                "low",
+                self._p.low_vol_range_multiplier,
+                self._p.low_vol_buffer_multiplier,
+            )
+        elif atr_ratio > self._p.volatility_high_threshold:
+            # High volatility: tighten range filter, widen buffer
+            return (
+                "high",
+                self._p.high_vol_range_multiplier,
+                self._p.high_vol_buffer_multiplier,
+            )
+        else:
+            # Normal volatility
+            return ("normal", 1.0, 1.0)
+
+    def _check_range_filters(self, bar: dict[str, Any], atr: float) -> TradeSignal | None:
         """None = pass, TradeSignal(HOLD) = filtered out."""
         range_size = self._range_high - self._range_low
         if range_size <= 0:
@@ -338,16 +396,23 @@ class ORBStrategy(IntradayStrategy):
 
         range_in_atr = range_size / atr
 
-        if self._p.min_range_atr > 0 and range_in_atr < self._p.min_range_atr:
-            return TradeSignal(
-                Signal.HOLD,
-                reason=f"Range too narrow: {range_in_atr:.2f}x ATR (min {self._p.min_range_atr}x)",
-            )
-        if self._p.max_range_atr > 0 and range_in_atr > self._p.max_range_atr:
-            return TradeSignal(
-                Signal.HOLD,
-                reason=f"Range too wide: {range_in_atr:.2f}x ATR (max {self._p.max_range_atr}x)",
-            )
+        # Get volatility regime and adjusted multipliers
+        regime, range_multiplier, _ = self._get_volatility_regime(bar, atr)
+        adjusted_min_range = self._p.min_range_atr * range_multiplier
+        adjusted_max_range = self._p.max_range_atr * range_multiplier
+
+        if self._p.min_range_atr > 0 and range_in_atr < adjusted_min_range:
+            reason = f"Range too narrow: {range_in_atr:.2f}x ATR (min {adjusted_min_range:.2f}x)"
+            if regime != "normal":
+                reason += f" [vol={regime}]"
+            return TradeSignal(Signal.HOLD, reason=reason)
+
+        if self._p.max_range_atr > 0 and range_in_atr > adjusted_max_range:
+            reason = f"Range too wide: {range_in_atr:.2f}x ATR (max {adjusted_max_range:.2f}x)"
+            if regime != "normal":
+                reason += f" [vol={regime}]"
+            return TradeSignal(Signal.HOLD, reason=reason)
+
         return None
 
     def _check_optional_filters(self, bar: dict[str, Any], atr: float) -> TradeSignal | None:
