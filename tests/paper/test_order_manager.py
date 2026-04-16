@@ -449,6 +449,113 @@ class TestOnExecutionReport:
         del om._pending_exits["X-001"]
         assert not om.has_pending_exit
 
+    def test_partial_exit_does_not_flatten_position_until_filled(self):
+        """PARTIAL exit report must not close local position prematurely."""
+        tracker = make_tracker()
+        om = make_order_manager(tracker=tracker)
+
+        open_position(tracker, price=1300.0, qty=2, side="LONG")
+
+        cl_ord_id = "X-PART001"
+        om._pending_exits[cl_ord_id] = "Stop Loss"
+        om._cum_fills[cl_ord_id] = 0
+
+        om.on_execution_report(
+            cl_ord_id=cl_ord_id,
+            ord_status="1",
+            avg_px=1298.0,
+            cum_qty=1,
+        )
+
+        assert not tracker.is_flat
+        assert tracker.position.quantity == 2
+        assert cl_ord_id in om._pending_exits
+
+        om.on_execution_report(
+            cl_ord_id=cl_ord_id,
+            ord_status="2",
+            avg_px=1297.0,
+            cum_qty=2,
+        )
+
+        assert tracker.is_flat
+        assert cl_ord_id not in om._pending_exits
+
+    def test_execution_report_prefers_last_price_over_avg_price(self):
+        """When last_px exists, it should be used as fill price instead of avg_px."""
+        tracker = make_tracker()
+        om = make_order_manager(tracker=tracker)
+
+        cl_ord_id = "E-LASTPX1"
+        om._cum_fills[cl_ord_id] = 0
+        om._pending_entries[cl_ord_id] = {
+            "side": "LONG",
+            "qty": 1,
+            "stop_loss": None,
+            "take_profit": None,
+        }
+
+        om.on_execution_report(
+            cl_ord_id=cl_ord_id,
+            ord_status="2",
+            avg_px=1310.0,
+            last_px=1302.0,
+            cum_qty=1,
+        )
+
+        assert not tracker.is_flat
+        assert tracker.position.entry_price == 1302.0
+
+    def test_execution_report_accepts_camel_case_fields(self):
+        """Broker camelCase payload should be normalized and processed."""
+        tracker = make_tracker()
+        om = make_order_manager(tracker=tracker)
+
+        cl_ord_id = "E-CAMEL01"
+        om._cum_fills[cl_ord_id] = 0
+        om._pending_entries[cl_ord_id] = {
+            "side": "LONG",
+            "qty": 1,
+            "stop_loss": None,
+            "take_profit": None,
+        }
+
+        om.on_execution_report(
+            clOrdId=cl_ord_id,
+            ordStatus="2",
+            avgPx=1310.0,
+            cumQty=1,
+            lastPx=1304.0,
+        )
+
+        assert not tracker.is_flat
+        assert tracker.position.entry_price == 1304.0
+
+    def test_execution_report_accepts_textual_filled_status(self):
+        """Text status values (e.g., FILLED) should map to FIX status codes."""
+        tracker = make_tracker()
+        om = make_order_manager(tracker=tracker)
+
+        cl_ord_id = "E-TEXT01"
+        om._cum_fills[cl_ord_id] = 0
+        om._pending_entries[cl_ord_id] = {
+            "side": "LONG",
+            "qty": 1,
+            "stop_loss": None,
+            "take_profit": None,
+        }
+
+        om.on_execution_report(
+            cl_ord_id=cl_ord_id,
+            status="FILLED",
+            avg_px=1312.0,
+            cum_qty=1,
+            last_px=1308.0,
+        )
+
+        assert not tracker.is_flat
+        assert tracker.position.entry_price == 1308.0
+
 
 # ---------------------------------------------------------------------------
 # submit_entry - dry-run fills immediately

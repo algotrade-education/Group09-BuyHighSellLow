@@ -35,6 +35,83 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _wire_execution_report_handler(broker_client: Any, order_manager: Any) -> None:
+    """Attach broker execution report stream to OrderManager callback.
+
+    This uses best-effort registration across common client APIs to stay robust
+    against minor SDK differences.
+    """
+    if broker_client is None:
+        return
+
+    status_by_event = {
+        "fix:order:partial_fill": "1",
+        "order:partial_fill": "1",
+        "fix:order:filled": "2",
+        "order:filled": "2",
+        "fix:order:canceled": "4",
+        "order:canceled": "4",
+        "fix:order:rejected": "8",
+        "order:rejected": "8",
+    }
+
+    def _handle_report(*args: Any, **kwargs: Any) -> None:
+        payload: dict[str, Any] = {}
+
+        # Common patterns:
+        # 1) callback(report_dict)
+        # 2) callback(event_name, report_dict)
+        # 3) callback(**report_fields)
+        if len(args) == 1 and isinstance(args[0], dict):
+            payload.update(args[0])
+        elif len(args) >= 2 and isinstance(args[1], dict):
+            payload.update(args[1])
+
+        payload.update(kwargs)
+
+        if not payload:
+            logger.debug("Execution report callback received empty payload: args=%s", args)
+            return
+
+        order_manager.on_execution_report(**payload)
+
+    def _make_event_handler(event_name: str) -> Any:
+        def _handler(**payload: Any) -> None:
+            if "ord_status" not in payload and "ordStatus" not in payload:
+                mapped_status = status_by_event.get(event_name)
+                if mapped_status is not None:
+                    payload["ord_status"] = mapped_status
+            _handle_report(**payload)
+
+        return _handler
+
+    # Canonical PaperBroker path: subscribe to fill lifecycle events.
+    if hasattr(broker_client, "on"):
+        try:
+            events = (
+                "fix:order:partial_fill",
+                "fix:order:filled",
+                "fix:order:canceled",
+                "fix:order:rejected",
+            )
+            for event in events:
+                broker_client.on(event, _make_event_handler(event))
+            logger.info(
+                "Execution report callback wired via PaperBroker events: %s",
+                ", ".join(events),
+            )
+            return
+        except Exception:
+            logger.debug(
+                "PaperBroker event wiring failed; trying generic callback APIs", exc_info=True
+            )
+
+    logger.warning(
+        "Unable to wire execution report callback automatically. "
+        "Order fills may not update in real time in LIVE mode."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Low-level builders — one thing each
 # ---------------------------------------------------------------------------
@@ -587,6 +664,7 @@ def prepare_live(
     order_manager = build_order_manager(
         tracker, args.symbol, dry_run=(mode == "DRY-RUN"), broker_client=broker_client
     )
+    _wire_execution_report_handler(broker_client, order_manager)
     reconciler = build_reconciler(tracker, order_manager, args.symbol, broker_client=broker_client)
 
     return feed, order_manager, reconciler, raw_df if not raw_df.empty else None

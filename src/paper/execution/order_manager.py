@@ -306,10 +306,13 @@ class OrderManager:
             **kwargs: Execution report fields including cl_ord_id, ord_status,
                      avg_px, cum_qty, and optional transact_time/timestamp.
         """
-        cl_ord_id: str = str(kwargs.get("cl_ord_id", ""))
-        ord_status: str = str(kwargs.get("ord_status", ""))
-        avg_px: float = float(kwargs.get("avg_px") or 0.0)
-        cum_qty: int = int(kwargs.get("cum_qty") or 0)
+        report = self._normalize_execution_report_fields(kwargs)
+
+        cl_ord_id: str = str(report.get("cl_ord_id", ""))
+        ord_status: str = str(report.get("ord_status", ""))
+        avg_px: float = float(report.get("avg_px") or 0.0)
+        fill_px: float = self._extract_fill_price(report, fallback=avg_px)
+        cum_qty: int = int(report.get("cum_qty") or 0)
 
         logger.debug(
             "on_execution_report: cl_ord_id=%s status=%s cum_qty=%d avg_px=%.2f",
@@ -353,15 +356,15 @@ class OrderManager:
         if is_entry:
             meta = self._pending_entries[cl_ord_id]
             logger.info(
-                "on_execution_report: entry %s cl_ord_id=%s avg_px=%.2f qty=%d",
+                "on_execution_report: entry %s cl_ord_id=%s fill_px=%.2f qty=%d",
                 "FILLED" if ord_status == "2" else "PARTIAL",
                 cl_ord_id,
-                avg_px,
+                fill_px,
                 incremental_qty,
             )
-            fill_timestamp = self._extract_broker_timestamp(kwargs)
+            fill_timestamp = self._extract_broker_timestamp(report)
             self._tracker.record_open(
-                fill_price=avg_px,
+                fill_price=fill_px,
                 qty=incremental_qty,
                 side=meta["side"],
                 timestamp=fill_timestamp,
@@ -376,17 +379,26 @@ class OrderManager:
         if is_exit:
             reason = self._pending_exits[cl_ord_id]
             logger.info(
-                "on_execution_report: exit %s cl_ord_id=%s reason=%s avg_px=%.2f qty=%d",
+                "on_execution_report: exit %s cl_ord_id=%s reason=%s fill_px=%.2f qty=%d",
                 "FILLED" if ord_status == "2" else "PARTIAL",
                 cl_ord_id,
                 reason,
-                avg_px,
+                fill_px,
                 incremental_qty,
             )
-            fill_timestamp = self._extract_broker_timestamp(kwargs)
+
+            # Do not mutate tracker position on partial exit fills.
+            # Tracker.record_close currently closes the full position; applying it on
+            # partial fills would flatten the position too early and corrupt PnL.
+            if ord_status == "1":
+                return
+
+            # On full fill, close the remaining local position quantity.
+            close_qty = self._tracker.position.quantity if not self._tracker.is_flat else cum_qty
+            fill_timestamp = self._extract_broker_timestamp(report)
             self._tracker.record_close(
-                fill_price=avg_px,
-                qty=incremental_qty,
+                fill_price=fill_px,
+                qty=close_qty,
                 timestamp=fill_timestamp,
                 exit_reason=reason,
             )
@@ -502,3 +514,72 @@ class OrderManager:
             except (ValueError, TypeError):
                 fill_timestamp = datetime.now()
         return fill_timestamp
+
+    @staticmethod
+    def _extract_fill_price(kwargs: dict[str, Any], fallback: float) -> float:
+        """Extract execution price for the current fill.
+
+        Prefers last-fill price fields when present; falls back to avg_px.
+        """
+        candidates = (
+            kwargs.get("last_px"),
+            kwargs.get("lastPx"),
+            kwargs.get("last_price"),
+            kwargs.get("lastPrice"),
+            kwargs.get("exec_px"),
+            kwargs.get("execPx"),
+            kwargs.get("price"),
+            kwargs.get("px"),
+        )
+
+        for value in candidates:
+            if value is None:
+                continue
+
+            try:
+                px = float(value)
+                if px > 0:
+                    return px
+            except (TypeError, ValueError):
+                continue
+
+        return fallback
+
+    @staticmethod
+    def _normalize_execution_report_fields(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Normalize execution report payload to snake_case keys.
+
+        Supports common broker payload variants such as camelCase and snake_case.
+        """
+
+        def _first(*keys: str) -> Any:
+            for key in keys:
+                if key in kwargs and kwargs[key] is not None:
+                    return kwargs[key]
+            return None
+
+        normalized = dict(kwargs)
+
+        normalized["cl_ord_id"] = _first("cl_ord_id", "clOrdId", "clientOrderId") or ""
+        status_raw = _first("ord_status", "ordStatus", "status") or ""
+        status_text = str(status_raw).strip().upper().replace("-", "_")
+        status_map = {
+            "NEW": "0",
+            "PARTIALLY_FILLED": "1",
+            "PARTIAL_FILL": "1",
+            "FILLED": "2",
+            "CANCELED": "4",
+            "CANCELLED": "4",
+            "REJECTED": "8",
+            "PENDING_NEW": "A",
+            "PENDING_CANCEL": "6",
+        }
+        normalized["ord_status"] = status_map.get(status_text, status_raw)
+        normalized["avg_px"] = _first("avg_px", "avgPx", "averagePrice") or 0.0
+        normalized["cum_qty"] = _first("cum_qty", "cumQty", "filledQuantity") or 0
+
+        # Mirror common fill-price aliases so _extract_fill_price can pick them up.
+        if "last_px" not in normalized:
+            normalized["last_px"] = _first("last_px", "lastPx", "lastPrice", "execPrice")
+
+        return normalized

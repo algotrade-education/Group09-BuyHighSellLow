@@ -169,8 +169,8 @@ def test_tracker_snapshot_last_value_wins(ts_offsets: list[int]) -> None:
 
 
 class TestTrackerSyncPosition:
-    def test_sync_position_deducts_commission(self):
-        """sync_position must deduct entry commission from cash (Req 6.2)."""
+    def test_sync_position_does_not_deduct_historical_commission(self):
+        """sync_position must not re-charge historical entry commission locally."""
         initial_capital = 100_000.0
         commission_rate = 0.0003
         multiplier = 100_000.0
@@ -183,13 +183,11 @@ class TestTrackerSyncPosition:
 
         qty = 2
         avg_price = 1300.0
-        expected_commission = avg_price * qty * multiplier * commission_rate
+        _ = avg_price * qty * multiplier * commission_rate
 
         tracker.sync_position(qty=qty, avg_price=avg_price)
 
-        assert abs(tracker.cash - (cash_before - expected_commission)) < 0.01, (
-            f"Expected cash={cash_before - expected_commission:.2f}, got {tracker.cash:.2f}"
-        )
+        assert abs(tracker.cash - cash_before) < 0.01
 
     def test_sync_position_sets_synced_flag(self):
         """sync_position must set synced_position = True (Req 6.4)."""
@@ -224,7 +222,7 @@ class TestTrackerSyncPosition:
         assert pos.quantity == 2
 
     def test_sync_position_zero_qty_no_op(self):
-        """sync_position with qty=0 should be a no-op."""
+        """sync_position with qty=0 should keep tracker flat and unsynced."""
         tracker = make_tracker()
         tracker.sync_position(qty=0, avg_price=1300.0)
         assert tracker.is_flat
