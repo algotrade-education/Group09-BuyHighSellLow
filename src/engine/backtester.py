@@ -180,20 +180,26 @@ class Backtester:
         total_bars = len(data)
         timestamps = pd.to_datetime(data[datetime_col]).tolist()
 
-        # Use pre-converted bars list if provided, otherwise convert now
-        # Note: to_dict("records") uses ~2x memory but provides O(1) access
-        # For large datasets (>1M bars), consider chunked processing
-        bars: list[dict[str, Any]]
-        if bars_list is not None:
-            bars = bars_list
-        else:
-            bars = [{str(k): v for k, v in row.items()} for row in data.to_dict("records")]
+        # Use pre-converted bars list if provided (optimization path).
+        # Otherwise iterate via itertuples to avoid materializing a duplicate
+        # list-of-dicts copy of the full DataFrame in memory.
+        col_names = [str(c) for c in data.columns]
+        open_prices = data["open"].to_numpy()
+        close_prices = data["close"].to_numpy()
+
+        def _iter_bars() -> Any:
+            if bars_list is not None:
+                for i, b in enumerate(bars_list):
+                    yield i, b
+                return
+
+            for i, row in enumerate(data.itertuples(index=False, name=None)):
+                yield i, dict(zip(col_names, row, strict=False))
 
         pending_order: Order | None = None
         pending_order_age: int = 0
 
-        for idx in range(total_bars):
-            bar = bars[idx]
+        for idx, bar in _iter_bars():
             timestamp = timestamps[idx]
             is_warmup = idx < warmup_bars
 
@@ -231,7 +237,7 @@ class Backtester:
                 and not self.account.position.is_flat
                 and not is_warmup
             ):
-                next_open = self._get_next_open(bars, idx)
+                next_open = self._get_next_open(open_prices, close_prices, idx)
                 self.account.close_position(
                     exit_price=next_open,
                     timestamp=timestamp,
@@ -275,14 +281,15 @@ class Backtester:
                     )
 
             # --- 5. Equity update ---
-            self.account.update_equity(float(bar["close"]))
+            close_price = float(close_prices[idx])
+            self.account.update_equity(close_price)
             self.equity_tracker.record(
                 timestamp=timestamp,
                 position=self.account.position.side.value,
                 cash=self.account.cash,
                 equity=self.account.equity,
                 unrealized_pnl=self.account.position.unrealized_pnl,
-                close_price=float(bar["close"]),
+                close_price=close_price,
             )
 
             # Progress callback - called at end of loop
@@ -292,7 +299,10 @@ class Backtester:
         # --- End of backtest: close remaining position ---
         if not self.account.position.is_flat and total_bars > 0:
             last_ts = timestamps[-1]
-            last_close = float(bars[-1]["close"])
+            if bars_list is not None:
+                last_close = float(bars_list[-1]["close"])
+            else:
+                last_close = float(close_prices[-1])
             self.account.close_position(last_close, last_ts, "End of Backtest")
             self.account.update_equity(last_close)
             self.equity_tracker.record(
@@ -328,14 +338,14 @@ class Backtester:
         if missing:
             raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-    def _get_next_open(self, bars: list[dict[str, Any]], idx: int) -> float:
+    def _get_next_open(self, open_prices: Any, close_prices: Any, idx: int) -> float:
         """
         Get open price of next bar for EOD close.
         Falls back to current close if last bar.
         """
-        if idx + 1 < len(bars):
-            return float(bars[idx + 1]["open"])
-        return float(bars[idx]["close"])
+        if idx + 1 < len(open_prices):
+            return float(open_prices[idx + 1])
+        return float(close_prices[idx])
 
     def _is_entry_blocked(self, timestamp: Any) -> bool:
         if self.entry_cutoff_sec <= 0:
