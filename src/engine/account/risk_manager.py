@@ -81,7 +81,8 @@ class RiskManager:
         self._daily_pnl += pnl
 
         if self.max_daily_loss_pct > 0:
-            limit = -(self.max_daily_loss_pct * equity)
+            # max_daily_loss_pct is configured as percent (e.g. 2.0 = 2%)
+            limit = -((self.max_daily_loss_pct / 100.0) * equity)
             if self._daily_pnl < limit:
                 self._daily_loss_hit = True
                 logger.info(
