@@ -217,12 +217,94 @@ class Tracker:
             )
             return None
 
+        if qty <= 0:
+            logger.warning(
+                "record_close called with non-positive qty=%s - ignoring. reason=%s",
+                qty,
+                exit_reason,
+            )
+            return None
+
+        position = self._state.position
+        close_qty = min(int(qty), int(position.quantity))
+        current_trade = self._state.trade_recorder._current_trade
+
+        # Partial close path: realize P&L/cash incrementally, keep trade open.
+        if close_qty < position.quantity:
+            exit_commission = self._state._calc_commission(fill_price, close_qty)
+            if position.is_long:
+                gross_pnl = (
+                    (fill_price - position.entry_price)
+                    * close_qty
+                    * self._state.contract_multiplier
+                )
+            else:
+                gross_pnl = (
+                    (position.entry_price - fill_price)
+                    * close_qty
+                    * self._state.contract_multiplier
+                )
+
+            self._state.portfolio.deduct_cash(exit_commission)
+            self._state.portfolio.add_cash(gross_pnl)
+
+            # Accumulate realized partial components so final trade stats remain correct.
+            current_trade.metadata["_partial_realized_gross"] = (
+                float(current_trade.metadata.get("_partial_realized_gross", 0.0)) + gross_pnl
+            )
+            current_trade.metadata["_partial_exit_commission"] = (
+                float(current_trade.metadata.get("_partial_exit_commission", 0.0)) + exit_commission
+            )
+            current_trade.metadata["_partial_closed_qty"] = (
+                int(current_trade.metadata.get("_partial_closed_qty", 0)) + close_qty
+            )
+
+            position.quantity -= close_qty
+            # Note: current_trade.quantity keeps original qty; close_position will use remaining position.quantity
+            self._state.portfolio.update_equity(position)
+            self._synced_position = False
+
+            logger.info(
+                "record_close partial: qty=%d/%d @ %.2f reason=%s | remaining=%d",
+                close_qty,
+                close_qty + position.quantity,
+                fill_price,
+                exit_reason,
+                position.quantity,
+            )
+            return None
+
+        # Full close path.
+        pnl_before_adjust = 0.0
         trade = self._state.close_position(
             exit_price=fill_price,
             timestamp=timestamp,
             exit_reason=exit_reason,
             apply_slippage=False,
         )
+
+        if trade is not None:
+            pnl_before_adjust = trade.pnl
+
+            partial_gross = float(trade.metadata.pop("_partial_realized_gross", 0.0))
+            partial_exit_commission = float(trade.metadata.pop("_partial_exit_commission", 0.0))
+            partial_closed_qty = int(trade.metadata.pop("_partial_closed_qty", 0))
+
+            if partial_gross != 0.0 or partial_exit_commission != 0.0:
+                trade.gross_pnl += partial_gross
+                trade.commission += partial_exit_commission
+                trade.pnl = trade.gross_pnl - trade.commission
+
+                # Restore original total quantity (close_position used remaining qty)
+                trade.quantity += partial_closed_qty
+
+                # close_position already recorded remaining-leg PnL.
+                # Add only the delta from partial realizations.
+                self._state.risk_manager.record_trade_pnl(
+                    trade.pnl - pnl_before_adjust,
+                    self._state.portfolio.equity,
+                )
+
         self._synced_position = False
         return trade
 

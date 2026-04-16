@@ -386,22 +386,33 @@ class OrderManager:
                 fill_px,
                 incremental_qty,
             )
-
-            # Do not mutate tracker position on partial exit fills.
-            # Tracker.record_close currently closes the full position; applying it on
-            # partial fills would flatten the position too early and corrupt PnL.
-            if ord_status == "1":
-                return
-
-            # On full fill, close the remaining local position quantity.
-            close_qty = self._tracker.position.quantity if not self._tracker.is_flat else cum_qty
             fill_timestamp = self._extract_broker_timestamp(report)
-            self._tracker.record_close(
-                fill_price=fill_px,
-                qty=close_qty,
-                timestamp=fill_timestamp,
-                exit_reason=reason,
-            )
+
+            # Apply incremental fills for both PARTIAL and FILLED statuses.
+            # Tracker handles partial close math and leaves position open until remaining qty reaches 0.
+            if not self._tracker.is_flat:
+                close_qty = min(incremental_qty, self._tracker.position.quantity)
+                self._tracker.record_close(
+                    fill_price=fill_px,
+                    qty=close_qty,
+                    timestamp=fill_timestamp,
+                    exit_reason=reason,
+                )
+
+            # Safety net: final FILLED report should leave local tracker flat.
+            # This handles edge cases where cumulative fills don't match expected quantity.
+            if ord_status == "2" and not self._tracker.is_flat:
+                logger.warning(
+                    "Safety net: position still open after FILLED report. Forcing close of remaining %d",
+                    self._tracker.position.quantity,
+                )
+                self._tracker.record_close(
+                    fill_price=fill_px,
+                    qty=self._tracker.position.quantity,
+                    timestamp=fill_timestamp,
+                    exit_reason=f"{reason} (forced)",
+                )
+
             if ord_status == "2":
                 self._pending_exits.pop(cl_ord_id)
                 self._cum_fills.pop(cl_ord_id, None)
