@@ -135,7 +135,7 @@ class Reconciler:
 
             # Set initial capital baseline on first reconciliation
             if not self._initial_capital_set:
-                self._tracker.set_initial_capital(self._tracker.equity)
+                self._tracker.set_initial_capital(self._tracker.cash)
                 self._initial_capital_set = True
 
             logger.info("reconcile_cash: synced cash=%.2f", cash)

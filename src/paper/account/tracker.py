@@ -262,7 +262,7 @@ class Tracker:
                 )
                 self._state.position.close()
                 self._state.trade_recorder._current_trade = None
-                self._synced_position = True
+                self._synced_position = False
                 logger.info("sync_position: broker flat, local synced to flat")
             else:
                 logger.info("sync_position: broker flat, local already flat - no-op")
@@ -272,7 +272,6 @@ class Tracker:
         abs_qty = abs(qty)
 
         # Check if position has changed since last sync (idempotence check)
-        # This prevents commission drift when reconcile is called multiple times
         pos = self._state.position
         position_changed = (
             pos.side != side
@@ -280,19 +279,13 @@ class Tracker:
             or abs(pos.entry_price - avg_price) > 0.01  # Allow small price differences
         )
 
-        # Only deduct commission if position has actually changed
-        if position_changed or not self._synced_position:
-            commission = self._state._calc_commission(avg_price, abs_qty)
-            self._state.portfolio.deduct_cash(commission)
-            logger.info(
-                "sync_position: deducting commission=%.2f for qty=%d @ %.2f (position changed)",
-                commission,
-                abs_qty,
-                avg_price,
-            )
-        else:
-            commission = 0.0
-            logger.debug("sync_position: position unchanged, skipping commission deduction")
+        # Broker-synced positions are historical state, so we must not re-charge
+        # entry commission locally. Broker cash already reflects past fees.
+        commission = 0.0
+
+        if not position_changed and self._synced_position:
+            logger.debug("sync_position: position unchanged, keeping synced state")
+            return
 
         # Update position state
         pos.side = side
@@ -305,7 +298,8 @@ class Tracker:
         pos._best_price = avg_price
         pos._worst_price = avg_price
 
-        # Create sentinel trade (commission may be 0 if position unchanged)
+        # Create sentinel trade with zero entry commission to avoid double-counting
+        # historical fees when this synced position is later closed.
         self._state.trade_recorder._current_trade = _make_synced_trade(
             side=side,
             entry_time=pos.entry_time,
