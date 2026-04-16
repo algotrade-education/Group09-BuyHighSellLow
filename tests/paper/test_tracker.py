@@ -440,6 +440,25 @@ class TestTrackerRecordCloseEdgeCases:
         )
         assert trade is not None
 
+    def test_record_close_partial_then_full(self):
+        """Partial close should reduce position qty; final close should flatten and create trade."""
+        tracker = make_tracker(commission_rate=0.0)
+        tracker.record_open(fill_price=1300.0, qty=2, side="LONG", timestamp=dt())
+
+        partial = tracker.record_close(fill_price=1310.0, qty=1, timestamp=dt(10, 0))
+        assert partial is None
+        assert not tracker.is_flat
+        assert tracker.position.quantity == 1
+
+        final_trade = tracker.record_close(
+            fill_price=1320.0,
+            qty=1,
+            timestamp=dt(10, 5),
+            exit_reason="Take Profit",
+        )
+        assert final_trade is not None
+        assert tracker.is_flat
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: trades property filters synced sentinel

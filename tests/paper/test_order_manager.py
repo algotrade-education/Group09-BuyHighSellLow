@@ -450,7 +450,7 @@ class TestOnExecutionReport:
         assert not om.has_pending_exit
 
     def test_partial_exit_does_not_flatten_position_until_filled(self):
-        """PARTIAL exit report must not close local position prematurely."""
+        """PARTIAL exit report reduces qty but must not flatten before final fill."""
         tracker = make_tracker()
         om = make_order_manager(tracker=tracker)
 
@@ -468,7 +468,7 @@ class TestOnExecutionReport:
         )
 
         assert not tracker.is_flat
-        assert tracker.position.quantity == 2
+        assert tracker.position.quantity == 1
         assert cl_ord_id in om._pending_exits
 
         om.on_execution_report(
