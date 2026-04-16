@@ -97,13 +97,13 @@ def calculate_score(
 
     # Hard gates - return INVALID immediately
     if total_trades < cfg.min_trades:
-        return INVALID_SCORE
+        return INVALID_SCORE - 1
     if total_return < cfg.min_return_pct:
-        return INVALID_SCORE
+        return INVALID_SCORE - 2
     if profit_factor < cfg.min_profit_factor:
-        return INVALID_SCORE
+        return INVALID_SCORE - 4
     if win_rate < cfg.min_win_rate_pct:
-        return INVALID_SCORE
+        return INVALID_SCORE - 8
 
     # Base score - consistent scale across all three paths
     # Sharpe and Sortino are already dimensionless risk-adjusted ratios.
