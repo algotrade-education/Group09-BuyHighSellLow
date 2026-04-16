@@ -30,7 +30,9 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from config.constants import MARKET_ORDER_PRICE_BUFFER
+from config.constants import MARKET_ORDER_PRICE_BUFFER, VN30F_SLIPPAGE_POINTS
+from src.engine.execution.order import OrderSide
+from src.engine.execution.slippage import FixedSlippage
 from src.strategy.signal import TradeSignal
 
 if TYPE_CHECKING:
@@ -59,6 +61,7 @@ class OrderManager:
         tracker: Tracker,
         symbol: str,
         dry_run: bool,
+        dry_run_slippage_points: float = VN30F_SLIPPAGE_POINTS,
     ) -> None:
         """Initialize the order manager.
 
@@ -67,11 +70,13 @@ class OrderManager:
             tracker: Account tracker for recording fills and position updates.
             symbol: Trading symbol (e.g. 'HNXDS:VN30F2601').
             dry_run: If True, orders are logged but not submitted to broker.
+            dry_run_slippage_points: Fixed slippage points applied to dry-run fills.
         """
         self._client = client
         self._tracker = tracker
         self._symbol = symbol
         self._dry_run = dry_run
+        self._dry_run_slippage = FixedSlippage(points=dry_run_slippage_points)
 
         self._pending_exits: dict[str, str] = {}
         self._cum_fills: dict[str, int] = {}
@@ -141,6 +146,7 @@ class OrderManager:
             effective_price = (
                 price if price and price > 0 else float(bar.get("close", 1800.0) if bar else 1800.0)
             )
+            effective_price = self._apply_dry_run_slippage(effective_price, side)
             self._tracker.record_open(
                 fill_price=effective_price,
                 qty=qty,
@@ -244,6 +250,7 @@ class OrderManager:
         if self._dry_run or self._client is None:
             logger.info("submit_exit [DRY-RUN]: order logged only, not sent")
             fill_price = effective_price or position.entry_price
+            fill_price = self._apply_dry_run_slippage(fill_price, side)
             self._tracker.record_close(
                 fill_price=fill_price,
                 qty=position.quantity,
@@ -499,6 +506,19 @@ class OrderManager:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _apply_dry_run_slippage(self, price: float, side: str) -> float:
+        """Apply fixed slippage to dry-run fills using BUY/SELL direction."""
+        order_side = OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL
+        slipped_price, slip = self._dry_run_slippage.calculate(price, order_side)
+        logger.debug(
+            "dry-run slippage applied: side=%s base=%.2f slipped=%.2f points=%.2f",
+            side,
+            price,
+            slipped_price,
+            slip,
+        )
+        return slipped_price
 
     @staticmethod
     def _gen_cl_ord_id(prefix: str) -> str:
