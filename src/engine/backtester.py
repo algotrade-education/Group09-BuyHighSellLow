@@ -184,7 +184,7 @@ class Backtester:
         # Otherwise iterate via itertuples to avoid materializing a duplicate
         # list-of-dicts copy of the full DataFrame in memory.
         col_names = [str(c) for c in data.columns]
-        open_prices = data["open"].to_numpy()
+        _open_prices = data["open"].to_numpy()
         close_prices = data["close"].to_numpy()
 
         def _iter_bars() -> Any:
@@ -208,7 +208,15 @@ class Backtester:
 
             # --- 1. Execute pending order ---
             if pending_order is not None and not is_warmup:
-                if self.order_ttl_bars > 0 and pending_order_age >= self.order_ttl_bars:
+                created_at = pending_order.created_at
+                if created_at is not None and self.session_manager.should_cancel_pending_entry(
+                    created_at, timestamp
+                ):
+                    pending_order.cancel("Session transition")
+                    logger.debug("Pending order cancelled on session transition: %s", pending_order)
+                    pending_order = None
+                    pending_order_age = 0
+                elif self.order_ttl_bars > 0 and pending_order_age >= self.order_ttl_bars:
                     pending_order.expire()
                     logger.debug("Order expired after %d bars", pending_order_age)
                     pending_order = None
@@ -223,29 +231,41 @@ class Backtester:
             self.account.check_sl_tp(bar, timestamp)
 
             # --- 3. EOD close ---
-            # V2 fix: Use next bar open to avoid look-ahead bias
+            # Paper trade closes positions when the NEXT bar would be outside session.
+            # This is more realistic than waiting until the actual EOD bar.
             #
-            # Why next bar open?
-            # At EOD, we don't know the final close price until the bar completes.
-            # Using current bar close would be look-ahead bias (using future information).
-            # Instead, we close at the NEXT bar's open price, which is the first price
-            # we'd actually be able to execute at in real trading.
+            # Example with 15min bars:
+            # - Bar at 14:30: next bar would be 14:45 (outside session) → close NOW
+            # - Bar at 14:45: this is EOD → close at next bar open (fallback)
             #
-            # Fallback: If this is the last bar, use current close (no next bar available)
-            if (
-                self.session_manager.should_close_eod(timestamp)
-                and not self.account.position.is_flat
-                and not is_warmup
-            ):
-                next_open = self._get_next_open(open_prices, close_prices, idx)
-                self.account.close_position(
-                    exit_price=next_open,
-                    timestamp=timestamp,
-                    exit_reason="EOD Close",
-                )
-                # Note: _record_trade_pnl is now called inside close_position
-                pending_order = None
-                pending_order_age = 0
+            # This matches paper trade's "Last Candle Close" heuristic.
+            if not self.account.position.is_flat and not is_warmup:
+                should_close = False
+                close_reason = ""
+
+                # Check if NEXT bar would be outside session (Last Candle logic)
+                if idx + 1 < len(timestamps):
+                    next_timestamp = timestamps[idx + 1]
+                    if not self.session_manager.is_trading_hours(next_timestamp):
+                        should_close = True
+                        close_reason = "Last Candle Close"
+
+                # Fallback: actual EOD bar
+                if not should_close and self.session_manager.should_close_eod(timestamp):
+                    should_close = True
+                    close_reason = "EOD Close"
+
+                if should_close:
+                    # Use current close price (not next bar open) for Last Candle Close
+                    # This matches paper trade behavior where we exit at current bar
+                    exit_price = float(close_prices[idx])
+                    self.account.close_position(
+                        exit_price=exit_price,
+                        timestamp=timestamp,
+                        exit_reason=close_reason,
+                    )
+                    pending_order = None
+                    pending_order_age = 0
 
             # --- 4. Signal generation ---
             skip = self.session_manager.should_skip_signal(timestamp)

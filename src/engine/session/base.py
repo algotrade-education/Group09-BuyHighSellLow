@@ -108,6 +108,22 @@ class SessionManager(ABC):
         """
         return False
 
+    def should_cancel_pending_entry(self, created_at: datetime, now: datetime) -> bool:
+        """
+        Check whether a queued entry order should be cancelled due to session transition.
+
+        Default behavior keeps pending entries alive. Session-specific managers can
+        override this to enforce stricter order lifecycle rules.
+
+        Args:
+            created_at: Datetime when pending order was created.
+            now: Current bar datetime.
+
+        Returns:
+            True if pending entry should be cancelled.
+        """
+        return False
+
 
 class AlwaysOpenSession(SessionManager):
     """

@@ -561,11 +561,14 @@ class AccountState:
         # Use bar extremes to detect if SL was hit during the bar
         sl_price = bar["low"] if self.position.is_long else bar["high"]
         if self.position.check_stop_loss(sl_price):
-            # Execute at SL level (not bar extreme) with slippage
+            # Execute at SL level (not bar extreme)
+            # IMPORTANT: Skip slippage for SL/TP exits - they are limit orders at known prices
+            # Slippage is already factored into the SL/TP levels set by the strategy
             self.close_position(
                 self.position.stop_loss or bar["close"],
                 timestamp,
                 "Stop loss",
+                apply_slippage=False,  # FIX: Don't double-apply slippage
             )
             return
 
@@ -576,6 +579,7 @@ class AccountState:
                 self.position.take_profit or bar["close"],
                 timestamp,
                 "Take profit",
+                apply_slippage=False,  # FIX: Don't double-apply slippage
             )
             return
 

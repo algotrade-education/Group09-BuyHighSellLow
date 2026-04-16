@@ -265,5 +265,22 @@ class VN30Session(SessionManager):
         dt = self._normalize_dt(dt)
         return self._cfg.get_session(dt.time()).value.upper()
 
+    def should_cancel_pending_entry(self, created_at: datetime, now: datetime) -> bool:
+        """
+        Cancel queued entry when crossing to a different session or trading day.
+
+        This prevents T+1 pending LIMIT entries from being carried from morning
+        to afternoon, or overnight into the next day.
+        """
+        created = self._normalize_dt(created_at)
+        current = self._normalize_dt(now)
+
+        if created.date() != current.date():
+            return True
+
+        created_session = self._cfg.get_session(created.time())
+        current_session = self._cfg.get_session(current.time())
+        return created_session != current_session
+
     def __repr__(self) -> str:
         return f"VN30Session(close_at_eod={self.close_at_eod})"
