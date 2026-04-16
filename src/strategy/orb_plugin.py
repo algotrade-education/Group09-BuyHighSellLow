@@ -42,12 +42,12 @@ _FULL: dict[str, dict[str, Any]] = {
     # Frequency
     "resample_freq": {"type": "categorical", "choices": ["15min"]},
     # Core strategy
-    "orb_minutes": {"type": "int", "low": 0, "high": 60, "step": 15},
+    "orb_minutes": {"type": "int", "low": 0, "high": 30, "step": 15},
     "atr_period": {"type": "int", "low": 14, "high": 30},
     "atr_tp_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.05},
     "atr_sl_multiplier": {"type": "float", "low": 0.5, "high": 2.0, "step": 0.05},
     "breakout_buffer": {"type": "float", "low": 0.0, "high": 1.0, "step": 0.05},
-    "require_close_confirmation": {"type": "categorical", "choices": [True, False]},
+    "require_close_confirmation": {"type": "categorical", "choices": [True]},
     "use_range_sl": {"type": "categorical", "choices": [True, False]},
     "min_range_atr": {"type": "float", "low": 0.3, "high": 2.0, "step": 0.1},
     "max_range_atr": {"type": "float", "low": 2.0, "high": 6.0, "step": 0.1},
@@ -70,7 +70,7 @@ _FULL: dict[str, dict[str, Any]] = {
     # Risk
     "use_trailing_stop": {"type": "categorical", "choices": [True, False]},
     "trailing_atr_multiplier": {"type": "float", "low": 1.0, "high": 4.0, "step": 0.25},
-    "risk_per_trade_pct": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.25},
+    # "risk_per_trade_pct": {"type": "float", "low": 0.5, "high": 3.0, "step": 0.25},
     "entry_ord_type": {"type": "categorical", "choices": ["LIMIT"]},
 }
 
