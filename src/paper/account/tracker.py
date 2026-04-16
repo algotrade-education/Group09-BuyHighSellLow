@@ -148,7 +148,10 @@ class Tracker:
             self._state.portfolio.deduct_cash(commission)
             self._state._open_position(order, timestamp)
         else:
-            if pos.side.value.upper() != side.upper():
+            # Normalize side input to LONG/SHORT for comparison
+            # Accept both BUY/LONG and SELL/SHORT as documented
+            normalized_side = "LONG" if side.upper() in ("BUY", "LONG") else "SHORT"
+            if pos.side.value.upper() != normalized_side:
                 logger.warning(
                     "record_open: reversing position is not supported - ignoring. "
                     "open_side=%s fill_side=%s",
