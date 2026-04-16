@@ -172,7 +172,7 @@ class TestORBConfig:
                 "min_position_size": 1,
                 "max_position_size": 10,
                 "risk_per_trade_pct": 1.0,
-                "max_daily_loss": 0.02,
+                "max_daily_loss": 2.0,
                 "use_trailing_stop": True,
                 "trailing_atr_multiplier": 2.0,
                 "entry_cutoff_seconds": 60,
@@ -186,7 +186,7 @@ class TestORBConfig:
         """Test creating ORBConfig from dictionary."""
         cfg = ORBConfig.from_dict(valid_dict)
         assert cfg.strategy.orb_minutes == 20
-        assert cfg.risk.max_daily_loss == 0.02
+        assert cfg.risk.max_daily_loss == 2.0
 
     def test_from_json_file(self, valid_dict):
         """Test loading ORBConfig from JSON file."""

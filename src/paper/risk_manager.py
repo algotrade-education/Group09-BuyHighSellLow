@@ -30,27 +30,27 @@ class RiskManager:
         self,
         use_trailing_stop: bool = False,
         trailing_atr_multiplier: float = 2.0,
-        max_daily_loss_fraction: float = 0.0,
+        max_daily_loss_pct: float = 0.0,
         initial_capital: float = 0.0,
-        max_loss_per_trade_fraction: float = 0.0,
+        max_loss_per_trade_pct: float = 0.0,
     ) -> None:
         """Initialize the risk manager.
 
         Args:
             use_trailing_stop: Enable ATR-based trailing stop updates.
             trailing_atr_multiplier: ATR multiplier for trailing stop distance.
-            max_daily_loss_fraction: Maximum daily loss as a fraction of initial capital
-                (e.g. 0.02 = 2%). Matches RiskConfig.max_daily_loss schema units.
+            max_daily_loss_pct: Maximum daily loss as a percentage of initial capital
+                (e.g. 2.0 = 2%). 0.0 disables the check.
             initial_capital: Starting capital for loss limit calculations.
-            max_loss_per_trade_fraction: Maximum loss per trade as a fraction of initial
-                capital (e.g. 0.01 = 1%). 0.0 disables the check.
+            max_loss_per_trade_pct: Maximum loss per trade as a percentage of initial
+                capital (e.g. 1.0 = 1%). 0.0 disables the check.
         """
         self.use_trailing_stop = use_trailing_stop
         self.trailing_atr_multiplier = trailing_atr_multiplier
-        self.max_daily_loss_fraction = max_daily_loss_fraction
+        self.max_daily_loss_pct = max_daily_loss_pct
         self.initial_capital = initial_capital
-        self.max_loss_per_trade_fraction = max_loss_per_trade_fraction
-        self._max_daily_loss_amount = initial_capital * max_daily_loss_fraction
+        self.max_loss_per_trade_pct = max_loss_per_trade_pct
+        self._max_daily_loss_amount = initial_capital * (max_daily_loss_pct / 100.0)
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,8 +87,8 @@ class RiskManager:
         if position.check_take_profit(tp_price):
             return "Take Profit"
 
-        if self.max_loss_per_trade_fraction != 0.0:
-            threshold = self.initial_capital * self.max_loss_per_trade_fraction
+        if self.max_loss_per_trade_pct != 0.0:
+            threshold = self.initial_capital * (self.max_loss_per_trade_pct / 100.0)
             unrealized_loss = -position.unrealized_pnl  # positive when losing
             if unrealized_loss > threshold:
                 return "Max Trade Loss"

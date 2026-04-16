@@ -25,17 +25,17 @@ class TestRiskConfig:
     def test_max_daily_loss_upper_bound(self):
         """Test max_daily_loss upper bound validation."""
         with pytest.raises(ValidationError):
-            RiskConfig(max_daily_loss=0.5)  # > 0.20
+            RiskConfig(max_daily_loss=25.0)  # > 20.0
 
     def test_max_daily_loss_lower_bound(self):
         """Test max_daily_loss lower bound validation."""
         with pytest.raises(ValidationError):
-            RiskConfig(max_daily_loss=0.0)  # < 0.001
+            RiskConfig(max_daily_loss=0.0)  # < 0.1
 
     def test_max_daily_loss_valid_range(self):
         """Test max_daily_loss accepts valid values."""
-        cfg = RiskConfig(max_daily_loss=0.02)
-        assert cfg.max_daily_loss == 0.02
+        cfg = RiskConfig(max_daily_loss=2.0)
+        assert cfg.max_daily_loss == 2.0
 
     def test_unknown_field_rejected(self):
         """Test unknown fields are rejected (V1 bug fix)."""
@@ -58,7 +58,7 @@ class TestRiskConfig:
         assert cfg.min_position_size == 1
         assert cfg.max_position_size == 10
         assert cfg.risk_per_trade_pct == 1.0
-        assert cfg.max_daily_loss == 0.02
+        assert cfg.max_daily_loss == 2.0
         assert cfg.use_trailing_stop is False
 
     def test_trailing_atr_multiplier_bounds(self):

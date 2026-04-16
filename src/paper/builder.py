@@ -88,9 +88,9 @@ def build_risk_manager(strategy_config: Any, capital: float) -> RiskManager:
     return RiskManager(
         use_trailing_stop=strategy_config.risk.use_trailing_stop,
         trailing_atr_multiplier=strategy_config.risk.trailing_atr_multiplier,
-        max_daily_loss_fraction=strategy_config.risk.max_daily_loss,
+        max_daily_loss_pct=strategy_config.risk.max_daily_loss,
         initial_capital=capital,
-        max_loss_per_trade_fraction=0.0,
+        max_loss_per_trade_pct=0.0,
     )
 
 

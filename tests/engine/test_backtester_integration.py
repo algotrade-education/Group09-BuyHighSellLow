@@ -293,7 +293,7 @@ def test_backtester_max_daily_loss(sample_ohlc_data):
     backtester = Backtester(
         strategy=strategy,
         initial_capital=500_000_000,
-        max_daily_loss_pct=0.02,  # 2% daily loss limit
+        max_daily_loss_pct=2.0,  # 2% daily loss limit
         position_size=1,
     )
 

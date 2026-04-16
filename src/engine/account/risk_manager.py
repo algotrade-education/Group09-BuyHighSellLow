@@ -24,7 +24,7 @@ class RiskManager:
     - Enforce risk constraints
 
     Usage:
-        risk = RiskManager(margin_rate=0.18, max_daily_loss_pct=2.0)
+        risk = RiskManager(margin_rate=0.18, max_daily_loss_pct=2.0)  # 2% daily loss limit
         max_qty = risk.max_affordable_quantity(price, cash, position)
         risk.record_trade_pnl(pnl, equity)
         if risk.is_daily_loss_hit:
@@ -41,7 +41,7 @@ class RiskManager:
         Args:
             margin_rate: Margin requirement as fraction (e.g., 0.18 = 18%)
             contract_multiplier: Contract multiplier for futures
-            max_daily_loss_pct: Max daily loss as % of equity (0 = disabled)
+            max_daily_loss_pct: Max daily loss as % of equity (e.g. 2.0 = 2%, 0 = disabled)
         """
         self.margin_rate = margin_rate
         self.contract_multiplier = contract_multiplier
@@ -81,7 +81,7 @@ class RiskManager:
         self._daily_pnl += pnl
 
         if self.max_daily_loss_pct > 0:
-            # max_daily_loss_pct is configured as percent (e.g. 2.0 = 2%)
+            # max_daily_loss_pct is human % (e.g. 2.0 = 2%)
             limit = -((self.max_daily_loss_pct / 100.0) * equity)
             if self._daily_pnl < limit:
                 self._daily_loss_hit = True

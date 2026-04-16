@@ -39,7 +39,7 @@ class RiskConfig(BaseModel):
     Risk management configuration fields.
 
     Notes:
-        - max_daily_loss: Maximum loss allowed per day, expressed as a percentage of equity (0.02 = 2% of equity).
+        - max_daily_loss: Maximum loss allowed per day, expressed as a percentage of equity (2.0 = 2% of equity).
         - Trailing stop behavior is controlled via use_trailing_stop together with trailing_atr_multiplier.
         - entry_cutoff_seconds and allow_late_entry: Used to control late entries and only for Paper Trading.
     """
@@ -67,10 +67,10 @@ class RiskConfig(BaseModel):
 
     # --- Daily Loss Limit ---
     max_daily_loss: float = Field(
-        default=0.02,
-        ge=0.001,
-        le=0.20,
-        description="Maximum loss allowed per day as a percentage of equity. E.g., 0.02 means 2% of equity.",
+        default=2.0,
+        ge=0.1,
+        le=20.0,
+        description="Maximum loss allowed per day as a percentage of equity. E.g., 2.0 means 2% of equity.",
     )
 
     # --- Trailing Stop ---

@@ -71,7 +71,7 @@ class AccountState:
             slippage_model: Slippage model (default: FixedSlippage(0.5))
             use_trailing_stop: Enable trailing stop based on ATR
             trailing_atr_multiplier: ATR multiplier for trailing stop
-            max_daily_loss_pct: Max daily loss as % of equity (0 = disabled)
+            max_daily_loss_pct: Max daily loss as % of equity (e.g. 2.0 = 2%, 0 = disabled)
             enable_async_safety: Enable asyncio.Lock for paper trading (default: False for backtesting)
         """
         if initial_capital <= 0:

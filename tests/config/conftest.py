@@ -12,7 +12,7 @@ def valid_risk_config_dict():
         "min_position_size": 1,
         "max_position_size": 10,
         "risk_per_trade_pct": 1.0,
-        "max_daily_loss": 0.02,
+        "max_daily_loss": 2.0,
         "use_trailing_stop": True,
         "trailing_atr_multiplier": 2.0,
         "entry_cutoff_seconds": 60,

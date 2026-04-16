@@ -111,7 +111,7 @@ class Backtester:
             order_ttl_bars: Order time-to-live in bars (0 = no expiry)
             use_trailing_stop: Enable trailing stop based on ATR
             trailing_atr_multiplier: ATR multiplier for trailing stop
-            max_daily_loss_pct: Max daily loss as % of equity (0 = disabled)
+            max_daily_loss_pct: Max daily loss as % of equity (e.g. 2.0 = 2%, 0 = disabled)
             entry_cutoff_seconds: Block entries within N seconds of session end
             allow_late_entry: Allow entries even within cutoff period
             session_manager: Session manager (default: VN30Session)
