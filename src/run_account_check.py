@@ -33,7 +33,6 @@ Output format:
 
 import argparse
 import contextlib
-import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -41,7 +40,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from paperbroker.client import PaperBrokerClient
 
-from config.secrets import _resolve_sender_comp_id_from_api
+from config.secrets import get_broker_credentials
 from src.utils.logger import setup_logging
 
 logger = setup_logging(__name__, log_file="logs/account_check.log", capture_all_loggers=True)
@@ -341,26 +340,24 @@ def main(args: argparse.Namespace) -> None:
     """
     load_dotenv()
 
-    # Load configuration from environment
-    username = os.getenv("PAPER_USERNAME", "BL01")
-    password = os.getenv("PAPER_PASSWORD", "123")
-    rest_url = os.getenv("PAPER_REST_BASE_URL", "http://localhost:9090")
-    host = os.getenv("SOCKET_CONNECT_HOST", "localhost")
-    port = int(os.getenv("SOCKET_CONNECT_PORT", "5001"))
-    sender = os.getenv("SENDER_COMP_ID", "cross-FIX")
-    target = os.getenv("TARGET_COMP_ID", "SERVER")
-    sub_account = os.getenv("PAPER_ACCOUNT_ID_D1", "D1")
+    try:
+        creds = get_broker_credentials(enable_api_resolution=True)
+    except ValueError as exc:
+        print(f"❌ Failed to resolve broker credentials: {exc}")
+        sys.exit(1)
 
-    # Validate required credentials
-    if not username or not password:
+    if not creds.username or not creds.password:
         print("❌ PAPER_USERNAME and PAPER_PASSWORD must be set in .env")
         sys.exit(1)
 
-    # Resolve FIX SenderCompID from REST API
-    # The server matches logon by fixAccountID (a UUID), not the .env SENDER_COMP_ID
-    # Using the wrong ID causes immediate logout
-    resolved_sender = _resolve_sender_comp_id_from_api(rest_url, username, password)
-    sender = resolved_sender or sender
+    rest_url = creds.rest_base_url
+    username = creds.username
+    password = creds.password
+    host = creds.socket_connect_host
+    port = creds.socket_connect_port
+    sender = creds.sender_comp_id
+    target = creds.target_comp_id
+    sub_account = creds.default_sub_account
 
     # Print configuration
     sep()
