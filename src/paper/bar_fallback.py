@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from src.database.base import DataServiceBase
+from src.utils.symbol import normalize_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,8 @@ def load_fallback_bar_for_bucket(
         Bar dict with keys: datetime, open, high, low, close, volume, rows.
         None if no data available or error occurred.
     """
-    contract = symbol.split(":")[-1]
-    db_symbol = "VN30F1M" if contract.startswith("VN30F") else contract
+    # Normalize exchange-specific or concrete contracts (e.g. VN30F2603) to DB symbol.
+    db_symbol = normalize_symbol(symbol)
     bucket_end = bucket_dt + timedelta(minutes=freq_minutes)
 
     try:
