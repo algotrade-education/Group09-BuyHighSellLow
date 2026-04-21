@@ -40,7 +40,7 @@ class TestDataLoaderInit:
         assert loader._svc == mock_data_service
         assert loader._cache_root == Path("data/cache")
         assert loader._chunk_size == 30
-        assert loader._max_age_days == 7
+        assert loader._max_age_days == 0
 
     def test_init_custom_params(self, mock_data_service):
         loader = DataLoader(
