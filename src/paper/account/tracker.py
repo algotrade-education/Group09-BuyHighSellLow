@@ -324,7 +324,9 @@ class Tracker:
     # Broker sync stubs - fully implemented in tasks 4.2 / 4.3
     # ------------------------------------------------------------------
 
-    def sync_position(self, qty: float, avg_price: float) -> None:
+    def sync_position(
+        self, qty: float, avg_price: float, current_price: float | None = None
+    ) -> None:
         """Sync position from broker without polluting trade history.
 
         When broker reports a non-zero position, sets position fields directly
@@ -337,6 +339,7 @@ class Tracker:
         Args:
             qty: Broker position quantity (positive=LONG, negative=SHORT, 0=flat).
             avg_price: Broker average entry price.
+            current_price: Current market price for calculating unrealized P&L (optional).
         """
         qty = int(qty)
         if qty == 0:
@@ -379,9 +382,14 @@ class Tracker:
         pos.entry_time = datetime.now()
         pos.stop_loss = None
         pos.take_profit = None
-        pos.unrealized_pnl = 0.0
         pos._best_price = avg_price
         pos._worst_price = avg_price
+
+        # Calculate unrealized P&L if current price is available
+        if current_price is not None:
+            pos.update_unrealized_pnl(current_price)
+        else:
+            pos.unrealized_pnl = 0.0
 
         # Create sentinel trade with zero entry commission to avoid double-counting
         # historical fees when this synced position is later closed.

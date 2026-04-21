@@ -88,10 +88,20 @@ class Reconciler:
 
             qty: float = 0.0
             avg_price: float = 0.0
+            current_price: float | None = None
             for item in response.get("items", []):
-                if item.get("instrument") == self._symbol:
+                instrument = item.get("instrument", "")
+
+                # Match both "VN30F2605" and "HNXDS:VN30F2605" formats
+                if instrument == self._symbol or instrument.endswith(f":{self._symbol}"):
                     qty = float(item.get("quantity", 0))
                     avg_price = float(item.get("avgPrice") or item.get("totalCost", 0) / (qty or 1))
+
+                    # Get current market price if available
+                    current_price = item.get("currentPrice")
+                    if current_price is not None:
+                        current_price = float(current_price)
+
                     break
 
             broker_qty = qty
@@ -104,11 +114,12 @@ class Reconciler:
                     tracker_qty,
                 )
 
-            self._tracker.sync_position(qty, avg_price)
+            self._tracker.sync_position(qty, avg_price, current_price=current_price)
             logger.info(
-                "reconcile_position: synced qty=%.0f avg_price=%.2f",
+                "reconcile_position: synced qty=%.0f avg_price=%.2f current_price=%s",
                 qty,
                 avg_price,
+                f"{current_price:.2f}" if current_price else "N/A",
             )
 
         except Exception:
