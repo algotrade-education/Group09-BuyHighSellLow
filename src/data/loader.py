@@ -217,7 +217,7 @@ class DataLoader:
         data_service: DataServiceBase,
         cache_dir: str = "data/cache",
         chunk_size_days: int = 30,
-        cache_max_age_days: int = 7,
+        cache_max_age_days: int = 0,
     ) -> None:
         """
         Args:
@@ -225,7 +225,7 @@ class DataLoader:
             cache_dir:          Root directory for monthly parquet cache.
             chunk_size_days:    DB fetch chunk size forwarded to DataServiceBase.
             cache_max_age_days: Refetch month from DB if cache is older than this.
-                                Set 0 to disable staleness check.
+                                Set 0 (default) to disable staleness check.
         """
         self._svc = data_service
         self._cache_root = Path(cache_dir)
