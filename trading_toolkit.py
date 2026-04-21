@@ -36,10 +36,10 @@ logging.basicConfig(
 logger = logging.getLogger("TradingToolkit")
 
 # --- CẤU HÌNH NHANH (Cho việc sửa tay trong code) ---
-DEFAULT_SYMBOL = "HNXDS:VN30F2604"
+DEFAULT_SYMBOL = "HNXDS:VN30F2605"
 DEFAULT_SIDE = "SHORT"  # "BUY" hoặc "SELL"
 DEFAULT_QTY = 5
-DEFAULT_PRICE = 1949.6  # Giá giới hạn (LIMIT)
+DEFAULT_PRICE = 2016  # Giá giới hạn (LIMIT)
 DEFAULT_TYPE = "LIMIT"  # "LIMIT" hoặc "MARKET"
 # ---------------------------------------------------
 
@@ -84,7 +84,7 @@ def cancel_all(client: Any) -> None:
     logger.info("Đã gửi yêu cầu huỷ toàn bộ lệnh.")
 
 
-def liquidate(client: Any, slippage: float = 0.0) -> None:
+def liquidate(client: Any, slippage: float = 20.0) -> None:
     """Bán tháo toàn bộ danh mục (Đóng mọi vị thế)."""
     logger.info("Đang kiểm tra danh mục để bán tháo...")
     portfolio = client.get_portfolio_by_sub()
@@ -230,7 +230,10 @@ def main() -> None:
     parser.add_argument("--price", type=float, default=DEFAULT_PRICE)
     parser.add_argument("--type", choices=["LIMIT", "MARKET"], default=DEFAULT_TYPE)
     parser.add_argument(
-        "--slippage", type=float, default=2.0, help="Độ lệch giá khi bán tháo để đảm bảo khớp nhanh"
+        "--slippage",
+        type=float,
+        default=20.0,
+        help="Độ lệch giá khi bán tháo để đảm bảo khớp nhanh",
     )
     args = parser.parse_args()
 
