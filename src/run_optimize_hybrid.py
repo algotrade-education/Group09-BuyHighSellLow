@@ -282,6 +282,7 @@ def _make_trial_fn(
         margin_rate=args.margin_rate,
         cache_dir=args.cache_dir,
         freq=freq,
+        use_indicator_cache=False,  # Optimization has low cache hit rate, disable to save memory
     )
 
 
@@ -379,7 +380,7 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     base_raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
-    freq = args.freq or base_raw.get("strategy", {}).get("resample_freq", "5min")
+    freq = args.freq or base_raw.get("strategy", {}).get("resample_freq", "15min")
 
     print_section(f"HYBRID OPTIMIZE: {plugin.display_name}", width=66)
     print_kv_rows(

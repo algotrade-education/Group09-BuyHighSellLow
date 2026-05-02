@@ -124,6 +124,7 @@ def run(args: argparse.Namespace) -> int:
         margin_rate=args.margin_rate,
         cache_dir=args.cache_dir,
         freq=freq,
+        use_indicator_cache=False,  # Optimization has low cache hit rate, disable to save memory
     )
 
     # --- 4. Run optimization ---
