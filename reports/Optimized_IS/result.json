@@ -1,0 +1,43 @@
+{
+  "parameters": {},
+  "metrics": {
+    "total_return_pct": 8.444551215663529,
+    "annualized_return_pct": 4.942525794884589,
+    "cagr_pct": 4.9425257948844115,
+    "volatility_pct": 13.96619352844713,
+    "sharpe_ratio": 0.4149282388320913,
+    "sortino_ratio": 0.18620931366600196,
+    "max_drawdown_pct": -31.41316734930203,
+    "longest_drawdown_bars": 6123,
+    "total_trades": 250,
+    "winning_trades": 82,
+    "losing_trades": 168,
+    "breakeven_trades": 0,
+    "win_rate_pct": 32.800000000000004,
+    "gross_profit_factor": 1.3093396906700805,
+    "net_profit_factor": 1.0801666099933631,
+    "avg_win": 6937930.663716809,
+    "avg_loss": 3135044.990157505,
+    "payoff_ratio": 2.2130242741327444,
+    "expectancy": 168891.02431326965,
+    "max_consecutive_wins": 7,
+    "max_consecutive_losses": 14,
+    "avg_duration_minutes": 87.39795918367346,
+    "total_commission": 99854504.68556605,
+    "avg_mae": 0.32563439019933593,
+    "avg_mfe": 1.2509661215039014,
+    "avg_edge_ratio": 9.656579971007794,
+    "information_ratio": null,
+    "alpha": null,
+    "beta": null
+  },
+  "summary": {
+    "total_trades": 250,
+    "winning_trades": 82,
+    "losing_trades": 168,
+    "win_rate": 32.800000000000004,
+    "total_pnl": 42222756.07831743,
+    "total_commission": 99854504.68556605,
+    "net_profit_factor": 1.0801666099933631
+  }
+}

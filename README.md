@@ -1,150 +1,125 @@
-# BuyHigh-SellLow Trading System
+# Opening Range Breakout (ORB) Strategy
 
-> A professional algorithmic trading framework for backtesting, optimization, and paper trading on Vietnamese futures markets
-
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-  - [Data Management](#data-management)
-  - [Backtesting](#backtesting)
+<!--toc:start-->
+- [Opening Range Breakout (ORB) Strategy](#opening-range-breakout-orb-strategy)
+  - [Abstract](#abstract)
+  - [Introduction](#introduction)
+  - [Trading Hypothesis](#trading-hypothesis)
+    - [Target Market](#target-market)
+    - [Entry Conditions](#entry-conditions)
+      - [Buy Signal (Bullish Hypothesis)](#buy-signal-bullish-hypothesis)
+      - [Sell Signal (Bearish Hypothesis)](#sell-signal-bearish-hypothesis)
+    - [Indicators Used](#indicators-used)
+    - [Order Execution](#order-execution)
+    - [Exit Conditions](#exit-conditions)
+    - [Adaptive Volatility Adjustment](#adaptive-volatility-adjustment)
+  - [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Setup](#setup)
+    - [Usage](#usage)
+      - [Fetch/Load Data](#fetchload-data)
+      - [Run Backtest](#run-backtest)
+      - [Run Walk-Forward Analysis](#run-walk-forward-analysis)
+    - [Parameter Configuration](#parameter-configuration)
+  - [Data](#data)
+    - [Data Collection](#data-collection)
+    - [Data Processing](#data-processing)
+  - [In-sample Backtesting](#in-sample-backtesting)
+    - [Parameters](#parameters)
+    - [Results](#results)
+      - [Equity Curve](#equity-curve)
+      - [Drawdown Curve](#drawdown-curve)
+      - [Trade Distribution](#trade-distribution)
+      - [Exit Reasons](#exit-reasons)
   - [Optimization](#optimization)
-  - [Walk-Forward Analysis](#walk-forward-analysis)
-  - [Paper Trading](#paper-trading)
-- [Strategy Development](#strategy-development)
-- [Configuration](#configuration)
-- [Testing](#testing)
-- [Project Structure](#project-structure)
-- [Performance](#performance)
-- [Contributing](#contributing)
-- [License](#license)
+    - [Optimization Scoring Function](#optimization-scoring-function)
+    - [Process](#process)
+    - [Results](#results-1)
+  - [Out-of-sample Backtesting](#out-of-sample-backtesting)
+    - [Comparison: IS vs Optimized IS vs Optimized OOS](#comparison-is-vs-optimized-is-vs-optimized-oos)
+  - [Reference](#reference)
+<!--toc:end-->
 
----
+## Abstract
 
-## Overview
+This repository implements an **Opening Range Breakout (ORB)** trading strategy specifically designed for the VN30F1M (Vietnam VN30 Index Futures). It takes advantage of early-session volatility by identifying an opening range and trading breakouts beyond this range.
 
-BuyHigh-SellLow is a production-grade algorithmic trading system designed for the Vietnamese VN30 Index Futures market. It provides a complete workflow from strategy development to live paper trading, with emphasis on robustness, testing, and risk management.
+## Introduction
 
-### Key Capabilities
+The Opening Range Breakout (ORB) strategy is a widely used intraday trading technique. It relies on the premise that the highest high and lowest low of the first few minutes of a trading session establish significant support and resistance levels. A breakout of this range often signals a strong intraday trend.
 
-- **Backtesting Engine**: Event-driven backtester with realistic order execution simulation
-- **Strategy Framework**: Pluggable strategy architecture with built-in ORB (Opening Range Breakout) implementation
-- **Optimization**: Optuna-based hyperparameter optimization with custom scoring functions
-- **Walk-Forward Analysis**: Robust validation across expanding/shifting time windows
-- **Paper Trading**: Production-ready paper trading with Redis market data and FIX protocol support
-- **Risk Management**: Position sizing, stop-loss, take-profit, and daily loss limits
-- **Data Pipeline**: Efficient tick-to-bar aggregation with caching and quality validation
+## Trading Hypothesis
 
----
+The core hypothesis is that the first few minutes of each trading session establish a consolidation range that represents the market's initial equilibrium. When price breaks out of this range with sufficient momentum (measured by ATR-adjusted buffer), it signals a directional move that tends to continue during the session. The strategy capitalizes on this momentum while using volatility-based filters to avoid false breakouts.
 
-## Features
+### Target Market
 
-### Backtesting
-- ✅ Event-driven architecture for realistic simulation
-- ✅ Multiple order types (Market, Limit) with TTL support
-- ✅ Slippage and commission modeling
-- ✅ Session-aware trading (morning/afternoon sessions)
-- ✅ End-of-day position flattening
-- ✅ Comprehensive performance metrics (Sharpe, Sortino, Max DD, etc.)
-- ✅ Rich visualization (equity curves, drawdowns, trade analysis)
+- **Instrument**: VN30F1M (VN30 Index Futures)
+- **Timeframe**: 1-minute tick data aggregated and resampled to configurable OHLC bars (default: 15-minute bars)
+- **Sessions**: The strategy accounts for the two distinct trading sessions in the Vietnamese market:
+  - Morning Session: 09:00 - 11:30 (150 minutes)
+  - Afternoon Session: 13:00 - 14:30 (90 minutes)
+  - ATC Session: 14:30 - 14:45 (order execution only, no new signals)
 
-### Optimization
-- ✅ Optuna TPE (Tree-structured Parzen Estimator) optimizer
-- ✅ Custom composite scoring function (Sharpe - Drawdown - Trade Frequency)
-- ✅ Parallel trial execution
-- ✅ Automatic parameter space definition
-- ✅ Best parameter persistence
+### Entry Conditions
 
-### Paper Trading
-- ✅ Three operating modes: LIVE, DRY-RUN, SIM
-- ✅ Redis integration for real-time market data
-- ✅ FIX protocol support for order execution
-- ✅ Bar aggregation from tick data with quality validation
-- ✅ Reconciliation and position tracking
-- ✅ Session statistics and performance reporting
-- ✅ Comprehensive test coverage (396 tests, 100% pass rate)
+An "opening range" is established during the first $N$ minutes (default: 20 minutes) of *each* session by tracking the highest high and lowest low. The strategy waits for the range to form before generating any signals. Maximum of 1 trade per session by default (configurable via `max_trades_per_session`).
 
-### Data Management
-- ✅ PostgreSQL integration for historical tick data
-- ✅ Efficient chunked data loading (30-day chunks)
-- ✅ Parquet-based caching for fast reloads
-- ✅ Preprocessing pipeline (cleaning, resampling, indicators)
-- ✅ Data quality validation and reporting
+#### Buy Signal (Bullish Hypothesis)
 
----
+- **Condition**:
+  - With close confirmation (default): $\text{Close} > \text{Range High} + (\text{Breakout Buffer} \times \text{ATR})$
+  - Without close confirmation: $\text{High} > \text{Range High} + (\text{Breakout Buffer} \times \text{ATR})$
+- **Logic**: A breakout above the opening range high, plus a volatility-adjusted buffer, indicates bullish momentum. Close confirmation requires the bar to close beyond the breakout level, reducing false signals.
+- **Order Type**: Configurable as MARKET (default) or LIMIT orders
 
-## Architecture
+#### Sell Signal (Bearish Hypothesis)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Trading System                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │   Strategy   │  │  Backtester  │  │   Optimizer  │    │
-│  │  (ORB, etc)  │  │   Engine     │  │   (Optuna)   │    │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘    │
-│         │                  │                  │             │
-│         └──────────────────┴──────────────────┘             │
-│                            │                                │
-│         ┌──────────────────┴──────────────────┐            │
-│         │                                      │            │
-│  ┌──────▼───────┐                    ┌────────▼────────┐  │
-│  │ Data Pipeline│                    │  Paper Trading  │  │
-│  │ (Loader,     │                    │     Engine      │  │
-│  │  Preprocessor│                    │  (Redis + FIX)  │  │
-│  │  Indicators) │                    └─────────────────┘  │
-│  └──────────────┘                                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Condition**:
+  - With close confirmation (default): $\text{Close} < \text{Range Low} - (\text{Breakout Buffer} \times \text{ATR})$
+  - Without close confirmation: $\text{Low} < \text{Range Low} - (\text{Breakout Buffer} \times \text{ATR})$
+- **Logic**: A breakout below the opening range low, minus a volatility-adjusted buffer, indicates bearish momentum. Can be disabled via `long_only` mode.
+- **Order Type**: Configurable as MARKET (default) or LIMIT orders
 
-### Core Components
+### Indicators Used
 
-1. **Data Layer** (`src/data/`)
-   - `DataLoader`: PostgreSQL tick data retrieval with caching
-   - `Preprocessor`: Data cleaning, resampling, feature engineering
-   - `Indicators`: Technical indicators (ATR, ADX, Volume MA, etc.)
+- **Average True Range (ATR)**: Core volatility measure used for:
+  - Breakout buffer calculation (filters noise)
+  - Range viability assessment (min/max range size in ATR units)
+  - Stop loss and take profit placement
+  - Adaptive volatility regime detection
+- **Volume Moving Average (Volume MA)** *(Optional)*: Ensures breakouts are supported by above-average volume (configurable threshold)
+- **Average Directional Index (ADX)** *(Optional)*: Trend strength filter to avoid trading in choppy, non-trending markets (configurable minimum threshold)
+- **ATR Moving Average** *(Adaptive Mode)*: Used to detect volatility regimes (low/normal/high) for dynamic parameter adjustment
 
-2. **Strategy Layer** (`src/strategy/`)
-   - `BaseStrategy`: Abstract strategy interface
-   - `IntradayBase`: Intraday strategy base with session management
-   - `ORBStrategy`: Opening Range Breakout implementation
-   - Plugin system for custom strategies
+### Order Execution
 
-3. **Engine Layer** (`src/engine/`)
-   - `Backtester`: Event-driven backtesting engine
-   - `Account`: Portfolio and position management
-   - `SimBroker`: Order execution simulation
-   - `EquityTracker`: Equity curve tracking
+- **Type**: Configurable via `entry_ord_type` parameter:
+  - **MARKET** (default): Enters immediately at next bar's open when conditions are met
+  - **LIMIT**: Places limit order at breakout level (more conservative, may miss some trades)
+- **Entry Cutoff**: Configurable time window before session end (default: 300 seconds) to avoid late entries
+- **Late Entry Control**: Can allow or disallow entries near session close via `allow_late_entry` flag
 
-4. **Paper Trading Layer** (`src/paper/`)
-   - `PaperEngine`: Live/dry-run/sim paper trading orchestrator
-   - `RedisFeed`: Real-time market data from Redis
-   - `SimFeed`: Historical data replay
-   - `OrderManager`: Order submission and tracking
-   - `Tracker`: Account and position tracking
-   - `Reconciler`: Position reconciliation with broker
+### Exit Conditions
 
-5. **Optimization Layer** (`src/optimization/`)
-   - Optuna integration with custom objectives
-   - Walk-forward analysis framework
-   - Parameter space management
+- **Stop Loss**:
+  - *Range-based SL* (default, `use_range_sl=true`): Stop loss is placed at the opposite side of the opening range (range low for longs, range high for shorts)
+  - *ATR-based SL* (`use_range_sl=false`): Stop loss based on entry price ± (atr_sl_multiplier × ATR)
+- **Take Profit**: Always ATR-based. Take profit is set at entry price ± (atr_tp_multiplier × ATR)
+- **Trailing Stop** *(Optional)*: Dynamic stop loss that trails price by (trailing_atr_multiplier × ATR) when enabled
+- **End of Session (EOS)**: All open positions are automatically flattened at session close (14:30 for afternoon session)
+- **Max Daily Loss**: Circuit breaker that stops trading if daily loss exceeds configured percentage
 
-6. **Metrics Layer** (`src/metrics/`)
-   - Performance metrics calculation
-   - Trade analysis
-   - Visualization and reporting
+### Adaptive Volatility Adjustment
+
+When `use_adaptive_volatility` is enabled, the strategy dynamically adjusts parameters based on current volatility regime:
+
+- **Volatility Regime Detection**: Compares current ATR to its moving average (lookback period: 20 bars)
+  - **Low Volatility** (ATR < 70% of average): Relaxes range filters (×0.7) and tightens breakout buffer (×0.7) to capture moves in quiet markets
+  - **Normal Volatility** (70% ≤ ATR ≤ 130%): Uses configured parameters as-is
+  - **High Volatility** (ATR > 130% of average): Tightens range filters (×1.3) and widens breakout buffer (×1.3) to avoid false breakouts in volatile markets
+
+This adaptive mechanism helps the strategy maintain consistent performance across different market conditions without manual parameter tuning.
 
 ---
 
@@ -152,17 +127,15 @@ BuyHigh-SellLow is a production-grade algorithmic trading system designed for th
 
 ### Prerequisites
 
-- Python 3.13 or higher
-- PostgreSQL (for historical data storage)
-- Redis (for live paper trading market data)
-- Git
+- Python 3.13+
+- pip or uv (recommended)
 
 ### Setup
 
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/BuyHigh-SellLow.git
+git clone https://github.com/rlukas2/BuyHigh-SellLow.git
 cd BuyHigh-SellLow
 ```
 
@@ -180,671 +153,594 @@ source .venv/bin/activate
 
 3. **Install dependencies**
 
+The project uses `pyproject.toml` with optional dependency groups:
+
 ```bash
-# Core dependencies only
+# Install core dependencies only (data loading, backtesting)
 pip install -e .
 
-# With optimization support
+# Install with optimization support (Optuna)
 pip install -e ".[optimization]"
 
-# With paper trading support
-pip install -e ".[paper]"
-
-# With visualization
+# Install with visualization support (matplotlib, seaborn)
 pip install -e ".[viz]"
 
-# Development environment (includes testing tools)
-pip install -e ".[dev]"
-
-# Everything
+# Install with all optional dependencies (recommended for development)
 pip install -e ".[all]"
+
+# Or install specific groups
+pip install -e ".[optimization,viz]"
 ```
 
-4. **Configure environment**
+**Dependency Groups:**
+- `optimization`: Optuna, tqdm (for parameter optimization)
+- `paper`: Redis, httpx (for paper trading)
+- `viz`: matplotlib, seaborn (for plotting)
+- `dev`: pytest, ruff, mypy, pre-commit (for development)
+- `all`: All of the above
+
+4. **Set up environment variables** (for database access)
 
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your database credentials
 ```
 
-Required environment variables:
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: PostgreSQL connection
-- `MARKET_REDIS_HOST`, `MARKET_REDIS_PORT`: Redis for live market data (paper trading only)
-- `PAPER_USERNAME`, `PAPER_PASSWORD`, `PAPER_REST_BASE_URL`: Broker credentials (paper trading only)
-- `SOCKET_CONNECT_HOST`, `SOCKET_CONNECT_PORT`: FIX connection (live paper trading only)
-
-5. **Verify installation**
+5. **Fetch data** (requires database connection)
 
 ```bash
-# Run tests
-pytest tests/
-
-# Check data loader
-python -m src.run_data_loader --help
+python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2025-03-31
 ```
 
----
+### Usage
 
-## Quick Start
+#### Fetch/Load Data
 
-### 1. Load Data
+The data loader operates in multiple modes for different data management tasks:
+
+**Fetch Mode** - Retrieve data from database and cache as monthly parquet files:
+```bash
+# Fetch data for a date range
+python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2025-03-31
+
+# Force refresh specific months (ignores cache)
+python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2025-03-31 --force-months 2024_01,2024_02
+
+# Force refresh all data (bypass cache completely)
+python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2025-03-31 --force-refresh
+```
+
+**Inspect Mode** - View cached data statistics and sample rows:
+```bash
+python -m src.run_data_loader inspect --symbol VN30F1M --start 2024-01-01 --end 2025-03-31
+```
+
+**Validate Mode** - Check data quality (OHLC relationships, gaps, anomalies):
+```bash
+python -m src.run_data_loader validate --symbol VN30F1M --start 2024-01-01 --end 2025-03-31
+```
+
+**Stats Mode** - View statistics after preprocessing and resampling:
+```bash
+python -m src.run_data_loader stats --symbol VN30F1M --start 2024-01-01 --end 2025-03-31 --freq 15min
+```
+
+**Import CSV Mode** - One-time migration from legacy tick CSV files:
+```bash
+python -m src.run_data_loader import-csv --path "data/ticks_*.csv" --symbol VN30F1M
+```
+
+**Clear Cache Mode** - Remove cached data:
+```bash
+# Clear specific month
+python -m src.run_data_loader clear-cache --symbol VN30F1M --month 2024_01
+
+# Clear all months for a symbol
+python -m src.run_data_loader clear-cache --symbol VN30F1M
+
+# Clear all cache (all symbols)
+python -m src.run_data_loader clear-cache
+```
+
+**Data Caching System:**
+- Data is fetched from PostgreSQL database and cached as monthly parquet files
+- Cache location: `data/cache/<symbol>/1min/<YYYY_MM>.parquet`
+- Incremental fetching: Current month is automatically updated with new data
+- Past months are marked complete and never refetched (unless forced)
+- Manifest file tracks cache metadata: `data/cache/<symbol>/manifest.json`
+
+#### Run Backtest
+
+Run a backtest for the specified strategy and date range:
 
 ```bash
-# Fetch tick data from database for VN30F1M
-python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2024-12-31
+# Basic backtest with default config
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31
 
-# View data statistics
-python -m src.run_data_loader stats --symbol VN30F1M --start 2024-01-01 --end 2024-12-31 --freq 5min
+# With custom config file
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 \
+    --config config/strategy_params/orb_aggressive.json
+
+# With specific symbol and frequency
+python -m src.run_backtest --strategy orb --symbol VN30F1M --start 2024-01-01 --end 2025-03-31 \
+    --freq 15min
+
+# Force refresh data and indicators (bypass cache)
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 --force-refresh
+
+# Generate interactive HTML plots instead of PNG
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 --plot-html
+
+# Show trade details in console
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 --show-trades
+
+# Compare engine implementations (validation)
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 --compare-engines
+
+# Run Monte Carlo simulation on trade results
+python -m src.run_backtest --strategy orb --start 2024-01-01 --end 2025-03-31 \
+    --monte-carlo --mc-simulations 10000
 ```
 
-### 2. Run Backtest
+**Backtest Pipeline:**
+1. **Execute pending orders** at current bar open (or limit logic), including order TTL expiration handling
+2. **Manage positions** via stop-loss/take-profit checks, then EOS forced close if session requires
+3. **Generate new signals** (if session allows), convert signal to order and queue as pending
+4. **Mark-to-market** and record equity
+
+**Output:**
+- Results saved to: `results/<strategy>_<timestamp>/`
+- Files: `result.json`, `equity.parquet`, `trades.parquet`, `plots/`
+
+#### Run Walk-Forward Analysis
+
+Walk-Forward Analysis validates strategy robustness across different market regimes:
 
 ```bash
-# Run backtest with default ORB parameters
-python -m src.run_backtest --strategy orb --symbol VN30F1M --start 2024-01-01 --end 2024-06-30
+# Anchored walk-forward with default settings (5 windows, 70% train)
+python -m src.run_walk_forward --strategy orb --start 2022-01-01 --end 2024-12-31
 
-# Run with custom config
-python -m src.run_backtest --strategy orb --config config/strategy_params/orb_custom.json
+# Rolling windows with more trials per window
+python -m src.run_walk_forward --strategy orb --mode rolling --n-windows 6 --n-trials 150
+
+# With grid search optimizer instead of Optuna
+python -m src.run_walk_forward --strategy orb --optimizer grid --n-windows 5
+
+# Custom train/test split
+python -m src.run_walk_forward --strategy orb --train-pct 0.8 --n-windows 4
+
+# With embargo period between train/test
+python -m src.run_walk_forward --strategy orb --embargo-bars 10
 ```
 
-### 3. Optimize Strategy
+**Walk-Forward Modes:**
+- **Anchored** (default): Training set grows with each window, test set slides forward
+- **Rolling**: Both training and test sets slide forward with fixed size
 
-```bash
-# Run optimization with 100 trials
-python -m src.run_optimize --strategy orb --symbol VN30F1M --trials 100 --start 2024-01-01 --end 2024-06-30
+**Output:**
+- Results saved to: `results/walk_forward/`
+- Files: `wfo_summary.json`, `window_results.parquet`, `equity_curve.png`
 
-# Results saved to: results/optimization/orb_optimized_params.json
-```
+### Parameter Configuration
 
-### 4. Validate with Walk-Forward
+Strategy parameters are defined in JSON files located in the `config/strategy_params/` directory.
+You can create custom configurations or use the default one provided.
 
-```bash
-# Run walk-forward analysis
-python -m src.run_walk_forward --strategy orb --symbol VN30F1M --window-months 3 --step-months 1
-```
-
-### 5. Paper Trade
-
-```bash
-# SIM mode (historical replay, no external connections)
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M --sim --sample 100
-
-# DRY-RUN mode (live data, orders logged only)
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M --dry-run
-
-# LIVE mode (live data + order execution)
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M
-```
-
----
-
-## Usage
-
-### Data Management
-
-The data pipeline handles tick-to-bar conversion with caching for performance.
-
-#### Fetch Historical Data
-
-```bash
-# Fetch data for specific period
-python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2024-12-31
-
-# Force refresh (bypass cache)
-python -m src.run_data_loader fetch --symbol VN30F1M --start 2024-01-01 --end 2024-12-31 --force-refresh
-```
-
-#### View Data Statistics
-
-```bash
-# Show data quality and statistics
-python -m src.run_data_loader stats --symbol VN30F1M --start 2024-01-01 --end 2024-12-31 --freq 5min
-```
-
-**Data Flow:**
-1. Tick data fetched from PostgreSQL in 30-day chunks
-2. Cached as Parquet files in `data/cache/`
-3. Preprocessed: cleaning, resampling, indicator calculation
-4. Ready for backtesting or paper trading
-
-### Backtesting
-
-Run historical simulations with realistic order execution.
-
-#### Basic Backtest
-
-```bash
-python -m src.run_backtest --strategy orb --symbol VN30F1M --start 2024-01-01 --end 2024-06-30
-```
-
-#### With Custom Parameters
-
-```bash
-python -m src.run_backtest --strategy orb --config config/strategy_params/orb_custom.json
-```
-
-#### Output
-
-Results saved to `results/backtest_{timestamp}/`:
-- `trades.parquet`: Trade-by-trade details
-- `equity_curve.parquet`: Equity snapshots
-- `metrics.json`: Performance metrics
-- `*.png`: Visualization charts
-
-**Key Metrics:**
-- Total Return, Annualized Return, CAGR
-- Sharpe Ratio, Sortino Ratio
-- Max Drawdown, Longest Drawdown
-- Win Rate, Profit Factor
-- Average Win/Loss
-
-### Optimization
-
-Find optimal strategy parameters using Optuna.
-
-#### Run Optimization
-
-```bash
-# Basic optimization
-python -m src.run_optimize --strategy orb --symbol VN30F1M --trials 100
-
-# With specific date range
-python -m src.run_optimize --strategy orb --symbol VN30F1M --trials 100 --start 2024-01-01 --end 2024-06-30
-
-# Parallel execution (4 workers)
-python -m src.run_optimize --strategy orb --trials 100 --n-jobs 4
-```
-
-#### Optimization Objective
-
-The optimizer uses a composite scoring function:
-
-```
-Score = Sharpe - |0.1 × Max Drawdown| - |0.1 × Trades/1000|
-```
-
-- Maximizes risk-adjusted returns (Sharpe)
-- Penalizes large drawdowns
-- Penalizes excessive trading (overfitting)
-
-**Safeguards:**
-- Minimum 100 trades required (prevents low-frequency noise)
-- Negative Sharpe fallback to Total Return / 100
-
-#### Output
-
-Optimized parameters saved to `results/optimization/orb_optimized_params.json`
-
-### Walk-Forward Analysis
-
-Validate strategy robustness across different market regimes.
-
-#### Run Walk-Forward
-
-```bash
-# 3-month training window, 1-month test window
-python -m src.run_walk_forward --strategy orb --symbol VN30F1M --window-months 3 --step-months 1
-
-# Anchored walk-forward (expanding window)
-python -m src.run_walk_forward --strategy orb --anchored
-```
-
-#### Process
-
-1. Split data into overlapping train/test windows
-2. Optimize on training window
-3. Test on out-of-sample window
-4. Aggregate results across all windows
-
-#### Output
-
-Results saved to `results/walk_forward_{timestamp}/`:
-- Per-window performance metrics
-- Aggregated statistics
-- Stability analysis
-
-### Paper Trading
-
-Run strategies in real-time or simulation mode.
-
-#### Operating Modes
-
-**SIM Mode** (Historical Replay)
-```bash
-# Replay last 100 bars
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M --sim --sample 100
-
-# Replay specific date range
-python -m src.run_paper_trade --strategy orb --sim --sim-start 2024-01-01 --sim-end 2024-01-31
-```
-
-**DRY-RUN Mode** (Live Data, No Execution)
-```bash
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M --dry-run
-```
-
-**LIVE Mode** (Live Data + Execution)
-```bash
-python -m src.run_paper_trade --strategy orb --symbol VN30F1M
-```
-
-#### Features
-
-- Real-time bar aggregation from Redis tick stream
-- Data quality validation (staleness, gaps, update frequency)
-- Position reconciliation with broker
-- Session-aware trading (morning/afternoon sessions)
-- Automatic position flattening at session end
-- Comprehensive logging and statistics
-
-#### Output
-
-Session results saved to `results/paper_{timestamp}/`:
-- `trades.parquet`: Executed trades
-- `equity_curve.parquet`: Equity snapshots
-- `session_metrics.json`: Performance metrics
-
----
-
-## Strategy Development
-
-### Creating a Custom Strategy
-
-1. **Create strategy file**: `src/strategy/my_strategy.py`
-
-```python
-from src.strategy.intraday_base import IntradayBase
-from src.strategy.signal import Signal, TradeSignal
-
-class MyStrategy(IntradayBase):
-    """My custom strategy."""
-
-    def __init__(self, **params):
-        super().__init__(**params)
-        # Initialize strategy-specific parameters
-        self.my_param = params.get("my_param", 1.0)
-
-    def generate_signal(self, bar: dict, timestamp) -> TradeSignal:
-        """Generate trading signal for current bar."""
-        # Your strategy logic here
-        if self._should_buy(bar):
-            return TradeSignal(
-                signal=Signal.LONG,
-                entry_price=bar["close"],
-                stop_loss=bar["close"] - self.atr * 2,
-                take_profit=bar["close"] + self.atr * 3,
-                ord_type="MARKET",
-                reason="My buy condition"
-            )
-
-        return TradeSignal(signal=Signal.HOLD)
-
-    def _should_buy(self, bar: dict) -> bool:
-        # Your entry logic
-        return False
-```
-
-2. **Create plugin file**: `src/strategy/my_strategy_plugin.py`
-
-```python
-from src.strategy.my_strategy import MyStrategy
-from src.strategy.strategy_registry import register_strategy_plugin
-
-register_strategy_plugin(
-    name="mystrat",
-    strategy_class=MyStrategy,
-    default_params={
-        "my_param": 1.0,
-        "atr_period": 14,
-        # ... other parameters
-    }
-)
-```
-
-3. **Use your strategy**
-
-```bash
-python -m src.run_backtest --strategy mystrat --symbol VN30F1M
-```
-
-### Strategy Interface
-
-All strategies must implement:
-
-- `generate_signal(bar, timestamp) -> TradeSignal`: Generate trading signal
-- `on_fill(fill_price, qty, side, timestamp)`: Handle order fills
-- `on_bar(bar)`: Process new bar (optional)
-
-### Built-in Strategies
-
-#### Opening Range Breakout (ORB)
-
-Trades breakouts of the opening range established in the first N minutes of each session.
-
-**Key Parameters:**
-- `orb_minutes`: Opening range duration (default: 15)
-- `atr_period`: ATR calculation period (default: 14)
-- `atr_tp_multiplier`: Take profit distance (default: 2.0)
-- `atr_sl_multiplier`: Stop loss distance (default: 1.5)
-- `breakout_buffer`: Breakout confirmation buffer (default: 0.1)
-- `min_range_atr`: Minimum range size filter (default: 0.5)
-- `max_range_atr`: Maximum range size filter (default: 3.0)
-- `long_only`: Only take long positions (default: false)
-- `use_volume_filter`: Require above-average volume (default: false)
-- `use_adx_filter`: Require trending market (default: false)
-
----
-
-## Configuration
-
-### Strategy Parameters
-
-Strategy parameters are defined in JSON files in `config/strategy_params/`.
-
-**Example**: `config/strategy_params/orb_default.json`
+**Default Configuration** (`orb_default.json`):
 
 ```json
 {
   "strategy": {
-    "resample_freq": "5min",
+    "resample_freq": "15min",
     "orb_minutes": 15,
     "atr_period": 14,
-    "atr_tp_multiplier": 2.0,
+    "atr_tp_multiplier": 3.0,
     "atr_sl_multiplier": 1.5,
-    "breakout_buffer": 0.1,
+    "breakout_buffer": 0.5,
     "use_range_sl": true,
     "min_range_atr": 0.5,
     "max_range_atr": 3.0,
-    "long_only": false,
-    "use_volume_filter": false,
-    "use_adx_filter": false,
-    "adx_min": 20
+    "long_only": true,
+    "use_volume_filter": true,
+    "volume_filter_threshold": 0.5,
+    "volume_ma_period": 20,
+    "use_adx_filter": true,
+    "adx_period": 14,
+    "adx_min": 20,
+    "require_close_confirmation": true,
+    "max_trades_per_session": 1,
+    "use_adaptive_volatility": true,
+    "atr_lookback_period": 20,
+    "volatility_low_threshold": 0.7,
+    "volatility_high_threshold": 1.3,
+    "low_vol_range_multiplier": 0.7,
+    "high_vol_range_multiplier": 1.3,
+    "low_vol_buffer_multiplier": 0.7,
+    "high_vol_buffer_multiplier": 1.3
   },
   "risk": {
     "min_position_size": 1,
     "max_position_size": 10,
     "risk_per_trade_pct": 1.0,
-    "max_daily_loss": 0.02,
+    "max_daily_loss": 2.0,
     "use_trailing_stop": true,
-    "trailing_atr_multiplier": 2.0
+    "trailing_atr_multiplier": 2.0,
+    "entry_cutoff_seconds": 300,
+    "allow_late_entry": false,
+    "force_flat_on_session_close": true,
+    "defer_exit_outside_session": true,
+    "entry_ord_type": "MARKET"
   }
 }
 ```
 
-### Environment Configuration
-
-See `.env.example` for all available environment variables.
-
-**Key Settings:**
-
-**Database:**
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-
-**Paper Trading:**
-- `MARKET_REDIS_HOST`, `MARKET_REDIS_PORT`: Market data source
-- `PAPER_USERNAME`, `PAPER_PASSWORD`: Broker credentials
-- `SOCKET_CONNECT_HOST`, `SOCKET_CONNECT_PORT`: FIX connection
-
-**Runtime Toggles:**
-- `PAPER_ENABLE_DB_BAR_FALLBACK`: Fetch closed bars from DB when live data missing
-- `PAPER_CLOSE_ON_SHUTDOWN`: Close positions on shutdown
-- `PAPER_ENTRY_CUTOFF_SECONDS`: Block entries before session end
-- `PAPER_FORCE_FLAT_ON_SESSION_CLOSE`: Force flat at session boundary
-
-**Logging:**
-- `LOG_FORMAT`: "text" or "json"
-- `LOG_CAPTURE_ALL`: Capture all loggers (0/1)
+**Key Parameters:**
+- `resample_freq`: Bar frequency (1min, 5min, 15min, 30min)
+- `orb_minutes`: Opening range duration in minutes
+- `atr_period`: ATR calculation period
+- `atr_tp_multiplier`: Take profit distance in ATR units
+- `atr_sl_multiplier`: Stop loss distance in ATR units (when not using range SL)
+- `breakout_buffer`: Additional buffer beyond range in ATR units
+- `require_close_confirmation`: Require bar close beyond breakout level
+- `use_adaptive_volatility`: Enable dynamic parameter adjustment based on volatility regime
+- `entry_ord_type`: Order type for entries (MARKET or LIMIT)
 
 ---
 
-## Testing
+## Data
 
-The project has comprehensive test coverage with 396 tests (100% pass rate).
+The strategy relies on high-quality tick-by-tick market data, specifically for the **VN30F1M** futures contract. Data management is handled by the `DataLoader` class with a robust monthly caching system for efficient retrieval and processing.
 
-### Run Tests
+### Data Collection
 
-```bash
-# Run all tests
-pytest
+By default, the system fetches **VN30F1M** tick-by-tick data from a PostgreSQL database. The data pipeline is designed for reliability, performance, and incremental updates:
 
-# Run specific test file
-pytest tests/paper/test_redis_feed.py
+1. **Database Querying**:
+    - **Matched Data**: The core query fetches trade execution data (`price`, `datetime`) from the `quote.matched` table. It joins with `quote.futurecontractcode` to filter for the specific future contract and `quote.total` to retrieve cumulative volume (`quantity`) at each tick.
+    - **Monthly Chunking**: Data is fetched and cached in **monthly chunks** (one parquet file per month) to optimize storage and retrieval. Each month is stored as `data/cache/<symbol>/1min/<YYYY_MM>.parquet`.
+    - **Incremental Fetching**: For the current month, the system tracks the last synced timestamp and only fetches new data from that point forward, avoiding redundant downloads.
+    - **Close Data**: Daily close prices are fetched separately from `quote.close` to provide reference points if needed.
 
-# Run with coverage report
-pytest --cov=src --cov-report=html
+2. **Caching Mechanism**:
+    - The system implements a robust caching layer using **Parquet** files (`.parquet`) with monthly granularity to minimize database load.
+    - **Manifest Tracking**: A JSON manifest file (`manifest.json`) tracks which months are cached, their row counts, data sources, completion status, and last synced timestamps.
+    - **Load**: Before querying the database, the `DataLoader` checks the cache directory for existing monthly files. If found and marked complete, data is loaded instantly from cache.
+    - **Save**: If data is fetched from the database, it is automatically saved to the cache as monthly parquet files for future runs.
+    - **Incremental Updates**: Current month is always refetched to capture new data, while past months are marked complete and never refetched (unless forced).
+    - **Format**: Cache filenames follow the pattern: `<YYYY_MM>.parquet` (e.g., `2024_03.parquet`)
 
-# Run paper trading tests only
-pytest tests/paper/
+3. **Cache Management**:
+    - **Validation**: Cached files are validated for schema correctness and data integrity on load
+    - **Invalidation**: Corrupt or outdated cache files are automatically detected and refetched
+    - **Force Refresh**: Specific months or entire cache can be force-refreshed via CLI flags
+    - **Staleness Check**: Optional max age parameter to automatically refetch old cache entries
+
+### Data Processing
+
+Raw tick data undergoes a rigorous preprocessing pipeline before being used in backtests. This is handled by the `DataPreprocessor` class:
+
+1. **Tick Aggregation**:
+   - Tick data is aggregated to 1-minute OHLCV bars
+   - Volume is computed correctly by handling cumulative volume within each trading day
+   - First tick of each day uses cumulative value; subsequent ticks use diff
+
+2. **Cleaning**:
+   - Remove duplicates by datetime (keep last)
+   - Forward-fill missing prices
+   - Drop rows with missing key timestamps
+   - Clip negative volumes (data corruption handling)
+
+3. **Resampling**:
+   - 1-minute bars are resampled to target frequency (5min, 15min, 30min, etc.)
+   - OHLC aggregation: first open, max high, min low, last close
+   - Volume aggregation: sum of volumes
+
+4. **Session Filtering**:
+   - Restrict data to active trading hours (09:00-14:30 for VN30)
+   - Optionally include ATC session (14:30-14:45) if requested
+   - Remove bars outside trading sessions
+
+5. **Indicator Computation**:
+   - 14-period ATR (Average True Range)
+   - 14-period ADX (Average Directional Index)
+   - 20-period Volume MA (Moving Average)
+   - 20-period ATR MA (for adaptive volatility detection)
+   - All indicators computed via `DataPipeline` with disk caching for performance
+
+---
+
+## In-sample Backtesting
+
+### Parameters
+
+Using the default parameters defined in `config/strategy_params/orb_default.json`:
+
+- **Timeframe**: 15-minute bars (resampled from 1-minute data)
+- **Opening Range**: 20 minutes (first 20 minutes of each session)
+- **ATR Configuration**:
+  - Period: 14 bars
+  - Take Profit: 3.0× ATR
+  - Stop Loss: 1.5× ATR (fallback when not using range SL)
+- **Breakout Buffer**: 0.5× ATR (additional buffer beyond range to confirm breakout)
+- **Range Viability**:
+  - Minimum: 0.5× ATR (filters out too-narrow ranges)
+  - Maximum: 3.0× ATR (filters out too-wide ranges)
+- **Direction**: Long-only mode enabled (no short trades)
+- **Filters**:
+  - Volume filter: Enabled (requires volume > 50% of 20-period MA)
+  - ADX filter: Enabled (requires ADX > 20 for trend confirmation)
+- **Entry**:
+  - Close confirmation required (bar must close beyond breakout level)
+  - Order type: MARKET
+  - Entry cutoff: 300 seconds before session end
+- **Exit**:
+  - Stop loss: Range-based (opposite side of opening range)
+  - Trailing stop: Enabled (2.0× ATR)
+  - Max daily loss: 2.0% circuit breaker
+- **Adaptive Volatility**: Enabled
+  - ATR lookback: 20 bars
+  - Low volatility threshold: 0.7 (70% of average ATR)
+  - High volatility threshold: 1.3 (130% of average ATR)
+  - Range multipliers: 0.7× (low vol) / 1.3× (high vol)
+  - Buffer multipliers: 0.7× (low vol) / 1.3× (high vol)
+- **Risk Management**:
+  - Risk per trade: 1.0% of capital
+  - Position size: 1-10 contracts
+  - Max trades per session: 1
+
+### Results
+
+Period: January 1, 2024 - September 30, 2024 (in-sample period, 21 months)
+
+Performance Metrics:
+
+| Metric                  | Value       |
+| ----------------------- | ----------- |
+| Total P&L               | -50,895,152 |
+| Total Commission        | 49,149,908  |
+| Total Return (%)        | -10.1790    |
+| Annualized Return (%)   | -6.1885     |
+| Volatility (%)          | 8.6527      |
+| Sharpe Ratio            | -0.6951     |
+| Sortino Ratio           | -0.2381     |
+| Max Drawdown (%)        | -25.3623    |
+| Longest Drawdown (bars) | 6,370       |
+| Total Trades            | 152         |
+| Winning Trades          | 57          |
+| Losing Trades           | 95          |
+| Win Rate (%)            | 37.5        |
+| Average Win             | 4,488,738   |
+| Average Loss            | 3,222,981   |
+
+#### Equity Curve
+
+![Portfolio Equity Curve](reports/IS/plots/equity_curve.png)
+
+#### Drawdown Curve
+
+![Backtest Results](reports/IS/plots/drawdown.png)
+
+#### Trade Distribution
+
+![Trade Analysis](reports/IS/plots/pnl_per_trade.png)
+
+#### Exit Reasons
+
+![Exit Reasons](reports/IS/plots/exit_reasons.png)
+
+## Optimization
+
+### Optimization Scoring Function
+
+The hybrid optimizer uses the shared composite scorer (see `src/optimization/scoring.py`). Each trial is filtered by hard gates, then scored with a risk-adjusted base and penalties/bonus.
+
+1. **Hard gates (invalid score if any fail)**:
+
+- `total_trades < min_trades`
+- `total_return_pct < min_return_pct`
+- `net_profit_factor < min_profit_factor`
+- `win_rate_pct < min_win_rate_pct`
+
+2. **Base score selection**:
+
+$$
+\text{base} =
+\begin{cases}
+\text{Sharpe}, & \text{if Sharpe} > 0 \\
+0.9 \times \text{Sortino}, & \text{if Sharpe} \le 0 \text{ and Sortino} > 0 \\
+\text{Total Return} / 10, & \text{otherwise}
+\end{cases}
+$$
+
+3. **Composite score**:
+
+$$
+\text{Score} = \text{base}
+- \text{drawdown\_penalty} \times \frac{\text{Max Drawdown (\%)}}{10}
+- \text{turnover\_penalty} \times \frac{\text{Trades}}{1000}
++ \text{trade\_count\_bonus} \times \min\left(\frac{\text{Trades}}{1000}, \text{trade\_bonus\_cap}\right)
+$$
+
+- Drawdown is normalized so 10% DD is about 1.0 penalty unit on a Sharpe-like scale.
+- The trade bonus is capped to avoid over-rewarding high-frequency behavior.
+
+**Why this scoring mix**: The goal is to favor risk-adjusted return first, then control tail risk and overtrading, while still rewarding enough sample size to reduce variance in the estimate.
+
+**Term meanings (short)**:
+
+- `Sharpe` / `Sortino`: risk-adjusted return; Sortino is used only when Sharpe is non-positive.
+- `Total Return / 10`: fallback so scores remain on a Sharpe-like scale.
+- `drawdown_penalty`: penalizes deep drawdowns (10% DD ~= 1 score unit).
+- `turnover_penalty`: discourages excessive trade counts (per 1000 trades).
+- `trade_count_bonus`: small bonus for sufficient trade volume; capped by `trade_bonus_cap`.
+
+**Hybrid runner defaults** (`src/run_optimize_hybrid.py`):
+
+- Hard gates: `min_trades=120` (phase 1 uses `max(30, min_trades/3)`, phase 2 uses `max(50, min_trades/2)`), `min_return_pct=-999`, `min_profit_factor=-999`, `min_win_rate_pct=0`.
+- Weights: `drawdown_penalty=0.3`, `trade_count_bonus=0.1`, `turnover_penalty=0`, `trade_bonus_cap=1.0`.
+
+### Process
+
+We employ **Optuna (Tree-structured Parzen Estimator, TPE)** via the hybrid runner in `src/run_optimize_hybrid.py`. It combines global discovery with local refinement:
+
+- **Phase 1 (discovery)**: Split the trial budget between a core-only branch (adaptive disabled) and an adaptive-enabled branch.
+- **Phase 2 (local refine)**: Take top seeds from both branches and run neighborhood searches around each seed (categoricals frozen, numeric ranges shrunk by `--local-radius`).
+- **Phase 3 (final polish)**: One more neighborhood search around the best phase-2 candidate.
+- **Optional**: Filter winners to a target trade-count band (`--target-trades-min/--target-trades-max`).
+
+Optimized parameters (from `src/run_optimize_hybrid.py`):
+
+- **Strategy parameters**
+  - `resample_freq`: categorical → `15min` (fixed)
+  - `orb_minutes`: int range `0` to `30` (step `15`)
+  - `atr_period`: int range `14` to `30`
+  - `atr_tp_multiplier`: float range `1.0` to `4.0` (step `0.05`)
+  - `atr_sl_multiplier`: float range `0.5` to `2.0` (step `0.05`)
+  - `breakout_buffer`: float range `0.0` to `1.0` (step `0.05`)
+  - `require_close_confirmation`: categorical → `True` (fixed)
+  - `use_range_sl`: categorical → `True`, `False`
+  - `min_range_atr`: float range `0.3` to `2.0` (step `0.1`)
+  - `max_range_atr`: float range `2.0` to `6.0` (step `0.1`)
+  - `long_only`: categorical → `False` (fixed)
+  - `max_trades_per_session`: int range `1` to `3`
+  - `use_volume_filter`: categorical → `True`, `False`
+  - `use_adx_filter`: categorical → `True`, `False`
+  - `adx_min`: float range `15.0` to `35.0` (step `1.0`)
+  - `use_adaptive_volatility`: categorical → `True`, `False`
+  - `atr_lookback_period`: int range `10` to `30` (step `5`)
+  - `volatility_low_threshold`: float range `0.6` to `0.85` (step `0.05`)
+  - `volatility_high_threshold`: float range `1.2` to `1.5` (step `0.05`)
+  - `low_vol_range_multiplier`: float range `0.5` to `0.9` (step `0.1`)
+  - `high_vol_range_multiplier`: float range `1.1` to `1.5` (step `0.1`)
+  - `low_vol_buffer_multiplier`: float range `0.5` to `0.9` (step `0.1`)
+  - `high_vol_buffer_multiplier`: float range `1.1` to `1.5` (step `0.1`)
+
+- **Risk parameters**
+  - `use_trailing_stop`: categorical → `True`, `False`
+  - `trailing_atr_multiplier`: float range `1.0` to `4.0` (step `0.25`)
+  - `entry_ord_type`: categorical → `LIMIT` (fixed)
+
+### Results
+
+After hybrid optimization, the best config is saved to `config/strategy_params/orb_hybrid_best_final_<timestamp>.json`. A leaderboard CSV is also written under `results/optimization/`.
+
+Example best config (latest saved):
+
+```json
+{
+  "name": "Opening Range Breakout (ORB) Strategy",
+  "version": "2.0.0",
+  "strategy": {
+    "resample_freq": "15min",
+    "orb_minutes": 30,
+    "atr_period": 29,
+    "atr_tp_multiplier": 3.45,
+    "atr_sl_multiplier": 1.4000000000000001,
+    "breakout_buffer": 0.35,
+    "use_range_sl": false,
+    "min_range_atr": 1.2,
+    "max_range_atr": 5.6000000000000005,
+    "long_only": false,
+    "use_volume_filter": true,
+    "volume_filter_threshold": 0.5,
+    "volume_ma_period": 20,
+    "use_adx_filter": false,
+    "adx_period": 14,
+    "adx_min": 27.0,
+    "require_close_confirmation": true,
+    "max_trades_per_session": 2,
+    "use_adaptive_volatility": true,
+    "atr_lookback_period": 10,
+    "volatility_low_threshold": 0.85,
+    "volatility_high_threshold": 1.4,
+    "low_vol_range_multiplier": 0.6,
+    "high_vol_range_multiplier": 1.2,
+    "low_vol_buffer_multiplier": 0.5,
+    "high_vol_buffer_multiplier": 1.2
+  },
+  "risk": {
+    "min_position_size": 1,
+    "max_position_size": 10,
+    "risk_per_trade_pct": 2.5,
+    "max_daily_loss": 2.0,
+    "use_trailing_stop": true,
+    "trailing_atr_multiplier": 3.0,
+    "entry_cutoff_seconds": 300,
+    "allow_late_entry": false,
+    "force_flat_on_session_close": true,
+    "defer_exit_outside_session": true,
+    "entry_ord_type": "LIMIT"
+  }
+}
 ```
 
-### Test Categories
+Example performance metrics (from one hybrid run):
 
-**Core Tests** (215 tests)
-- Account tracking and reconciliation
-- Order management
-- Risk management
-- Bar handling
-- Signal handling
-- Engine orchestration
+| Metric                  | Value      |
+| ----------------------- | ---------- |
+| Total P&L               | 42,222,756 |
+| Total Commission        | 99,854,505 |
+| Total Return (%)        | 8.4446     |
+| Annualized Return (%)   | 4.9425     |
+| Volatility (%)          | 13.9662    |
+| Sharpe Ratio            | 0.4149     |
+| Sortino Ratio           | 0.1862     |
+| Max Drawdown (%)        | -31.4132   |
+| Longest Drawdown (bars) | 6,123      |
+| Total Trades            | 250        |
+| Winning Trades          | 82         |
+| Losing Trades           | 168        |
+| Win Rate (%)            | 32.8000    |
+| Profit Factor           | 1.0802     |
+| Average Win             | 6,937,931  |
+| Average Loss            | 3,135,045  |
 
-**Integration Tests** (181 tests)
-- Redis market data integration
-- Cash accounting
-- SessionStats and reporting
-- Database persistence
-- LIVE/DRY-RUN/SIM modes
-- Entry point validation
+![Portfolio Equity Curve](reports/Optimized_IS/plots/equity_curve.png)
 
-### Code Quality
+![Trade Analysis](reports/Optimized_IS/plots/pnl_per_trade.png)
 
-```bash
-# Lint and format
-ruff check .
-ruff format .
+## Out-of-sample Backtesting
 
-# Type checking
-mypy src/
+Period: October 1, 2025 - February 28, 2026 (out-of-sample period)
 
-# Pre-commit hooks
-pre-commit install
-pre-commit run --all-files
-```
+Performance Metrics:
 
----
+| Metric                  | Value      |
+| ----------------------- | ---------- |
+| Total P&L               | 56,908,491 |
+| Total Return (%)        | 11.3817    |
+| Annualized Return (%)   | 31.0029    |
+| Volatility (%)          | 21.8213    |
+| Sharpe Ratio            | 1.3462     |
+| Sortino Ratio           | 0.5988     |
+| Max Drawdown (%)        | -14.8685   |
+| Longest Drawdown (bars) | 1,153      |
+| Total Trades            | 70         |
+| Winning Trades          | 25         |
+| Losing Trades           | 45         |
+| Win Rate (%)            | 35.7000    |
+| Profit Factor           | 1.2306     |
+| Average Win             | 12,146,797 |
+| Average Loss            | 5,483,588  |
 
-## Project Structure
+![Portfolio Equity Curve](reports/Optimized_OS/plots/equity_curve.png)
 
-```
-BuyHigh-SellLow/
-├── config/                      # Configuration files
-│   ├── constants.py            # System constants
-│   ├── secrets.py              # Credential management
-│   ├── schemas/                # Pydantic schemas
-│   └── strategy_params/        # Strategy parameter files
-│
-├── src/                        # Source code
-│   ├── data/                   # Data pipeline
-│   │   ├── loader.py          # Data loading from DB
-│   │   ├── preprocessor.py    # Data cleaning and resampling
-│   │   ├── pipeline.py        # Full data pipeline
-│   │   ├── validators.py      # Data quality validation
-│   │   └── indicators/        # Technical indicators
-│   │
-│   ├── engine/                 # Backtesting engine
-│   │   ├── backtester.py      # Main backtester
-│   │   ├── account/           # Portfolio management
-│   │   ├── execution/         # Order execution simulation
-│   │   └── session/           # Session management
-│   │
-│   ├── strategy/               # Strategy framework
-│   │   ├── base.py            # Base strategy interface
-│   │   ├── intraday_base.py   # Intraday strategy base
-│   │   ├── orb.py             # ORB strategy implementation
-│   │   ├── signal.py          # Signal definitions
-│   │   └── strategy_registry.py # Strategy plugin system
-│   │
-│   ├── paper/                  # Paper trading system
-│   │   ├── engine.py          # Paper trading engine
-│   │   ├── account/           # Account tracking
-│   │   ├── execution/         # Order management
-│   │   ├── feeds/             # Market data feeds
-│   │   ├── handlers/          # Event handlers
-│   │   ├── bar_aggregator.py  # Tick-to-bar aggregation
-│   │   ├── data_quality.py    # Data quality validation
-│   │   └── stats.py           # Session statistics
-│   │
-│   ├── optimization/           # Optimization framework
-│   │   ├── optuna_search.py   # Optuna integration
-│   │   ├── walk_forward.py    # Walk-forward analysis
-│   │   └── scoring.py         # Objective functions
-│   │
-│   ├── metrics/                # Performance metrics
-│   │   ├── metrics.py         # Metrics calculator
-│   │   ├── trade_metrics.py   # Trade analysis
-│   │   └── plotter.py         # Visualization
-│   │
-│   ├── database/               # Database layer
-│   │   ├── connection.py      # Connection management
-│   │   ├── query.py           # Query builders
-│   │   └── data_service.py    # Data service
-│   │
-│   ├── utils/                  # Utilities
-│   │   └── logger.py          # Logging setup
-│   │
-│   ├── run_data_loader.py     # Data loading CLI
-│   ├── run_backtest.py        # Backtesting CLI
-│   ├── run_optimize.py        # Optimization CLI
-│   ├── run_walk_forward.py    # Walk-forward CLI
-│   ├── run_paper_trade.py     # Paper trading CLI
-│   └── run_account_check.py   # Account inspector CLI
-│
-├── tests/                      # Test suite
-│   ├── paper/                 # Paper trading tests
-│   ├── engine/                # Backtesting tests
-│   └── data/                  # Data pipeline tests
-│
-├── data/                       # Data storage
-│   └── cache/                 # Parquet cache files
-│
-├── results/                    # Output directory
-│   ├── backtest_*/            # Backtest results
-│   ├── optimization_*/        # Optimization results
-│   ├── walk_forward_*/        # Walk-forward results
-│   └── paper_*/               # Paper trading results
-│
-├── logs/                       # Log files
-├── reports/                    # Generated reports
-├── docs/                       # Documentation
-├── .env.example               # Environment template
-├── pyproject.toml             # Project configuration
-└── README.md                  # This file
-```
+![Trade Analysis](reports/Optimized_OS/plots/pnl_per_trade.png)
 
----
+### Comparison: IS vs Optimized IS vs Optimized OOS
 
-## Performance
+| Metric                | Default   | Optimized IS | Optimized OOS | Improvement                 | Improvement (%) |
+| --------------------- | --------- | ------------ | ------------- | --------------------------- | --------------- |
+| Total Return (%)      | -10.1790  | 8.4446       | 11.3817       | +21.5607 (OOS vs Default)   | +211.83%        |
+| Annualized Return (%) | -6.1885   | 4.9425       | 31.0029       | +37.1914 (OOS vs Default)   | +600.97%        |
+| Sharpe Ratio          | -0.6951   | 0.4149       | 1.3462        | +2.0413 (OOS vs Default)    | +293.79%        |
+| Sortino Ratio         | -0.2381   | 0.1862       | 0.5988        | +0.8369 (OOS vs Default)    | +351.30%        |
+| Max Drawdown (%)      | -25.3623  | -31.4132     | -14.8685      | +10.4938 (reduced drawdown) | +41.37%         |
+| Win Rate (%)          | 37.5000   | 32.8000      | 35.7000       | -1.8000 (OOS vs Default)    | -4.80%          |
+| Total Trades          | 152       | 250          | 70            | -82 (OOS vs Default)        | -53.95%         |
 
-### System Requirements
+> Note: Improvement values use **Optimized OOS vs Default IS** as the baseline. Percentage improvement is based on the absolute value of the default metric when the default metric is negative.
 
-**Minimum:**
-- CPU: 2 cores
-- RAM: 4 GB
-- Storage: 10 GB (for data cache)
+## Reference
 
-**Recommended:**
-- CPU: 4+ cores (for parallel optimization)
-- RAM: 8+ GB
-- Storage: 50+ GB
-- SSD for data cache
-
-### Benchmarks
-
-**Data Loading:**
-- Tick data fetch: ~30 days in 2-5 seconds (cached)
-- Preprocessing: ~1 year in 10-20 seconds
-
-**Backtesting:**
-- 1 year, 5-min bars: ~2-5 seconds
-- 1 year, 1-min bars: ~5-10 seconds
-
-**Optimization:**
-- 100 trials: ~10-30 minutes (depends on parameter space)
-- Parallel execution: ~4x speedup with 4 cores
-
-**Paper Trading:**
-- Bar aggregation latency: <100ms
-- Order submission latency: <50ms (FIX)
-
----
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/my-feature`
-3. **Make your changes**
-4. **Run tests**: `pytest`
-5. **Run linters**: `ruff check . && ruff format .`
-6. **Commit**: `git commit -m "Add my feature"`
-7. **Push**: `git push origin feature/my-feature`
-8. **Create Pull Request**
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
-
-# Run tests with coverage
-pytest --cov=src --cov-report=html
-
-# Check code quality
-ruff check .
-mypy src/
-```
-
-### Code Style
-
-- Follow PEP 8 (enforced by Ruff)
-- Use type hints (checked by mypy)
-- Write docstrings for public APIs
-- Add tests for new features
-- Keep functions focused and small
-
----
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Acknowledgments
-
-- **ALGOTRADE** - Algorithmic Trading Theory and Practice book for ORB strategy reference
-- **Optuna** - Hyperparameter optimization framework
-- **pandas** - Data manipulation and analysis
-- **pytest** - Testing framework
-
----
-
-## Contact
-
-For questions, issues, or suggestions:
-
-- **GitHub Issues**: [https://github.com/yourusername/BuyHigh-SellLow/issues](https://github.com/yourusername/BuyHigh-SellLow/issues)
-- **Email**: your.email@example.com
-
----
-
-## Disclaimer
-
-This software is for educational and research purposes only. Trading futures involves substantial risk of loss. Past performance is not indicative of future results. Always conduct your own research and consult with a qualified financial advisor before trading.
-
----
-
-**Built with ❤️ for algorithmic traders**
+[1] ALGOTRADE, Algorithmic Trading Theory and Practice - A Practical Guide with Applications on the Vietnamese Stock Market, 1st ed. DIMI BOOK, 2023, pp. 52-53. Accessed: May 12, 2025. [Online]. Available: [Link](https://hub.algotrade.vn/knowledge-hub/market-making-strategy/)

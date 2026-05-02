@@ -26,7 +26,7 @@ repos:
       - id: check-json
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: [--maxkb=500]       # Block files > 500KB (data files, etc.)
+        args: [--maxkb=1000]       # Block files > 1000KB (data files, etc.)
       - id: debug-statements      # Block leftover breakpoint(), pdb, etc.
       - id: no-commit-to-branch
         args: [--branch, main]    # Block commit thẳng vào main
