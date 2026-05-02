@@ -486,6 +486,7 @@ class DataLoader:
             -> Merge with existing data, deduplicate, save
         """
         month_start, month_end = _month_bounds(month_key)
+        effective_end = _effective_fetch_end(month_key)
         is_current = _is_current_month(month_key)
 
         # --- Incremental Fetch Path (Current Month Only) ---
@@ -506,14 +507,14 @@ class DataLoader:
                     symbol,
                     month_key,
                     fetch_start,
-                    month_end,
+                    effective_end,
                 )
                 try:
                     # Fetch only new data since last sync
                     new_df = self._svc.fetch_ohlcv(
                         contract_name=symbol,
                         from_date=fetch_start,
-                        to_date=month_end,
+                        to_date=effective_end,
                         chunk_size_days=self._chunk_size,
                     )
                     if new_df is not None and not new_df.empty:
@@ -541,7 +542,7 @@ class DataLoader:
                 df = self._svc.fetch_ohlcv(
                     contract_name=symbol,
                     from_date=month_start,
-                    to_date=month_end,
+                    to_date=effective_end,
                     chunk_size_days=self._chunk_size,
                 )
             except Exception as e:
@@ -710,6 +711,14 @@ def _month_bounds(month_key: str) -> tuple[str, str]:
     start = pd.Timestamp(year=year, month=month, day=1)
     end = start + pd.offsets.MonthEnd(0)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+
+def _effective_fetch_end(month_key: str) -> str:
+    """Return fetch end date capped at today's market date for current/future months."""
+    _, month_end = _month_bounds(month_key)
+    month_end_ts = pd.Timestamp(month_end)
+    today_market = pd.Timestamp.now(tz=_MARKET_TIMEZONE).normalize().tz_localize(None)
+    return str(min(month_end_ts, today_market).strftime("%Y-%m-%d"))
 
 
 def _month_key_from_path(path: str) -> str:
