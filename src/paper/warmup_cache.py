@@ -36,6 +36,40 @@ _DEFAULT_CACHE_ROOT = Path("data/cache/warmup")
 
 
 # ---------------------------------------------------------------------------
+# Trading day helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_weekend(day: date) -> bool:
+    """Check if a date falls on a weekend (Saturday=5, Sunday=6)."""
+    return day.weekday() >= 5
+
+
+def _is_trading_day(day: date, filter_weekends: bool = True) -> bool:
+    """Check if a date is likely a trading day.
+
+    Args:
+        day: Date to check.
+        filter_weekends: If True, filter out weekends. Set to False for 24/7 markets like crypto.
+
+    Returns:
+        True if the date is a potential trading day.
+    """
+    if not filter_weekends:
+        return True
+
+    # Filter weekends for traditional markets (stocks, futures)
+    if _is_weekend(day):  # noqa: SIM103
+        return False
+
+    # TODO: Add holiday calendar support for specific markets
+    # Could use pandas_market_calendars or custom holiday lists
+    # Example: if market == "VN": check VN holidays
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -69,12 +103,13 @@ def _save_parquet(df: pd.DataFrame, path: Path) -> None:
 def load_with_cache(
     data_service: DataServiceBase,
     db_symbol: str,
-    n_days: int = 5,
+    n_days: int = 10,
     *,
     cache_root: Path = _DEFAULT_CACHE_ROOT,
     today: date | None = None,
     convert_to_ohlcv: bool = False,
     ohlcv_freq: str = "1min",
+    filter_weekends: bool = True,
 ) -> pd.DataFrame:
     """Return merged tick data for the last ``n_days`` calendar days.
 
@@ -98,6 +133,9 @@ def load_with_cache(
         If True, convert tick data to OHLCV bars before returning.
     ohlcv_freq:
         Frequency for OHLCV aggregation (e.g., "1min", "5min"). Only used if convert_to_ohlcv=True.
+    filter_weekends:
+        If True, skip weekend days to avoid unnecessary DB queries. Set to False for 24/7 markets
+        like crypto. Default is True for traditional markets (stocks, futures).
 
     Returns
     -------
@@ -120,7 +158,22 @@ def load_with_cache(
     today = today or date.today()
     start_date = today - timedelta(days=n_days - 1)
 
-    dates: list[date] = [start_date + timedelta(days=i) for i in range(n_days)]
+    # Generate list of dates, optionally filtering out weekends
+    all_dates: list[date] = [start_date + timedelta(days=i) for i in range(n_days)]
+    if filter_weekends:
+        dates: list[date] = [
+            d for d in all_dates if _is_trading_day(d, filter_weekends=True) or d >= today
+        ]
+        filtered_count = len(all_dates) - len(dates)
+        if filtered_count > 0:
+            logger.debug(
+                "Warmup cache: filtered out %d weekend day(s) from date range [%s - %s]",
+                filtered_count,
+                start_date,
+                today,
+            )
+    else:
+        dates = all_dates
 
     frames: list[pd.DataFrame] = []
     missing_past_days: list[date] = []
