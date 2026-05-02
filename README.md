@@ -490,7 +490,7 @@ Using the default parameters defined in `config/strategy_params/orb_default.json
 
 ### Results
 
-Period: January 1, 2024 - September 30, 2024 (in-sample period, 21 months)
+Period: January 1, 2024 - September 30, 2025 (in-sample period, 21 months)
 
 Performance Metrics:
 
@@ -701,7 +701,9 @@ Example performance metrics (from one hybrid run):
 
 ## Out-of-sample Backtesting
 
-Period: October 1, 2025 - February 28, 2026 (out-of-sample period)
+Period: October 1, 2025 - February 28, 2026 (out-of-sample period, 5 months)
+
+**Note on OOS Performance**: The out-of-sample period coincides with heightened global geopolitical tensions and market volatility (2026 political developments, ongoing conflicts), which may have created favorable conditions for breakout strategies. The strong OOS performance should be interpreted within this specific market context rather than as a general expectation.
 
 Performance Metrics:
 
