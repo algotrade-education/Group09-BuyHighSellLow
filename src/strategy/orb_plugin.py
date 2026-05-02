@@ -259,8 +259,15 @@ def build_trial_fn(
     margin_rate: float,
     cache_dir: str,
     freq: str,
+    use_indicator_cache: bool = False,
 ) -> Any:
-    """Return a standalone optimization trial fn: (params) -> BacktestResult."""
+    """Return a standalone optimization trial fn: (params) -> BacktestResult.
+
+    Args:
+        use_indicator_cache: If True, cache processed DataFrames by indicator params.
+                            Useful for repeated backtests, but wastes memory in Optuna
+                            optimization (rare cache hits). Default False for optimization.
+    """
     from config.schemas.orb import ORBConfig
     from src.data.pipeline import DataPipeline
     from src.data.preprocessor import DataPreprocessor
@@ -294,21 +301,28 @@ def build_trial_fn(
             config.strategy.use_adaptive_volatility,
             data_id,  # Use data identity instead of shape for reliable caching
         )
-        if key not in _indicator_cache:
-            registry = ORBStrategy.build_registry(
-                atr_period=config.strategy.atr_period,
-                adx_period=config.strategy.adx_period,
-                volume_ma_period=config.strategy.volume_ma_period,
-                atr_lookback_period=config.strategy.atr_lookback_period,
-                use_adaptive_volatility=config.strategy.use_adaptive_volatility,
-            )
-            pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=True)
-            processed_df = pipeline.run(data)
-            # Pre-convert to bars list once and cache it
-            bars_list = processed_df.to_dict("records")
+        # Check memory cache only if enabled
+        if use_indicator_cache and key in _indicator_cache:
+            return _indicator_cache[key]
+
+        # Compute indicators (DataPipeline disk cache still used as secondary layer)
+        registry = ORBStrategy.build_registry(
+            atr_period=config.strategy.atr_period,
+            adx_period=config.strategy.adx_period,
+            volume_ma_period=config.strategy.volume_ma_period,
+            atr_lookback_period=config.strategy.atr_lookback_period,
+            use_adaptive_volatility=config.strategy.use_adaptive_volatility,
+        )
+        pipeline = DataPipeline(registry, cache_dir=cache_dir, use_cache=True)
+        processed_df = pipeline.run(data)
+        # Pre-convert to bars list
+        bars_list = processed_df.to_dict("records")
+
+        # Store in memory cache only if enabled
+        if use_indicator_cache:
             _indicator_cache[key] = (processed_df, bars_list)
 
-        return _indicator_cache[key]
+        return processed_df, bars_list
 
     def trial_fn(params: dict[str, Any]) -> Any:
         trial_freq, strategy_params, risk_params = _split_params(params, freq)
