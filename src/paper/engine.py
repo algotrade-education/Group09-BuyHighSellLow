@@ -423,16 +423,33 @@ class PaperEngine:
             # Increment bar counter
             self._bars_processed += 1
 
-            # Log bar context
-            logger.info(
-                "Bar %d: %s close=%.2f vol=%.0f | pos=%s | equity=%.0f",
-                self._bars_processed,
-                bar_time.strftime("%Y-%m-%d %H:%M"),
-                close,
-                bar.get("volume", 0.0),
-                self._tracker.position.side.value,
-                self._tracker.equity,
-            )
+            # Extract key indicators for logging
+            high = bar.get("high", 0.0)
+            low = bar.get("low", 0.0)
+            volume = bar.get("volume", 0.0)
+
+            # Find ATR (could be atr_14, atr_20, etc.)
+            atr = next((float(v) for k, v in bar.items() if str(k).startswith("atr_") and v), None)
+
+            # Find ADX (could be adx_14, adx_20, etc.)
+            adx = next((float(v) for k, v in bar.items() if str(k).startswith("adx_") and v), None)
+
+            # Build log message with available data
+            log_parts = [
+                f"Bar {self._bars_processed}: {bar_time.strftime('%Y-%m-%d %H:%M')}",
+                f"H={high:.2f} L={low:.2f} C={close:.2f}",
+                f"vol={volume:.0f}",
+            ]
+
+            if atr is not None:
+                log_parts.append(f"atr={atr:.2f}")
+            if adx is not None:
+                log_parts.append(f"adx={adx:.1f}")
+
+            log_parts.append(f"pos={self._tracker.position.side.value}")
+            log_parts.append(f"equity={self._tracker.equity:.0f}")
+
+            logger.info(" | ".join(log_parts))
 
             # 1. BarHandler: Update equity, handle deferred exits
             if (

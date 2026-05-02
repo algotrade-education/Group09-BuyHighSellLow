@@ -243,6 +243,23 @@ class ORBStrategy(IntradayStrategy):
             is_long_breakout = parsed.high > breakout_high
             is_short_breakout = parsed.low < breakout_low
 
+        # Debug logging for breakout checks
+        logger.debug(
+            "Breakout check: H=%.2f L=%.2f C=%.2f | range[%.2f-%.2f] buffer=%.2f | "
+            "breakout_high=%.2f breakout_low=%.2f | long=%s short=%s | regime=%s",
+            parsed.high,
+            parsed.low,
+            parsed.close,
+            self._range_low,
+            self._range_high,
+            buffer,
+            breakout_high,
+            breakout_low,
+            is_long_breakout,
+            is_short_breakout,
+            regime,
+        )
+
         # Long breakout
         if is_long_breakout:
             # For LIMIT orders: use breakout level (more conservative, may miss some trades)
@@ -263,7 +280,49 @@ class ORBStrategy(IntradayStrategy):
                 entry_price = parsed.close if self._p.require_close_confirmation else breakout_low
             return self._build_short_signal(entry_price, atr, range_size, session, is_warmup)
 
-        return TradeSignal(Signal.HOLD, reason="No breakout signal")
+        # No breakout - provide detailed reason
+        if self._p.require_close_confirmation:
+            # Using close confirmation
+            if parsed.close <= breakout_high and parsed.close >= breakout_low:
+                reason = (
+                    f"No breakout: C={parsed.close:.2f} in range "
+                    f"[{breakout_low:.2f}-{breakout_high:.2f}] "
+                    f"(need C>{breakout_high:.2f} or C<{breakout_low:.2f})"
+                )
+            elif parsed.close > self._range_high and parsed.close <= breakout_high:
+                reason = (
+                    f"No breakout: C={parsed.close:.2f} above range_high={self._range_high:.2f} "
+                    f"but below breakout_high={breakout_high:.2f} (buffer={buffer:.2f})"
+                )
+            elif parsed.close < self._range_low and parsed.close >= breakout_low:
+                reason = (
+                    f"No breakout: C={parsed.close:.2f} below range_low={self._range_low:.2f} "
+                    f"but above breakout_low={breakout_low:.2f} (buffer={buffer:.2f})"
+                )
+            else:
+                reason = f"No breakout: C={parsed.close:.2f} not beyond breakout levels"
+        else:
+            # Using high/low confirmation
+            if parsed.high <= breakout_high and parsed.low >= breakout_low:
+                reason = (
+                    f"No breakout: H={parsed.high:.2f} L={parsed.low:.2f} in range "
+                    f"[{breakout_low:.2f}-{breakout_high:.2f}] "
+                    f"(need H>{breakout_high:.2f} or L<{breakout_low:.2f})"
+                )
+            elif parsed.high > self._range_high and parsed.high <= breakout_high:
+                reason = (
+                    f"No breakout: H={parsed.high:.2f} above range_high={self._range_high:.2f} "
+                    f"but below breakout_high={breakout_high:.2f} (buffer={buffer:.2f})"
+                )
+            elif parsed.low < self._range_low and parsed.low >= breakout_low:
+                reason = (
+                    f"No breakout: L={parsed.low:.2f} below range_low={self._range_low:.2f} "
+                    f"but above breakout_low={breakout_low:.2f} (buffer={buffer:.2f})"
+                )
+            else:
+                reason = f"No breakout: H={parsed.high:.2f} L={parsed.low:.2f} not beyond breakout levels"
+
+        return TradeSignal(Signal.HOLD, reason=reason)
 
     # --- Signal builders ---
 
