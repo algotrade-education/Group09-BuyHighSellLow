@@ -555,10 +555,7 @@ $$
 3. **Composite score**:
 
 $$
-\text{Score} = \text{base}
-- \text{drawdown\_penalty} \times \frac{\text{Max Drawdown (\%)}}{10}
-- \text{turnover\_penalty} \times \frac{\text{Trades}}{1000}
-+ \text{trade\_count\_bonus} \times \min\left(\frac{\text{Trades}}{1000}, \text{trade\_bonus\_cap}\right)
+\text{Score} = \text{base} - \text{drawdown\_penalty} \times \frac{\text{Max Drawdown (\%)}}{10} - \text{turnover\_penalty} \times \frac{\text{Trades}}{1000} + \text{trade\_count\_bonus} \times \min\left(\frac{\text{Trades}}{1000}, \text{trade\_bonus\_cap}\right)
 $$
 
 - Drawdown is normalized so 10% DD is about 1.0 penalty unit on a Sharpe-like scale.
